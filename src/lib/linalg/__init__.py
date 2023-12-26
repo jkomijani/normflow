@@ -8,9 +8,7 @@ import torch
 
 try:
     from torch_linalg_ext import svd, eigh, eigu
-
 except:
-    print("Warning: Could not locate torch_linalg_ext; uses torch.linalg")
     from torch.linalg import svd, eigh, eig as eigu
 
 
