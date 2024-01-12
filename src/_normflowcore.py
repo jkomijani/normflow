@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This is a module containing the core components for normalizing flow.
 
@@ -58,7 +58,6 @@ class Model:
         self.fit = Fitter(self)
 
         self.posterior = Posterior(self)
-        self.raw_dist = self.posterior  # alias; todo: remove later
         self.mcmc = MCMCSampler(self)
         self.blocked_mcmc = BlockedMCMCSampler(self)
         self.device_handler = ModelDeviceHandler(self)
@@ -216,14 +215,18 @@ class Fitter:
         being called at least once.
         """
         self.train_batch_size = batch_size
-        last_epoch = len(self.train_history["loss"]) + 1
+        previous_epochs = len(self.train_history["loss"])
+        if previous_epochs == 0:
+            self.checkpoint(0, None)
+
         T1 = time.time()
-        for epoch in range(last_epoch, last_epoch + n_epochs):
+        for epoch in range(previous_epochs+1, previous_epochs+1 + n_epochs):
             loss, logqp = self.step()
             self.checkpoint(epoch, loss)
             if self.scheduler is not None:
                 self.scheduler.step()
         T2 = time.time()
+
         if n_epochs > 0 and self._model.device_handler.rank == 0:
             print(f"({loss.device}) Time = {T2 - T1:.3g} sec.")
 
@@ -252,11 +255,11 @@ class Fitter:
 
         rank = self._model.device_handler.rank
 
-        # Always save loss on rank 0
-        if rank == 0:
+        # Always save loss on rank 0 (for epoch > 0)
+        if rank == 0 and epoch > 0:
             self.train_history['loss'].append(loss.item())
 
-        # For the rest
+        # For other quantities
         print_stride = self.checkpoint_dict['print_stride']
         print_batch_size = self.checkpoint_dict['print_batch_size']
         save_epochs = self.checkpoint_dict['save_epochs']
@@ -264,7 +267,7 @@ class Fitter:
 
         print_batch_size = print_batch_size // self._model.device_handler.nranks
 
-        if epoch == 1 or epoch == 10 or (epoch % print_stride == 0):
+        if epoch % print_stride == 0:
 
             _, logq, logp = self._model.posterior.sample__(print_batch_size)
 
@@ -346,6 +349,15 @@ class Fitter:
     def calc_minus_ess(self, logq, logp):
         return -self.calc_ess(logq, logp)
 
+    def calc_logess(self, logq, logp):
+        """log of ESS: effective sample size"""
+        logqp = logq - logp
+        log_ess = 2*torch.logsumexp(-logqp, dim=0) - torch.logsumexp(-2*logqp, dim=0)
+        return log_ess - np.log(len(logqp))  # normalized
+
+    def calc_minus_logess(self, logq, logp):
+        return -self.calc_logess(logq, logp)
+
     @torch.no_grad()
     def _append_to_train_history(self, logq, logp):
         logqp = logq - logp
@@ -374,7 +386,7 @@ class Fitter:
         ess = mydict['ess'][-1]
         rho = mydict['rho'][-1]
 
-        if epoch == 1:
+        if epoch == 0:
             print(f"\n>>> Training progress ({ess.device}) <<<\n")
             print("Note: log(q/p) is esitamted with normalized p; " \
                   + "mean & error are obtained from samples in a batch\n")
