@@ -20,8 +20,8 @@ class MatrixModule_(Module_):
     Parameters
     ----------
     param_net_: instance of Module_ or ModuleList_
-        to change a set of parameters corresponding to the matrices links as
-        specfied in the upper class `MatrixModule_`.
+        to change the parameters corresponding to the matrices, e.g.,
+        eigenvaleus of the matrices.
 
     matrix_handle: class instance
         for parametrization of the matrices. For more information on how it is

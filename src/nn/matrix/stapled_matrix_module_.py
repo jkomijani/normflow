@@ -20,13 +20,22 @@ class StapledMatrixModule_(Module_):
 
     Parameters
     ----------
+    dual_param_net_: instance of Module_ or ModuleList_
+        a core network to change a set of parameters corresponding to the
+        the input matrices, e.g., eigenvaleus of the matrices, by feeding
+        sigular values of the staples.
+
     param_net_: instance of Module_ or ModuleList_
-        to change a set of parameters corresponding to the matrices links as
-        specfied in the upper class `MatrixModule_`.
+        to change the parameters corresponding to the matrices, e.g.,
+        eigenvaleus of the matrices.
 
     matrix_handle: class instance
         for parametrization of the matrices. For more information on how it is
         used, see `self._kernel`.
+
+    IMPORTANT NOTE:
+        in order to have an invertible forward method, the masks used in
+        `param_net_` and `dual_param_net_` must be compatible.
     """
     def __init__(self, dual_param_net_, param_net_,
             *, matrix_handle, su2_flag=False, label="matrix_module_"
