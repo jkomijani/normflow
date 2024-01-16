@@ -214,6 +214,9 @@ class Fitter:
         but it can be called directly subject to `__call__`
         being called at least once.
         """
+        if n_epochs == 0:
+            return
+
         self.train_batch_size = batch_size
         previous_epochs = len(self.train_history["loss"])
         if previous_epochs == 0:
@@ -227,7 +230,7 @@ class Fitter:
                 self.scheduler.step()
         T2 = time.time()
 
-        if n_epochs > 0 and self._model.device_handler.rank == 0:
+        if self._model.device_handler.rank == 0:
             print(f"({loss.device}) Time = {T2 - T1:.3g} sec.")
 
     def step(self):
@@ -326,6 +329,14 @@ class Fitter:
         logqp = logq - logp
         logz = torch.logsumexp(-logqp, dim=0) - np.log(logp.shape[0])
         return logqp.mean() + logz
+
+    @staticmethod
+    def calc_symmetric_kl_mean(logq, logp):
+        logqp = logq - logp
+        logz = torch.logsumexp(-logqp, dim=0) - np.log(logp.shape[0])
+        logqp = logqp + logz  # p is now normalized
+        p_by_q = torch.exp(-logqp)
+        return ((1 - p_by_q) * logqp).mean()
 
     @staticmethod
     def calc_least_squares(logq, logp):
