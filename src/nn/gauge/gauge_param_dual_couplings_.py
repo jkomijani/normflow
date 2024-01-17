@@ -31,6 +31,18 @@ class DualCoupling_(Coupling_):
 
         return self.mask.cat(x_active, x_invisible), log0 + logJ
 
+    def _hack(self, x, s):
+        x_active, x_invisible = self.mask.split(x)
+        s_frozen, s_invisible = self.mask.split(s)
+
+        x_active_final, logJ = self.atomic_forward(
+            x_active=x_active, x_frozen=s_frozen, parity=0, net=self.nets[0]
+            )
+
+        return dict(x_active_initial=x_active, s_frozen=s_frozen,
+                x_active_final=x_active_final, logJ=logJ)
+
+
 
 # =============================================================================
 class Pade11DualCoupling_(DualCoupling_, Pade11Coupling_):
