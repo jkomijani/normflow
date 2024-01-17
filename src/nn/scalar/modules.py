@@ -154,9 +154,15 @@ class ConvAct(torch.nn.Sequential):
         self.conv_kwargs = conv_kwargs
 
     def set_param2zero(self):
+        # Do NOT use this unless for test, otherwise, the params do not change
         for net in self:
             for param in net.parameters():
                 torch.nn.init.zeros_(param)
+
+    def set_param2normal(self, mean=0.0, std=1.0):
+        for net in self:
+            for param in net.parameters():
+                torch.nn.init.normal_(param, mean=mean, std=std)
 
     def _outdated_transfer(self, scale_factor=1, **extra):
         # Outdated: must be updated and ...
@@ -268,9 +274,15 @@ class LinearAct(torch.nn.Sequential):
             return torch.movedim(x, -1, features_axis)
 
     def set_param2zero(self):
+        # Do NOT use this unless for test, otherwise, the params do not change
         for net in self:
             for param in net.parameters():
                 torch.nn.init.zeros_(param)
+
+    def set_param2normal(self, mean=0.0, std=1.0):
+        for net in self:
+            for param in net.parameters():
+                torch.nn.init.normal_(param, mean=mean, std=std)
 
 
 class SplineNet(torch.nn.Module):
