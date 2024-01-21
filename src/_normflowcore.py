@@ -189,7 +189,7 @@ class Fitter:
         self.loss_fn = Fitter.calc_kl_mean if loss_fn is None else loss_fn
 
         net_ = self._model.net_
-        if '_groups' is net_.__dict__.keys():
+        if '_groups' in net_.__dict__.keys():
             parameters = net_.grouped_parameters()
         else:
             parameters = net_.parameters()
@@ -337,12 +337,6 @@ class Fitter:
         logqp = logqp + logz  # p is now normalized
         p_by_q = torch.exp(-logqp)
         return ((1 - p_by_q) * logqp).mean()
-
-    @staticmethod
-    def calc_least_squares(logq, logp):
-        logqp = logq - logp
-        logz = torch.logsumexp(-logqp, dim=0) - np.log(logp.shape[0])
-        return torch.mean((logqp + logz)**2)
 
     @staticmethod
     def calc_minus_logz(logq, logp):
