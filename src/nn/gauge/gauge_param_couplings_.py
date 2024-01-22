@@ -17,50 +17,56 @@ from ..scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_
 
 # =============================================================================
 class Pade11Coupling_(Coupling_):
-    r"""A transformations as a Pade approximant of order 1/1
+    r"""An invertible transformation as a Pade approximant of order 1/1
 
     .. math::
 
-        f(x; t) = x / (x + e^t * (1 - x))
+        f(x; a) = x / (x + a * (1 - x))
 
-    that maps :math:`[0, 1] \to [0, 1]` and is useful for input and output
-    variables that vary between zero and one.
+    with :math:`a > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is useful
+    for input and output variables that vary between zero and one.
 
-    This transformation is equivalent to math:`f(x; t) = \expit(\logit(x) - t)`
-    and its inverse is :math:`f(.; -t)`.
+    This transformation is equivalent to math:`\expit(\logit(x) - \log(a))`
+    and its inverse is :math:`f(y; 1/a)`.
     """
+
+    softplus = torch.nn.Softplus(beta=np.log(2))
+
     def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
-        denom = x_active + torch.exp(t) * (1 - x_active)
-        x_active = x_active / denom
-        logJ = self.sum_density(t - 2 * torch.log(denom))
-        return x_active, log0 + logJ
+        d1 = self.softplus(t)
+        denom = x_active + (1 - x_active) * d1
+        logJ = self.sum_density(torch.log(d1 / denom**2))
+        return x_active / denom, log0 + logJ
 
     def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
-        denom = x_active + torch.exp(-t) * (1 - x_active)
-        x_active = x_active / denom
-        logJ = self.sum_density(-t - 2 * torch.log(denom))
-        return x_active, log0 + logJ
+        d1 = self.softplus(t)
+        denom = x_active + (1 - x_active) / d1
+        logJ = self.sum_density(- torch.log(d1 * denom**2))
+        return x_active / denom, log0 + logJ
 
 
 # =============================================================================
 class Pade22Coupling_(Coupling_):
-    r"""A transformations as an invertible Pade approximant of order 2/2
+    r"""An invertible transformation as a Pade approximant of order 2/2
 
     .. math::
 
-        f(x; t) = (x^2 + a x (1 - x)) / (1 + b x (1 - x))
+        f(x; a, b) = (x^2 + a x (1 - x)) / (1 + b x (1 - x))
 
-    that maps :math:`[0, 1] \to [0, 1]` and is useful for input and output
-    variables that vary between zero and one.
+    with :math:`a, b > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is
+    useful for input and output variables that vary between zero and one.
     """
+
+    softplus = torch.nn.Softplus(beta=np.log(2))
+
     def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
-        d0, d1 = torch.exp(t).chunk(2, dim=self.channels_axis)
+        d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
 
         def pade22_(x):
             denom = (1 + (d1 + d0 - 2) * x * (1 - x))
@@ -75,7 +81,7 @@ class Pade22Coupling_(Coupling_):
     def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
-        d0, d1 = torch.exp(t).chunk(2, dim=self.channels_axis)
+        d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
 
         def invert(y):
             # returns the positive solution of $a x^2 + b x + c = 0$
