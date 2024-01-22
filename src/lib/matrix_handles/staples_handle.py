@@ -12,7 +12,7 @@ mul = torch.matmul
 # =============================================================================
 class TemplateStaplesHandle:
 
-    def __init__(self, onesided=False):
+    def __init__(self, onesided=True):
         self.onesided = onesided
 
     def staple(self, link, *, staples):
@@ -23,7 +23,7 @@ class TemplateStaplesHandle:
         """
         svd_ = special_svd(staples)
         if self.onesided:
-            slink = link @ svd_.sU @ svd_.Vh  # slink stands for stapled link
+            slink = link @ (svd_.sU @ svd_.Vh)  # slink stands for stapled link
         else:
             slink = svd_.Vh @ link @ svd_.sU
         return slink, svd_
