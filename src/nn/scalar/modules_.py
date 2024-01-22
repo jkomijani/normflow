@@ -119,13 +119,13 @@ class Pade11_(Module_):
 
     .. math::
 
-        f(x; t) = x / (x + e^t * (1 - x))
+        f(x; a) = x / (x + a * (1 - x))
 
-    that maps :math:`[0, 1] \to [0, 1]` and is useful for input and output
-    variables that vary between zero and one.
+    with :math:`a > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is useful
+    for input and output variables that vary between zero and one.
 
-    This transformation is equivalent to math:`f(x; t) = \expit(\logit(x) - t)`
-    and its inverse is :math:`f(.; -t)`.
+    This transformation is equivalent to math:`\expit(\logit(x) - \log(a))`
+    and its inverse is :math:`f(y; 1/a)`.
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
@@ -163,10 +163,10 @@ class Pade22_(Module_):
 
     .. math::
 
-        f(x; t) = (x^2 + a x (1 - x)) / (1 + b x (1 - x))
+        f(x; a, b) = (x^2 + a x (1 - x)) / (1 + b x (1 - x))
 
-    that maps :math:`[0, 1] \to [0, 1]` and is useful for input and output
-    variables that vary between zero and one.
+    with :math:`a, b > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is
+    useful for input and output variables that vary between zero and one.
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
