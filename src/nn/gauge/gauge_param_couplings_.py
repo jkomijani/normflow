@@ -36,17 +36,29 @@ class Pade11Coupling_(Coupling_):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d1 = self.softplus(t)
-        denom = x_active + (1 - x_active) * d1
-        logJ = self.sum_density(torch.log(d1 / denom**2))
-        return x_active / denom, log0 + logJ
+
+        def pade11_(x):
+            y = x / (x + (1 - x) * d1)
+            J = d1 / (x + (1 - x) * d1)**2
+            return y, self.sum_density(torch.log(J))
+
+        x_active, logJ = pade11_(x_active)
+
+        return x_active, log0 + logJ
 
     def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d1 = self.softplus(t)
-        denom = x_active + (1 - x_active) / d1
-        logJ = self.sum_density(- torch.log(d1 * denom**2))
-        return x_active / denom, log0 + logJ
+
+        def invpade11_(y):
+            x = y / (y + (1 - y) / d1)
+            J = 1 / d1 / (y + (1 - y) / d1)**2
+            return x, self.sum_density(torch.log(J))
+
+        x_active, logJ = invpade11_(x_active)
+
+        return x_active, log0 + logJ
 
 
 # =============================================================================
@@ -70,9 +82,9 @@ class Pade22Coupling_(Coupling_):
 
         def pade22_(x):
             denom = (1 + (d1 + d0 - 2) * x * (1 - x))
-            g_0 = x * (x + d0 * (1 - x)) / denom
-            g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
-            return g_0, self.sum_density(torch.log(g_1))
+            y = x * (x + d0 * (1 - x)) / denom
+            J = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
+            return y, self.sum_density(torch.log(J))
 
         x_active, logJ = pade22_(x_active)
 
@@ -83,25 +95,43 @@ class Pade22Coupling_(Coupling_):
         t = self.mask.purify(t, channel=parity)
         d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
 
-        def invert(y):
-            # returns the positive solution of $a x^2 + b x + c = 0$
-            c = y
-            b = (d1 + d0 - 2) * y - d0
-            a = -1 - b
-            delta = torch.sqrt(b**2 - 4 * c * a)
-            x = (-b - delta) / (2 * a)
-            x[a == 0] = (-c / b)[a == 0]
-            return x
-
         def invpade22_(y):
-            x = invert(y)
+            x = self.reverse_pade22(y, d0, d1)
             denom = (1 + (d1 + d0 - 2) * x * (1 - x))
-            g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
-            return x, - self.sum_density(torch.log(g_1))
+            inv_J = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
+            return x, - self.sum_density(torch.log(inv_J))
 
         x_active, logJ = invpade22_(x_active)
 
         return x_active, log0 + logJ
+
+    @staticmethod
+    def reverse_pade22(y, d0, d1):
+        """Return the positive solution of :math:`a x^2 + b x + c = 0`,
+        where the coefficients correspond to Pade [2, 2] map.
+
+        Using the facts about :math:`x, y, d_0, and d_1`, one can show that the
+        positive solution of the quadratic equation is
+
+        .. math::
+
+            x = (-b - \delta) / (2 * a)
+
+        Because the expression is not well-defined for a vanishing `a`, we use
+        the following identical expression
+
+        .. math::
+
+            x = 2 c / (-b + \delta)
+        """
+        c = y
+        b = (d1 + d0 - 2) * y - d0
+        # a = -1 - b  # no need to define `a` (it is already plugged in below).
+        delta = torch.sqrt(b**2 + 4 * c * (1 + b))
+        # x = (-b - delta) / (2 * a)
+        # x[a == 0] = (-c / b)[a == 0]  lets us ignore this case
+        x = 2 * c / (-b + delta)
+        return x
 
 
 # =============================================================================
