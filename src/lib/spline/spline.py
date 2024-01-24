@@ -267,8 +267,10 @@ class Pade22Spline(SplineTemplate):
             # 3) if a2 == 0: reduces to a linear function
             # 4) if a2 >= 0: a1 < 0 and delta < |a1|
             # 4) if a2 < 0: delta > |a1|
-            theta [a2 == 0] = (-a0/a1) [a2 == 0]
-            theta [a2 != 0] = ((-a1 - delta)/(2 * a2)) [a2 != 0]
+            # instead of the following two lines we write the line after them:
+            # theta [a2 == 0] = (-a0/a1) [a2 == 0]
+            # theta [a2 != 0] = ((-a1 - delta)/(2 * a2)) [a2 != 0]
+            theta = 2 * a0 / (delta - a1)
             return theta
 
         def g_1(theta):
@@ -280,7 +282,7 @@ class Pade22Spline(SplineTemplate):
             theta = calc_theta(eta)
             x = x0 + (x1 - x0) * theta
             if grad:
-                return squeezer(x), squeezer(1/g_1(theta))
+                return squeezer(x), squeezer(1 / g_1(theta))
             else:
                 return squeezer(x)
 
