@@ -107,7 +107,7 @@ class Pade22Coupling_(Coupling_):
 
     @staticmethod
     def reverse_pade22(y, d0, d1):
-        """Return the positive solution of :math:`a x^2 + b x + c = 0`,
+        """Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
         where the coefficients correspond to Pade [2, 2] map.
 
         Using the facts about :math:`x, y, d_0, and d_1`, one can show that the
@@ -129,7 +129,7 @@ class Pade22Coupling_(Coupling_):
         # a = -1 - b  # no need to define `a` (it is already plugged in below).
         delta = torch.sqrt(b**2 + 4 * c * (1 + b))
         # x = (-b - delta) / (2 * a)
-        # x[a == 0] = (-c / b)[a == 0]  lets us ignore this case
+        # x[a == 0] = (-c / b)[a == 0]
         x = 2 * c / (-b + delta)
         return x
 
