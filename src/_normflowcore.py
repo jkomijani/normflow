@@ -109,7 +109,8 @@ class Posterior:
         logp = -self._model.action(y)  # logp is log(p * z)
         return y, logq, logp
 
-    @torch.no_grad()
+    # @torch.no_grad()
+    # The `no_grad` is removed for use with `subtract_explicit_param_autodiff`
     def log_prob(self, y):
         """Returns log probability of the samples."""
         x, minus_logJ = self._model.net_.backward(y)
@@ -126,6 +127,8 @@ class Fitter:
     ----------
     model : An instance of Model
     """
+
+    subtract_explicit_param_autodiff = True
 
     def __init__(self, model):
         self._model = model
@@ -235,18 +238,22 @@ class Fitter:
 
     def step(self):
         """Perform a train step with a batch of inputs"""
-        net_ = self._model.net_
-        prior = self._model.prior
-        action = self._model.action
+        model = self._model
         batch_size = self.train_batch_size
 
-        x, logr = prior.sample_(batch_size)
-        y, logJ = net_(x)
+        x, logr = model.prior.sample_(batch_size)
+        y, logJ = model.net_(x)
+        logp = - model.action(y)
         logq = logr - logJ
-        logp = -action(y)
+
+        if self.subtract_explicit_param_autodiff:
+            logq_ydetached = model.posterior.log_prob(y.detach())
+            logq = logq - (logq_ydetached - logq_ydetached.detach())
+
         loss = self.loss_fn(logq, logp)
         self.optimizer.zero_grad()  # clears old gradients from last steps
         loss.backward()
+
         if torch.isnan(loss):
             print("OOPS: loss is divergent -> no *step* is taken.")
         else:
