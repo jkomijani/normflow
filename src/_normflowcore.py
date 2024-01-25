@@ -407,8 +407,8 @@ class Fitter:
                   + "mean & error are obtained from samples in a batch\n")
 
         str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g}"
-        str_ += " | -log(p): {0} | log(q/p): {1} | accept_rate: {2}".format(
-                fmt_val_err(-logp_mean, logp_std, err_digits=2),
+        str_ += " | log(p): {0} | log(q/p): {1} | accept_rate: {2}".format(
+                fmt_val_err(logp_mean, logp_std, err_digits=2),
                 fmt_val_err(adjusted_logqp_mean, logqp_std, err_digits=2),
                 fmt_val_err(accept_rate_mean, accept_rate_std, err_digits=1),
                 )
