@@ -136,8 +136,8 @@ class Fitter:
         self.train_batch_size = 1
 
         self.train_history = dict(
-                loss=[], logqp=[], logz=[], ess=[], rho=[], accept_rate=[]
-                )
+            loss=[], logqp=[], logp=[], logz=[], ess=[], rho=[], accept_rate=[]
+            )
 
         self.hyperparam = dict(lr=0.001, weight_decay=0.01)
 
@@ -378,8 +378,10 @@ class Fitter:
         ess = self.calc_ess(logqp, 0)
         rho = self.calc_corrcoef(logq, logp)
         logqp = (logqp.mean().item(), logqp.std().item())
+        logp = (logp.mean().item(), logp.std().item())
         self.train_history['logqp'].append(logqp)
         self.train_history['logz'].append(logz)
+        self.train_history['logp'].append(logp)
         self.train_history['ess'].append(ess)
         self.train_history['rho'].append(rho)
         self.train_history['accept_rate'].append(accept_rate)
@@ -392,20 +394,21 @@ class Fitter:
             pass  # the printed loss can be different from mydict['loss'][-1]
         logqp_mean, logqp_std = mydict['logqp'][-1]
         logz_mean, logz_std = mydict['logz'][-1]
+        logp_mean, logp_std = mydict['logp'][-1]
         accept_rate_mean, accept_rate_std = mydict['accept_rate'][-1]
         # We now incorporate the effect of estimated log(z) to mean of log(q/p)
         adjusted_logqp_mean = logqp_mean + logz_mean
         ess = mydict['ess'][-1]
-        rho = mydict['rho'][-1]
+        # rho = mydict['rho'][-1]
 
         if epoch == 0:
             print(f"\n>>> Training progress ({ess.device}) <<<\n")
             print("Note: log(q/p) is esitamted with normalized p; " \
                   + "mean & error are obtained from samples in a batch\n")
 
-        str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g} | rho: {rho:g}"
-        str_ += " | log(z): {0} | log(q/p): {1} | accept_rate: {2}".format(
-                fmt_val_err(logz_mean, logz_std, err_digits=2),
+        str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g}"
+        str_ += " | -log(p): {0} | log(q/p): {1} | accept_rate: {2}".format(
+                fmt_val_err(-logp_mean, logp_std, err_digits=2),
                 fmt_val_err(adjusted_logqp_mean, logqp_std, err_digits=2),
                 fmt_val_err(accept_rate_mean, accept_rate_std, err_digits=1),
                 )
