@@ -39,6 +39,8 @@ class UnGroup(GinibreCMatrixDist):
         :arXiv:`math-ph/0609050`.
     """
 
+    drop_constant_log_prob = True
+
     def __init__(self, *, n, shape=(1,)):
         super().__init__(n=n, shape=shape)
 
@@ -53,7 +55,10 @@ class UnGroup(GinibreCMatrixDist):
     def log_prob(self, x):
         """Return log_prob of each matrix."""  # one value for each matrix
         lat_shape = x.shape[:-2]  # one log_prop for each matrix
-        return torch.zeros(lat_shape, device=x.device) - self.log_group_vol
+        if self.drop_constant_log_prob:
+            return torch.zeros(lat_shape, device=x.device)
+        else:
+            return torch.zeros(lat_shape, device=x.device) - self.log_group_vol
 
     @staticmethod
     def calc_log_group_volume(n):
