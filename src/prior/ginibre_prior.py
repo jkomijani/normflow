@@ -18,7 +18,7 @@ class GinibrePrior(Prior):
     def to(self, *args, **kwargs):
         """
         Moves the distibution parameters to a device, implying that the samples
-        also will also be created on the same device.
+        will also be created on the same device.
         """
         dist = self.dist.normal_dist
         dist.loc = dist.loc.to(*args, **kwargs)

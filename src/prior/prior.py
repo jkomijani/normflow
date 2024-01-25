@@ -48,7 +48,7 @@ class Prior(ABC):
     def to(self, *args, **kwargs):
         """
         Moves the distibution parameters to a device, implying that the samples
-        also will also be created on the same device.
+        will also be created on the same device.
         """
         pass
 
@@ -78,7 +78,7 @@ class UniformPrior(Prior):
     def to(self, *args, **kwargs):
         """
         Moves the distibution parameters to a device, implying that the samples
-        also will also be created on the same device.
+        will also be created on the same device.
         """
         self.dist.low = self.dist.low.to(*args, **kwargs)
         self.dist.high = self.dist.high.to(*args, **kwargs)
@@ -114,7 +114,7 @@ class NormalPrior(Prior):
     def to(self, *args, **kwargs):
         """
         Moves the distibution parameters to a device, implying that the samples
-        also will also be created on the same device.
+        will also be created on the same device.
         """
         self.dist.loc = self.dist.loc.to(*args, **kwargs)
         self.dist.scale = self.dist.scale.to(*args, **kwargs)
@@ -147,7 +147,7 @@ class PriorList:
     def to(self, *args, **kwargs):
         """
         Moves the distibution parameters to a device, implying that the samples
-        also will also be created on the same device.
+        will also be created on the same device.
         """
         for prior in self.prior_list:
             prior.to(*args, **kwargs)
