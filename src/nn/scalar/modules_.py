@@ -193,18 +193,7 @@ class Pade22_(Module_):
 
     def backward(self, y, log0=0):
         d0, d1 = self.get_derivatives_reshaped(y.shape)
-
-        def invert(y):
-            # returns the positive solution of $a x^2 + b x + c = 0$
-            c = y
-            b = (d1 + d0 - 2) * y - d0
-            a = -1 - b
-            delta = torch.sqrt(b**2 - 4 * c * a)
-            x = (-b - delta) / (2 * a)
-            x[a == 0] = (-c / b)[a == 0]
-            return x
-
-        x = invert(y)
+        x = self.reverse_pade22(y, d0, d1)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
         g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
         return x, log0 - self.sum_density(torch.log(g_1))
@@ -220,6 +209,30 @@ class Pade22_(Module_):
             w1 = self.w1.reshape(*shape)
 
         return self.softplus(w0), self.softplus(w1)
+
+    @staticmethod
+    def reverse_pade22(y, d0, d1):
+        """Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
+        where the coefficients correspond to Pade [2, 2] map.
+
+        Using the facts about :math:`x, y, d_0, and d_1`, one can show that the
+        positive solution of the quadratic equation is
+
+        .. math::
+
+            x = (-b - \delta) / (2 * a)
+
+        Because the expression is not well-defined for a vanishing `a`, we use
+        the following identical expression
+
+        .. math::
+
+            x = 2 c / (-b + \delta)
+        """
+        b = (d1 + d0 - 2) * y - d0
+        delta = torch.sqrt(b**2 + 4 * y * (1 + b))
+        x = 2 * y / (delta - b)
+        return x
 
 
 class Pade32_(Module_):
