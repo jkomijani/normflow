@@ -125,22 +125,27 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             x_mu = links[:, mu]
             x_nu = links[:, nu]
 
-        # U = x_mu  # we do not need U
+        u = x_mu  # U in the above graph
         c = x_nu
-        a = torch.roll(c, -1, dims=1 + mu)
-        b = torch.roll(x_mu, -1, dims=1 + nu)
 
         if up_only:
+            a = torch.roll(c, -1, dims=1 + mu)
+            b = torch.roll(u, -1, dims=1 + nu)
             return cls.staple1_rule(a, b, c)
 
-        e = torch.roll(x_mu, +1, dims=1 + nu)
-        f = torch.roll(c, +1, dims=1 + nu)
-        d = torch.roll(a, +1, dims=1 + nu)
-
-        if down_only:
+        elif down_only:
+            e = torch.roll(u, +1, dims=1 + nu)
+            f = torch.roll(c, +1, dims=1 + nu)
+            d = torch.roll(f, -1, dims=1 + mu)
             return cls.staple2_rule(d, e, f)
 
-        return cls.staple1_rule(a, b, c) + cls.staple2_rule(d, e, f)
+        else:
+            a = torch.roll(c, -1, dims=1 + mu)
+            b = torch.roll(u, -1, dims=1 + nu)
+            e = torch.roll(u, +1, dims=1 + nu)
+            f = torch.roll(c, +1, dims=1 + nu)
+            d = torch.roll(f, -1, dims=1 + mu)
+            return cls.staple1_rule(a, b, c) + cls.staple2_rule(d, e, f)
 
     @staticmethod
     def staple1_rule(a, b, c):
