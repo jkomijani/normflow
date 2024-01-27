@@ -109,7 +109,7 @@ class UnMatrixParametrizer:
     def calc_conjugacy_vol(eig):
         """Return conjugacy volume up to a multiplacative constant."""
         prodabs2 = lambda x: torch.prod(torch.abs(x)**2, dim=-1)
-        vol = torch.ones(eig.shape[:-1])
+        vol = torch.ones(eig.shape[:-1], device=eig.device)
         for k in range(eig.shape[-1] - 1):
             vol *= prodabs2(eig[..., k:k+1] - eig[..., k+1:])
         return vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
