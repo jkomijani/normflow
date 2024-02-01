@@ -39,7 +39,9 @@ def special_svd(matrix):
     """
     svd_ = svd(matrix)
     rdet_angle = torch.angle(torch.det(matrix)) / svd_.U.shape[-1]  # r: rooted
-    s_u = svd_.U * torch.exp(-1j * rdet_angle.reshape(*rdet_angle.shape, 1, 1))
+    phase_factor = torch.exp(-1j * rdet_angle.reshape(*rdet_angle.shape, 1, 1))
+    s_uvh = (svd_.U @ svd_.Vh) * phase_factor
+    # s_u = svd_.U * torch.exp(-1j * phase_factor
     return AttributeDict4SVD(
-        U=svd_.U, S=svd_.S, Vh=svd_.Vh, rdet_angle=rdet_angle, sU=s_u
+        U=svd_.U, S=svd_.S, Vh=svd_.Vh, rdet_angle=rdet_angle, sUVh=s_uvh
         )

@@ -23,7 +23,7 @@ class TemplateStaplesHandle:
         """
         svd_ = special_svd(staples)
         if self.onesided:
-            slink = link @ (svd_.sU @ svd_.Vh)  # slink stands for stapled link
+            slink = link @ svd_.sUVh  # slink stands for stapled link
         else:
             slink = svd_.Vh @ link @ svd_.sU
         return slink, svd_
@@ -35,7 +35,7 @@ class TemplateStaplesHandle:
         `push2link` method.
         """
         if self.onesided:
-            link = slink @ (svd_.sU @ svd_.Vh).adjoint()
+            link = slink @ svd_.sUVh.adjoint()
         else:
             link = svd_.Vh.adjoint() @ slink @ svd_.sU.adjoint()
 
