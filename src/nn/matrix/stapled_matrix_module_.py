@@ -45,17 +45,17 @@ class StapledMatrixModule_(Module_):
         self.param_net_ = param_net_
         self.matrix_handle = matrix_handle
 
-    def forward(self, x, *, svd_, log0=0, reduce_=False):
+    def forward(self, x, *, singv, log0=0, reduce_=False):
         return self._kernel(
-                x, svd_=svd_, log0=log0, reduce_=reduce_, forward=True
+                x, singv=singv, log0=log0, reduce_=reduce_, forward=True
                 )
 
-    def backward(self, x, *, svd_, log0=0, reduce_=False):
+    def backward(self, x, *, singv, log0=0, reduce_=False):
         return self._kernel(
-                x, svd_=svd_, log0=log0, reduce_=reduce_, forward=False
+                x, singv=singv, log0=log0, reduce_=reduce_, forward=False
                 )
 
-    def _kernel(self, matrix, *, svd_, forward, reduce_, log0=0):
+    def _kernel(self, matrix, *, singv, forward, reduce_, log0=0):
         """Return the transformed matrix and its Jacobian.
 
         To this end, `matrix_handle` is used for parametrizing the input
@@ -68,11 +68,7 @@ class StapledMatrixModule_(Module_):
 
         # 2. Move the channel axis, in which the param are listed, from -1 to 1
         param = torch.movedim(param, -1, 1)
-        if svd_.S.shape[-1] == 2:
-            singv = torch.movedim(svd_.S[..., :1], -1, 1)  # singular values
-        else:
-            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
-            singv = torch.movedim(singv, -1, 1)
+        singv = torch.movedim(singv, -1, 1)
 
         # 3. Transform param
         if forward:
@@ -94,7 +90,7 @@ class StapledMatrixModule_(Module_):
 
         return matrix, log0 + logJ
 
-    def _hack(self, matrix, *, svd_, forward=True, reduce_=False):
+    def _hack(self, matrix, *, singv, forward=True, reduce_=False):
         """Similar to the forward/backward methods, but returns intermediate
         parts too.
         """
@@ -103,11 +99,7 @@ class StapledMatrixModule_(Module_):
 
         # 2. Move the channel axis, in which the param are listed, from -1 to 1
         param = torch.movedim(param, -1, 1)  # move channel axis from -1 to 1
-        if self.su2_flag:
-            singv = torch.movedim(svd_.S[..., :1], -1, 1)  # singular values
-        else:
-            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
-            singv = torch.movedim(singv, -1, 1)
+        singv = torch.movedim(singv, -1, 1)
 
         out_dict = dict(
                 matrix_initial=matrix,

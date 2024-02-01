@@ -65,6 +65,13 @@ class FixedStaplesHandle:
 
 
 # =============================================================================
+class StaplesObject:
+
+    def __init__(self, data, extra=None):
+        self.data = data
+        self.extra = extra
+
+
 class WilsonStaplesHandle(TemplateStaplesHandle):
 
     vector_axis = 0
@@ -73,7 +80,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         assert self.vector_axis == vector_axis, "vector axis?"
 
     @classmethod
-    def calc_staples(cls, links, *, mu, nu_list):
+    def calc_staples(cls, links, *, mu, nu_list, extra_coeffs_list=None):
         """Calculate the staples (from the Wilson gauge action) corresponding
         to the `links` that are in `mu` direction and summed over mu-nu planes
         with nu in `nu_list`.
@@ -97,9 +104,37 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         mu : int
             Direction of the links with them the staples are associated.
         """
-        return sum(
-            [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
-            )
+
+        if extra_coeffs_list is None:
+
+            data = sum(
+               [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
+               )
+
+            extra = None
+        else:
+            len_ = 2 * len(nu_list)
+            all_staples = [None] * len_
+            for k, nu in enumerate(nu_list):
+                all_staples[2*k] = cls.calc_planar_staples(
+                    links, mu=mu, nu=nu, up_only=True
+                    )
+                all_staples[2*k + 1] = cls.calc_planar_staples(
+                    links, mu=mu, nu=nu, down_only=True
+                    )
+
+            data = sum(all_staples)
+
+            extra = torch.empty(*data.shape[:-2], 1 + len(extra_coeffs_list))
+
+            extra[..., 0] = torch.linalg.matrix_norm(data)
+
+            for k, coeffs in enumerate(extra_coeffs_list):
+                extra[..., 1+k] = torch.linalg.matrix_norm(
+                        sum([all_staples[j] * coeffs[j] for j in range(len_)])
+                        )
+
+        return StaplesObject(data, extra)
 
     @classmethod
     def calc_planar_staples(
