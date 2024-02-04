@@ -93,16 +93,17 @@ class GaugeModule_(MatrixModule_):
         else:
             x_mu = x[:, self.mu]
 
-        staples = self.staples_handle.calc_staples(
+        staples_object = self.staples_handle.calc_staples(
                 x, mu=self.mu, nu_list=self.nu_list
                 )
+
         # slink: stapled link
-        slink, svd_ = self.staples_handle.staple(x_mu, staples=staples)
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
-        slink_rotation, logJ = super().forward(slink, log0, reduce_=True)
+        slink_rotation, logJ = super().forward(slink, log0=log0, reduce_=True)
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
 
         if self.unbounded_vector_axis:
@@ -118,15 +119,16 @@ class GaugeModule_(MatrixModule_):
         else:
             x_mu = x[:, self.mu]
 
-        staples = self.staples_handle.calc_staples(
+        staples_object = self.staples_handle.calc_staples(
                 x, mu=self.mu, nu_list=self.nu_list
                 )
-        slink, svd_ = self.staples_handle.staple(x_mu, staples=staples)
 
-        slink_rotation, logJ = super().backward(slink, log0, reduce_=True)
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        slink_rotation, logJ = super().backward(slink, log0=log0, reduce_=True)
+
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
 
         if self.unbounded_vector_axis:
@@ -136,18 +138,18 @@ class GaugeModule_(MatrixModule_):
 
         return x, logJ
 
-    def _hack(self, x, forward=True):
+    def _hack(self, x, forward=True, unbind_vector_axis=True):
         """Similar to the forward method, but returns intermediate parts."""
 
-        if self.unbounded_vector_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
+        if unbind_vector_axis:
+            x = list(torch.unbind(x, 1))
 
-        staples = self.staples_handle.calc_staples(
+        x_mu = x[self.mu]
+
+        staples_object = self.staples_handle.calc_staples(
                 x, mu=self.mu, nu_list=self.nu_list
                 )
-        slink, svd_ = self.staples_handle.staple(x_mu, staples=staples)
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         if forward:
             slink_rotation, logJ = super().forward(slink, reduce_=True)
@@ -156,16 +158,15 @@ class GaugeModule_(MatrixModule_):
 
         stack = dict(
                 x_mu_initial = x_mu,
-                staples = staples,
+                staples_object = staples_object,
                 slink = slink,
-                svd_ = svd_,
                 slink_rotation = slink_rotation,
                 logJ = logJ,
-                super_hack = super()._hack(slink, forward=forward, reduce_=True)
+                super_hack = super()._hack(slink, forward, reduce_=True)
                 )
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
         stack["x_mu_final"] = x_mu
 
@@ -240,18 +241,16 @@ class SVDGaugeModule_(StapledMatrixModule_):
                 x, mu=self.mu, nu_list=self.nu_list,
                 extra_coeffs_list=self.extra_coeffs_list
                 )
-        # slink: stapled link
-        slink, svd_ = self.staples_handle.staple(x_mu,
-                staples=staples_object.data)
 
-        staples_object.svd_ = svd_
+        # slink: stapled link
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().forward(
                 slink, log0=log0, singv=staples_object.extra, reduce_=True
                 )
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
 
         if self.unbounded_vector_axis:
@@ -271,17 +270,15 @@ class SVDGaugeModule_(StapledMatrixModule_):
                 x, mu=self.mu, nu_list=self.nu_list,
                 extra_coeffs_list=self.extra_coeffs_list
                 )
-        slink, svd_ = self.staples_handle.staple(x_mu,
-                staples=staples_object.data)
 
-        staples_object.svd_ = svd_
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().backward(
                 slink, log0=log0, singv=staples_object.extra, reduce_=True
                 )
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
 
         if self.unbounded_vector_axis:
@@ -294,17 +291,16 @@ class SVDGaugeModule_(StapledMatrixModule_):
     def _hack(self, x, forward=True):
         """Similar to the forward method, but returns intermediate parts."""
 
-        if self.unbounded_vector_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
+        if unbind_vector_axis:
+            x = list(torch.unbind(x, 1))
+
+        x_mu = x[self.mu]
 
         staples = self.staples_handle.calc_staples(
                 x, mu=self.mu, nu_list=self.nu_list,
                 extra_coeffs_list=self.extra_coeffs_list
                 )
-        slink, svd_ = self.staples_handle.staple(x_mu, staples=staples)
-        staples_object.svd_ = svd_
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         if forward:
             slink_rotation, logJ = super().forward(
@@ -317,9 +313,8 @@ class SVDGaugeModule_(StapledMatrixModule_):
 
         stack = dict(
                 x_mu_initial = x_mu,
-                staples = staples,
+                staples_object = staples_object,
                 slink = slink,
-                svd_ = svd_,
                 slink_rotation = slink_rotation,
                 logJ = logJ,
                 super_hack = super()._hack(
@@ -327,8 +322,8 @@ class SVDGaugeModule_(StapledMatrixModule_):
                     )
                 )
 
-        x_mu = self.staples_handle.push2link(
-                x_mu, slink_rotation=slink_rotation, svd_=svd_
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation=slink_rotation, staples_object=staples_object
                 )
         stack["x_mu_final"] = x_mu
 

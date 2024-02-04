@@ -15,35 +15,45 @@ class TemplateStaplesHandle:
     def __init__(self, onesided=True):
         self.onesided = onesided
 
-    def staple(self, link, *, staples):
+    def staple(self, link, *, staples_object):
         """
         Return `slink` (stapled link) defined as `link` multiplied by SU(n)
         matrices that are obtained by performing SVD on the sum of the
         corresponding `staples.`
         """
-        svd_ = special_svd(staples)
+        # link = link @ staples_object.factorized_staple
+
+        svd_ = special_svd(staples_object.data)
+        staples_object.svd_ = svd_
+
         if self.onesided:
             slink = link @ svd_.sUVh  # slink stands for stapled link
         else:
             slink = svd_.Vh @ link @ svd_.sU
-        return slink, svd_
 
-    def unstaple(self, slink, svd_):
+        return slink
+
+    def unstaple(self, slink, *, staples_object):
         """Invert the `staple` method.
 
         For pushing the changes in `slink` to corresponding `link` use the
         `push2link` method.
         """
+        svd_ = staples_object.svd_
+
         if self.onesided:
             link = slink @ svd_.sUVh.adjoint()
         else:
             link = svd_.Vh.adjoint() @ slink @ svd_.sU.adjoint()
 
+        # link = link @ staples_object.factorized_staple.adjoint()
+
         return link
 
-    def push2link(self, link, *, slink_rotation, svd_):
+    def push2link(self, link, *, slink_rotation, staples_object):
 
         if not self.onesided:
+            svd_ = staples_object.svd_
             slink_rotation = svd_.Vh.adjoint() @ slink_rotation @ svd_.Vh
 
         return slink_rotation @ link
@@ -67,9 +77,10 @@ class FixedStaplesHandle:
 # =============================================================================
 class StaplesObject:
 
-    def __init__(self, data, extra=None):
+    def __init__(self, data, factorized_staple=None, extra=None):
         self.data = data
         self.extra = extra
+        self.factorized_staple = factorized_staple
 
 
 class WilsonStaplesHandle(TemplateStaplesHandle):
@@ -123,6 +134,12 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
                     links, mu=mu, nu=nu, down_only=True
                     )
 
+            # factorized_staple = all_staples[0]
+            # eye = torch.eye(links[0].shape[-1], device=links[0].device)
+            # links might be a list or a tensor
+            # data = eye + factorized_staple.adjoint() @ sum(all_staples[1:])
+
+            factorized_staple = None
             data = sum(all_staples)
 
             # extra = torch.empty(*data.shape[:-2], 1 + len(extra_coeffs_list))
@@ -140,7 +157,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             #            sum([all_staples[j] * coeffs[j] for j in range(len_)])
             #            )
 
-        return StaplesObject(data, extra)
+        return StaplesObject(data, factorized_staple, extra)
 
     @classmethod
     def calc_planar_staples(
