@@ -142,20 +142,20 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             factorized_staple = None
             data = sum(all_staples)
 
-            # extra = torch.empty(*data.shape[:-2], 1 + len(extra_coeffs_list))
-            extra = torch.zeros(*data.shape[:-2], 1 + 2 * len(nu_list))
+            extra = torch.empty(*data.shape[:-2], 1 + len(extra_coeffs_list))
+            # extra = torch.zeros(*data.shape[:-2], 1 + 2 * len(nu_list))
 
             extra[..., 0] = torch.linalg.matrix_norm(data)
 
-            for k, nu in enumerate(nu_list):
-                long_loop = all_staples[2*k] @ all_staples[2*k+1].adjoint()
-                extra[..., 2*k + 1: 2*k + 3] = \
-                        torch.view_as_real(calc_reduced_trace(long_loop))
+            # for k, nu in enumerate(nu_list):
+            #    long_loop = all_staples[2*k] @ all_staples[2*k+1].adjoint()
+            #    extra[..., 2*k + 1: 2*k + 3] = \
+            #            torch.view_as_real(calc_reduced_trace(long_loop))
 
-            # for k, coeffs in enumerate(extra_coeffs_list):
-            #    extra[..., 1+k] = torch.linalg.matrix_norm(
-            #            sum([all_staples[j] * coeffs[j] for j in range(len_)])
-            #            )
+            for k, coeffs in enumerate(extra_coeffs_list):
+                extra[..., 1+k] = torch.linalg.matrix_norm(
+                        sum([all_staples[j] * coeffs[j] for j in range(len_)])
+                        )
 
         return StaplesObject(data, factorized_staple, extra)
 
