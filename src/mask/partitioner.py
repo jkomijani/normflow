@@ -21,10 +21,18 @@ class ListPartitioner:
 
 
 class ChunkCatPartitioner:
-    """For chunking the input along the chunk_axis, which must be positive."""
+    """For chunking the input along the chunk_axis, which must be positive.
 
-    def __init__(self, chunk_axis):
-        self.axis = chunk_axis
+    Parameters
+    ----------
+    chunk_axis : (positive) int
+        specifies the axis along which the input is going to be partitioned.
+    batch_ndim : int, optional
+        specifies the number of batch axes in the data (default is 1).
+    """
+
+    def __init__(self, chunk_axis, batch_ndim=1):
+        self.axis = chunk_axis + batch_ndim
 
     def split(self, x):
         return torch.chunk(x, 2, self.axis)
@@ -40,10 +48,17 @@ class ChunkCatPartitioner:
 class AlongAxisEvenOddPartitioner:
     """For even odd slicing the input along the even_odd_axis, which must be
     positive.
+
+    Parameters
+    ----------
+    even_odd_axis : (positive) int
+        specifies the axis along which the input is going to be sliced.
+    batch_ndim : int, optional
+        specifies the number of batch axes in the data (default is 1).
     """
 
-    def __init__(self, even_odd_axis):
-        self.axis = even_odd_axis
+    def __init__(self, even_odd_axis, batch_ndim=1):
+        self.axis = even_odd_axis + batch_ndim
         self.even_ind = [slice(None)] * self.axis + [slice(0, None, 2)]
         self.odd_ind = [slice(None)] * self.axis + [slice(1, None, 2)]
 
