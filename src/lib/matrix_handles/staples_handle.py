@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This module has utilities to handle staples related to gauge links."""
 
@@ -21,7 +21,8 @@ class TemplateStaplesHandle:
         matrices that are obtained by performing SVD on the sum of the
         corresponding `staples.`
         """
-        # link = link @ staples_object.factorized_staple
+        if staples_object.factorized_staple is not None:
+            link = link @ staples_object.factorized_staple
 
         svd_ = special_svd(staples_object.data)
         staples_object.svd_ = svd_
@@ -46,7 +47,8 @@ class TemplateStaplesHandle:
         else:
             link = svd_.Vh.adjoint() @ slink @ svd_.sU.adjoint()
 
-        # link = link @ staples_object.factorized_staple.adjoint()
+        if staples_object.factorized_staple is not None:
+            link = link @ staples_object.factorized_staple.adjoint()
 
         return link
 
@@ -77,10 +79,25 @@ class FixedStaplesHandle:
 # =============================================================================
 class StaplesObject:
 
-    def __init__(self, data, factorized_staple=None, extra=None):
+    factorized_staple = None
+
+    def __init__(self, data, **kwargs):
         self.data = data
-        self.extra = extra
-        self.factorized_staple = factorized_staple
+        self.__dict__.update(**kwargs)
+
+    @property
+    def singv(self):
+        """Return singular values"""
+        try:
+            svd_ = self.svd_
+        except:
+            raise Exception("svd_ is not available")
+
+        if svd_.S.shape[-1] == 2:
+            singv = svd_.S[..., :1]
+        else:
+            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
+        return singv
 
 
 class WilsonStaplesHandle(TemplateStaplesHandle):
@@ -91,7 +108,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         assert self.vector_axis == vector_axis, "vector axis?"
 
     @classmethod
-    def calc_staples(cls, links, *, mu, nu_list, extra_coeffs_list=None):
+    def calc_staples(cls, links, *, mu, nu_list, staples_coeff=None):
         """Calculate the staples (from the Wilson gauge action) corresponding
         to the `links` that are in `mu` direction and summed over mu-nu planes
         with nu in `nu_list`.
@@ -116,16 +133,14 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             Direction of the links with them the staples are associated.
         """
 
-        if extra_coeffs_list is None:
-
+        if staples_coeff is None:
             data = sum(
                [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
                )
+            return StaplesObject(data)
 
-            extra = None
         else:
-            len_ = 2 * len(nu_list)
-            all_staples = [None] * len_
+            all_staples = [None] * (2 * len(nu_list))
             for k, nu in enumerate(nu_list):
                 all_staples[2*k] = cls.calc_planar_staples(
                     links, mu=mu, nu=nu, up_only=True
@@ -134,30 +149,9 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
                     links, mu=mu, nu=nu, down_only=True
                     )
 
-            # factorized_staple = all_staples[0]
-            # eye = torch.eye(links[0].shape[-1], device=links[0].device)
-            # links might be a list or a tensor
-            # data = eye + factorized_staple.adjoint() @ sum(all_staples[1:])
-
-            factorized_staple = None
-            data = sum(all_staples)
-
-            extra = torch.empty(*data.shape[:-2], 1 + len(extra_coeffs_list))
-            # extra = torch.zeros(*data.shape[:-2], 1 + 2 * len(nu_list))
-
-            extra[..., 0] = torch.linalg.matrix_norm(data)
-
-            # for k, nu in enumerate(nu_list):
-            #    long_loop = all_staples[2*k] @ all_staples[2*k+1].adjoint()
-            #    extra[..., 2*k + 1: 2*k + 3] = \
-            #            torch.view_as_real(calc_reduced_trace(long_loop))
-
-            for k, coeffs in enumerate(extra_coeffs_list):
-                extra[..., 1+k] = torch.linalg.matrix_norm(
-                        sum([all_staples[j] * coeffs[j] for j in range(len_)])
-                        )
-
-        return StaplesObject(data, factorized_staple, extra)
+            range_ = range(len(all_staples))
+            data = sum([all_staples[j] * staples_coeff[j] for j in range_])
+            return StaplesObject(data)
 
     @classmethod
     def calc_planar_staples(
