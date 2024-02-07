@@ -338,14 +338,6 @@ class Fitter:
         return logqp.mean() + logz
 
     @staticmethod
-    def calc_symmetric_kl_mean(logq, logp):
-        logqp = logq - logp
-        logz = torch.logsumexp(-logqp, dim=0) - np.log(logp.shape[0])
-        logqp = logqp + logz  # p is now normalized
-        p_by_q = torch.exp(-logqp)
-        return ((1 - p_by_q) * logqp).mean()
-
-    @staticmethod
     def calc_minus_logz(logq, logp):
         logz = torch.logsumexp(logp - logq, dim=0) - np.log(logp.shape[0])
         return -logz
@@ -358,17 +350,20 @@ class Fitter:
         ess = torch.exp(log_ess) / len(logqp)  # normalized
         return ess
 
-    def calc_minus_ess(self, logq, logp):
-        return -self.calc_ess(logq, logp)
-
-    def calc_logess(self, logq, logp):
+    @staticmethod
+    def calc_logess(logq, logp):
         """log of ESS: effective sample size"""
         logqp = logq - logp
         log_ess = 2*torch.logsumexp(-logqp, dim=0) - torch.logsumexp(-2*logqp, dim=0)
         return log_ess - np.log(len(logqp))  # normalized
 
-    def calc_minus_logess(self, logq, logp):
-        return -self.calc_logess(logq, logp)
+    @classmethod
+    def calc_minus_ess(cls, logq, logp):
+        return -cls.calc_ess(logq, logp)
+
+    @classmethod
+    def calc_minus_logess(cls, logq, logp):
+        return -cls.calc_logess(logq, logp)
 
     @torch.no_grad()
     def _append_to_train_history(self, logq, logp):
@@ -399,18 +394,18 @@ class Fitter:
         # We now incorporate the effect of estimated log(z) to mean of log(q/p)
         adjusted_logqp_mean = logqp_mean + logz_mean
         ess = mydict['ess'][-1]
-        # rho = mydict['rho'][-1]
+        rho = mydict['rho'][-1]
 
         if epoch == 0:
             print(f"\n>>> Training progress ({ess.device}) <<<\n")
             print("Note: log(q/p) is esitamted with normalized p; " \
                   + "mean & error are obtained from samples in a batch\n")
 
-        str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g}"
+        str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g} | rho: {rho:g}"
         str_ += " | log(p): {0} | log(q/p): {1} | accept_rate: {2}".format(
                 fmt_val_err(logp_mean, logp_std, err_digits=2),
                 fmt_val_err(adjusted_logqp_mean, logqp_std, err_digits=2),
-                fmt_val_err(accept_rate_mean, accept_rate_std, err_digits=1),
+                fmt_val_err(accept_rate_mean, accept_rate_std, err_digits=1)
                 )
 
         if self.checkpoint_dict['print_extra_func'] is not None:
