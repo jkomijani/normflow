@@ -235,7 +235,8 @@ class Pade22_(Module_):
         return x
 
 
-class Pade32_(Module_):
+class _Pade32_(Module_):
+    # The INVERSE is still PROBLEMATIC!
     r"""An invertible transformation as a Pade approximant of order 3/2
 
     .. math::
@@ -244,7 +245,7 @@ class Pade32_(Module_):
 
     which is invertible for :math:`0 < a < 3`.
     Note that this transformation is not the most general invertible Pade 3/2,
-    but is has the following traits: it is odd and regular at any finite real
+    but it has the following traits: it is odd and regular at any finite real
     :math:`x`, it has three fixed points at zero and plus/minus unity,
     and it is proportional to :math:`x` as :math:`x \to \pm \infty`.
 
@@ -253,7 +254,7 @@ class Pade32_(Module_):
 
     def __init__(self, n_channels=1, channels_axis=1, label='pade32'):
         super().__init__(label=label)
-        self.w0 = - torch.nn.Parameter(torch.log(2 * torch.ones(n_channels)))
+        self.w0 = torch.nn.Parameter(- torch.log(2 + torch.randn(n_channels)))
         self.n_channels = n_channels
         self.channels_axis = channels_axis
 
@@ -267,8 +268,8 @@ class Pade32_(Module_):
 
     def backward(self, y, log0=0):
         """We solve a cubic relation that has only one real solution."""
-        a = self.get_derivative_reshaped(x.shape)  # a is derivative at x=0
-        delta0 = a**2 -  3 * a / y**2
+        a = self.get_derivative_reshaped(y.shape)  # a is derivative at x=0
+        delta0 = a**2 - 3 * a / y**2
         delta1 = - 2 * a**3 + (9 * a**2 - 27) / y**2
         delta = 2**(-1/3) * (- delta1 + torch.sqrt(delta1**2 - 4*delta0**3))**(1/3)
         x = y * (a + delta + delta0 / delta) / 3
