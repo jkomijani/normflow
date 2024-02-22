@@ -35,13 +35,15 @@ class AttributeDict4SVD:
 
 def special_svd(matrix):
     """Return a new svd object, in which U is scaled by a phase, and called sU,
-    such that sU @ Vh is special unitary
+    where s stands for special, such that sU @ Vh is special unitary.
     """
     svd_ = svd(matrix)
     rdet_angle = torch.angle(torch.det(matrix)) / svd_.U.shape[-1]  # r: rooted
     phase_factor = torch.exp(-1j * rdet_angle.reshape(*rdet_angle.shape, 1, 1))
-    s_uvh = (svd_.U @ svd_.Vh) * phase_factor
-    # s_u = svd_.U * torch.exp(-1j * phase_factor
+    s_uvh = (svd_.U @ svd_.Vh) * phase_factor  # s stands for special
+    # s_u = svd_.U * torch.exp(-1j * phase_factor)
+    sigma_matrix = svd_.Vh.adjoint() @ (svd_.S.unsqueeze(-1) * svd_.Vh)
     return AttributeDict4SVD(
-        U=svd_.U, S=svd_.S, Vh=svd_.Vh, rdet_angle=rdet_angle, sUVh=s_uvh
+        U=svd_.U, S=svd_.S, Vh=svd_.Vh, rdet_angle=rdet_angle, sUVh=s_uvh,
+        Sigma=sigma_matrix
         )
