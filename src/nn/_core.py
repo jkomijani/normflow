@@ -41,6 +41,9 @@ class Module_(torch.nn.Module):
         else:
             return torch.sum(x, dim=list(range(1, x.dim())))
 
+    def reverse(self, *args, **kwargs):
+        return self.backward(*args, **kwargs)
+
 
 # =============================================================================
 class ModuleList_(torch.nn.ModuleList):
