@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This module has utilities to deal with eigenvalues of matrices.
 
@@ -13,9 +13,9 @@ import numpy as np
 
 from .ordering import ZeroSumOrder, ModalOrder
 from ..linalg import eigu  # eig for unitray matrices
+from ..linalg import inverse_eig
 
 
-mul = torch.matmul
 pi = np.pi
 
 
@@ -23,52 +23,45 @@ pi = np.pi
 class UnMatrixParametrizer:
 
     def __init__(self):
-        self.modal_matrix = None
-        self.phase = None
-        self.order = None  # an object to sort the eigen-phases
+        self.eigvecs = None
+        self.phase = None  # we save the phases/angles of the eigenvalues
+        self.order = None  # an object to sort the eigen-phases/angles
 
     def free_memory(self):
-        self.modal_matrix = None
+        self.eigvecs = None
         self.phase = None
-        self.order = None  # an object to sort the eigen-phases
+        self.order = None
 
     def matrix2phase_(self, matrix):
         """Return angle of eigenvalues of input and logJ of transformation.
 
-        `logJ` is the Jacobian of partitioning an integration over SU(n)
+        Here, `logJ` is the Jacobian of partitioning an integration over SU(n)
         matrices to integrals over corresponding spectral and modal matrices.
         The inverse of Jacobian is equal to the volume of conjugacy class.
         """
-        eig, self.modal_matrix = eigu(matrix)  # torch.linalg.eig(matrix)
-        self.phase = torch.angle(eig)  # in (-pi, pi]
-        # we save phase because it can be useful when self.param2matrix_ is
-        # called with the `reduce_` option set to True
-
+        eigvals, self.eigvecs = eigu(matrix)
+        self.phase = torch.angle(eigvals)  # in (-pi, pi]
         # Note: when |eig| = 1, logJ of eig to phase conversion is zero;
-        # thus, we only need to take care of Jacobian of spectral decomposition:
+        # thus, we only need to take care of the Jacobian of spectral
+        # decomposition:
         # *inverse* of Jacobian equals the volume of conjugacy class
-        logJ = -sum_density(self.calc_log_conjugacy_vol(eig))  # up to a const.
-
+        logJ = -sum_density(self.calc_log_conjugacy_vol(eigvals))
         return self.phase, logJ
 
     def phase2matrix_(self, phase, reduce_=False):
-        """Inverse of `self.matrix2phase_`.
-
-        Return the matrix corresponding to `phase` and logJ of transformation.
+        """Return the matrix corresponding to the input `phase` and logJ of
+        transformation. (Inverse of `self.matrix2phase_`.)
 
         For the sake of frugal computing, the `reduce_` option is introduced
-        such that if True, this method returns `M * M_old^\dagger`,
-        where `M_old` is the matrix constructed with self.sorted_phase.
+        such that if True, this method returns :math:`M  M_{old}^\dagger`,
+        where :math:`M_{old}` is the matrix constructed with self.phases.
         """
-        eig = torch.exp(1j * phase)
-        modal = self.modal_matrix
-        eig_prime = eig if not reduce_ else eig * torch.exp(-1j * self.phase)
-        matrix = mul(modal, eig_prime.unsqueeze(-1) * modal.adjoint())
-
-        # Note: when |eig| = 1, logJ of eig to phase conversion is zero;
-        # thus, we only need to take care of Jacobian of spectral decomposition:
+        eigvals = torch.exp(1j * phase)
+        eigvecs = self.eigvecs
+        eig_red = eigvals * torch.exp(-1j * self.phase) if reduce_ else eigvals
+        matrix = inverse_eig(eig_red, eigvecs)
         # Jacobian equals the volume of conjugacy class
-        logJ = sum_density(self.calc_log_conjugacy_vol(eig))  # up to a const.
+        logJ = sum_density(self.calc_log_conjugacy_vol(eigvals))
 
         return matrix, logJ
 
@@ -79,14 +72,16 @@ class UnMatrixParametrizer:
         pass
 
     def matrix2param_(self, matrix):
-        """Like matrix2phase_ except that returns a parametrization of phases."""
+        """Return a unique parametrization of the phase of eigenvalues, and
+        logJ of the transformation.
+        """
         phase, logJ_m2f = self.matrix2phase_(matrix)  # phase in (-pi, pi]
         param, logJ_f2p = self.phase2param_(phase)
         return param, logJ_m2f + logJ_f2p
 
     def param2matrix_(self, param, reduce_=False):
-        """Like phase2matrix_ except that the input is a parametrization of
-        phases.
+        """Return the matrix corresponding to `param` and logJ of
+        transformation. (Inverse of `self.matrix2param_`.)
 
         For the sake of frugal computing, the `reduce_` option is introduced
         such that if True, this method returns `M * M_old^\dagger`,
@@ -97,29 +92,45 @@ class UnMatrixParametrizer:
         return matrix, logJ_p2f + logJ_p2m
 
     @staticmethod
-    def calc_log_conjugacy_vol(eig):
+    def calc_log_conjugacy_vol(eigvals):
         """Return log of conjugacy volume up to an additive constant."""
         sumlogabs2 = lambda x: 2 * torch.sum(torch.log(torch.abs(x)), dim=-1)
-        log_vol = torch.zeros(eig.shape[:-1], device=eig.device)
-        for k in range(eig.shape[-1] - 1):
-            log_vol += sumlogabs2(eig[..., k:k+1] - eig[..., k+1:])
+        log_vol = torch.zeros(eigvals.shape[:-1], device=eigvals.device)
+        for k in range(eigvals.shape[-1] - 1):
+            log_vol += sumlogabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
         return log_vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
 
     @staticmethod
-    def calc_conjugacy_vol(eig):
+    def calc_conjugacy_vol(eigvals):
         """Return conjugacy volume up to a multiplacative constant."""
         prodabs2 = lambda x: torch.prod(torch.abs(x)**2, dim=-1)
-        vol = torch.ones(eig.shape[:-1], device=eig.device)
-        for k in range(eig.shape[-1] - 1):
-            vol *= prodabs2(eig[..., k:k+1] - eig[..., k+1:])
+        vol = torch.ones(eigvals.shape[:-1], device=eigvals.device)
+        for k in range(eigvals.shape[-1] - 1):
+            vol *= prodabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
         return vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
+
+    def param2eigangs_(self, *args, **kwargs):
+        return self.param2phase_(*args, **kwargs)
+
+    def eigangs2matrix_(self, *args, **kwargs):
+        return self.phase2matrix_(*args, **kwargs)
+
+    def set_eigangs(self, eigangs):
+        self.phase = eigangs
+
+    def set_eigvecs(self, eigvecs):
+        self.eigvecs = eigvecs
+
+    @property
+    def eigangs(self):  # eigen-angles; alias for phase
+        return self.phase
 
 
 # =============================================================================
 class SUnMatrixParametrizer(UnMatrixParametrizer):
 
     def phase2param_(self, phase):
-        self.order = ModalOrder(self.modal_matrix)  # see order.sorted_ind
+        self.order = ModalOrder(self.eigvecs)  # see order.sorted_ind
         sorted_phase = self.order.sort(phase)
         return self.sortedphase2param_(sorted_phase)
 
@@ -147,7 +158,7 @@ class SU2MatrixParametrizer(UnMatrixParametrizer):
         self.order = ZeroSumOrder(phase)  # see order.(sorted_val & sorted_ind)
         return self.sortedphase2param_(self.order.sorted_val)
 
-    def param2phase_(self, param, reduce_=False):
+    def param2phase_(self, param):
         phase, logJ = self.param2sortedphase_(param)
         phase = self.order.revert(phase)  # revert the "sort" operation
         return phase, logJ
@@ -173,7 +184,7 @@ class SU3MatrixParametrizer(UnMatrixParametrizer):
         self.order = ZeroSumOrder(phase)  # see order.(sorted_val & sorted_ind)
         return self.sortedphase2param_(self.order.sorted_val)
 
-    def param2phase_(self, param, reduce_=False):
+    def param2phase_(self, param):
         phase, logJ = self.param2sortedphase_(param)
         phase = self.order.revert(phase)  # revert the "sort" operation
         return phase, logJ
