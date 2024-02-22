@@ -12,8 +12,7 @@ mul = torch.matmul
 # =============================================================================
 class TemplateStaplesHandle:
 
-    def __init__(self, onesided=True):
-        self.onesided = onesided
+    onesided = True
 
     def staple(self, link, *, staples_object):
         """
@@ -21,10 +20,7 @@ class TemplateStaplesHandle:
         matrices that are obtained by performing SVD on the sum of the
         corresponding `staples.`
         """
-        if staples_object.factorized_staple is not None:
-            link = link @ staples_object.factorized_staple
-
-        svd_ = special_svd(staples_object.data)
+        svd_ = special_svd(staples_object.staples_sum)
         staples_object.svd_ = svd_
 
         if self.onesided:
@@ -46,9 +42,6 @@ class TemplateStaplesHandle:
             link = slink @ svd_.sUVh.adjoint()
         else:
             link = svd_.Vh.adjoint() @ slink @ svd_.sU.adjoint()
-
-        if staples_object.factorized_staple is not None:
-            link = link @ staples_object.factorized_staple.adjoint()
 
         return link
 
@@ -77,29 +70,6 @@ class FixedStaplesHandle:
 
 
 # =============================================================================
-class StaplesObject:
-
-    factorized_staple = None
-
-    def __init__(self, data, **kwargs):
-        self.data = data
-        self.__dict__.update(**kwargs)
-
-    @property
-    def singv(self):
-        """Return singular values"""
-        try:
-            svd_ = self.svd_
-        except:
-            raise Exception("svd_ is not available")
-
-        if svd_.S.shape[-1] == 2:
-            singv = svd_.S[..., :1]
-        else:
-            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
-        return singv
-
-
 class WilsonStaplesHandle(TemplateStaplesHandle):
 
     vector_axis = 0
@@ -134,10 +104,10 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         """
 
         if staples_coeff is None:
-            data = sum(
+            staples_sum = sum(
                [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
                )
-            return StaplesObject(data)
+            return StaplesObject(staples_sum)
 
         else:
             all_staples = [None] * (2 * len(nu_list))
@@ -150,8 +120,8 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
                     )
 
             range_ = range(len(all_staples))
-            data = sum([all_staples[j] * staples_coeff[j] for j in range_])
-            return StaplesObject(data)
+            staples = sum([all_staples[j] * staples_coeff[j] for j in range_])
+            return StaplesObject(staples)
 
     @classmethod
     def calc_planar_staples(
@@ -236,6 +206,29 @@ class U1WilsonStaplesHandle(WilsonStaplesHandle):
     @staticmethod
     def staple2_rule(d, e, f):
         return torch.conj(e * d) * f
+
+
+# =============================================================================
+class StaplesObject:
+
+    svd_ = None
+
+    def __init__(self, staples_sum):
+        self.staples_sum = staples_sum
+
+    @property
+    def singv(self):
+        """Return singular values"""
+        try:
+            svd_ = self.svd_
+        except:
+            raise NameError()
+
+        if svd_.S.shape[-1] == 2:
+            singv = svd_.S[..., :1]
+        else:
+            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
+        return singv
 
 
 # =============================================================================
