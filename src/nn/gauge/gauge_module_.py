@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This module contains new neural networks for transforming gauge fields.
 
@@ -10,6 +10,7 @@ methods handle the Jacobians of the transformation.
 
 import torch
 
+from .._core import Module_
 from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
 from ..matrix.stapled_matrix_module_ import StapledMatrixModule_
@@ -55,7 +56,206 @@ class GaugeModuleList_(ModuleList_):
 
 
 # =============================================================================
-class GaugeModule_(MatrixModule_):
+class GaugeModule_(Module_):
+    """
+    Parameters
+    ----------
+    mu : int
+        specifies the direction of links that are going to be changed
+
+    nu_list : list of int
+        (in combination w/ mu) specifies the plane of staples to be calculated
+
+    staple_handle: class instance
+        to calculate staples and use them.
+
+    matrix_handle: class instance
+        to handle parametrization of the matrices.
+
+    param_net_: instance of Module_ or ModuleList_
+        a core network to change a set of parameters corresponding to the
+        stapled links.
+
+    eigangs_net_: instance of Module_ or ModuleList_ (optional)
+        a network to change the eigen-anlges of the stapled links.
+        (Default is None.)
+
+    eigvals_net_: instance of Module_ or ModuleList_ (optional)
+        a network to change the eigen-vectors of the stapled links.
+        (Default is None.)
+
+    IMPORTANT NOTE:
+        in order to have an invertible forward method, the masks used in
+        `param_net_` and other networs must be compatible.
+    """
+
+    unbounded_vector_axis = True
+
+    def __init__(self,
+            *, mu, nu_list, staples_handle, matrix_handle,
+            param_net_, eigangs_net_=None, eigvecs_net_=None,
+            staples_kwargs={}, label="gauge_"
+            ):
+        super().__init__(label=label)
+        self.mu = mu
+        self.nu_list = nu_list
+        self.param_net_ = param_net_
+        self.eigangs_net_ = eigangs_net_
+        self.eigvecs_net_ = eigvecs_net_
+        self.matrix_handle = matrix_handle
+        self.staples_handle = staples_handle
+        self.staples_kwargs = staples_kwargs
+
+    def forward(self, x, log0=0):
+
+        staples_object = self.staples_handle.calc_staples(
+                x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
+                )
+
+        x_mu = self.get_x_mu(x)
+
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
+
+        new_slink, logJ = self._apply_slink_transform(slink, staples_object)
+
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation = new_slink @ slink.adjoint(),
+                staples_object = staples_object
+                )
+
+        x = self.set_x_mu(x, x_mu)
+
+        return x, log0 + logJ
+
+    def reverse(self, x, log0=0):
+
+        staples_object = self.staples_handle.calc_staples(
+                x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
+                )
+
+        x_mu = self.get_x_mu(x)
+
+        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
+
+        new_slink, logJ = \
+                self._apply_slink_reverse_transform(slink, staples_object)
+
+        # x_mu = self.staples_handle.push2link(x_mu,
+        #        slink_rotation = new_slink @ slink.adjoint(),
+        #        staples_object = staples_object
+        #         )
+        x_mu = self.staples_handle.unstaple(new_slink,
+                staples_object = staples_object
+                )
+
+        x = self.set_x_mu(x, x_mu)
+
+        return x, log0 + logJ
+
+    def _apply_slink_transform(self, slink, staples_object):
+        # slink: stapled link
+        # ======
+        # Part 0: Parametrize the input matrix
+        param, logJ_mat2par = self.matrix_handle.matrix2param_(slink)
+
+        # Part 1: transform the parameters
+        if self.param_net_ is not None:
+            # TODO: movedim must be handled in self.param_net_
+            param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
+            param, logJ_par2par = self.param_net_(param)
+            param = torch.movedim(param, 1, -1)  # return channel axis to -1
+            eigangs, logJ_par2ang = self.matrix_handle.param2eigangs_(param)
+            logJ = logJ_mat2par + logJ_par2par + logJ_par2ang
+        else:
+            raise Exception("param_net_ cannot be None")
+
+        # ======
+        # Part 2: transform the eigenvalues directly
+        if self.eigangs_net_ is not None:
+            pass  # NOT READY
+            # eigangs, logJ_ang2ang = self.eigangs_net_(eigangs)
+            # logJ += logJ_ang2ang
+
+        # ======
+        # Part 3: transform the eigenvectors
+        if self.eigvecs_net_ is not None:
+            eigvecs, logJ_vec2vec = self.eigvecs_net_(
+                    self.matrix_handle.eigvecs,
+                    eigangs=eigangs,
+                    staples_object=staples_object
+                    )
+            logJ += logJ_vec2vec
+            self.matrix_handle.set_eigvecs(eigvecs)
+
+        # ======
+        # Finally, put all pieces together
+        new_slink, logJ_ang2mat = self.matrix_handle.eigangs2matrix_(eigangs)
+        logJ += logJ_ang2mat
+
+        return new_slink, logJ
+
+    def _apply_slink_reverse_transform(self, slink, staples_object):
+        # slink: stapled link
+        # ======
+        # Part 0: Parametrize the input matrix
+        param, logJ_mat2par = self.matrix_handle.matrix2param_(slink)
+
+        logJ = logJ_mat2par
+        # ======
+        # Part inverse-3: transform the eigenvectors
+        if self.eigvecs_net_ is not None:
+            eigvecs, logJ_vec2vec = self.eigvecs_net_.reverse(
+                    self.matrix_handle.eigvecs,
+                    eigangs=self.matrix_handle.eigangs,
+                    staples_object=staples_object
+                    )
+            logJ += logJ_vec2vec
+            self.matrix_handle.set_eigvecs(eigvecs)
+
+        # ======
+        # Part inverse-2: transform the eigenvalues directly
+        if self.eigangs_net_ is not None:
+            pass  # NOT READY
+            # eigangs, logJ_ang2ang = self.eigangs_net_.reverse(eigangs)
+            # logJ += logJ_ang2ang
+
+        # Part inverse-1: transform the parameters
+        if self.param_net_ is not None:
+            # TODO: movedim must be handled in self.param_net_
+            param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
+            param, logJ_par2par = self.param_net_.reverse(param)
+            param = torch.movedim(param, 1, -1)  # return channel axis to -1
+            eigangs, logJ_par2ang = self.matrix_handle.param2eigangs_(param)
+            logJ += (logJ_par2par + logJ_par2ang)
+        else:
+            raise Exception("param_net_ cannot be None")
+
+        # ======
+        # Finally, put all pieces together
+        new_slink, logJ_ang2mat = self.matrix_handle.eigangs2matrix_(eigangs)
+        logJ += logJ_ang2mat
+
+        return new_slink, logJ
+
+    def get_x_mu(self, x):
+        if self.unbounded_vector_axis:
+            x_mu = x[self.mu]
+        else:
+            x_mu = x[:, self.mu]
+        return x_mu
+
+    def set_x_mu(self, x, x_mu):
+        if self.unbounded_vector_axis:
+            x[self.mu] = x_mu
+        else:
+            x[:, self.mu] = x_mu
+        return x
+
+    backward = reverse
+
+
+# =============================================================================
+class _GaugeModule_(MatrixModule_):
     """
     Parameters
     ----------
@@ -65,10 +265,10 @@ class GaugeModule_(MatrixModule_):
 
     mu : int
         specifies the direction of links that are going to be changed
-    
+
     nu_list : list of int
         (in combination w/ mu) specifies the plane of staples to be calculated
-    
+
     staple_handle: class instance
         to calculate staples and use them.
 
@@ -189,7 +389,7 @@ class GaugeModule_(MatrixModule_):
 
 
 # =============================================================================
-class SVDGaugeModule_(StapledMatrixModule_):
+class _SVDGaugeModule_(StapledMatrixModule_):
     """
     Similar to GaugeModule_ but uses singular values of the staples for
     processing too.
@@ -206,10 +406,10 @@ class SVDGaugeModule_(StapledMatrixModule_):
 
     mu : int
         specifies the direction of links that are going to be changed
-    
+
     nu_list : list of int
         (in combination w/ mu) specifies the plane of staples to be calculated
-    
+
     staple_handle: class instance
         to calculate staples and use them.
 
