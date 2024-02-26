@@ -1,61 +1,68 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
-"""This module includes utilities for masking inputs."""
+"""This module includes utilities for masking inputs.
 
+Each mask must have three methods:
+    1. split (to partition data to two parts),
+    2. cat (to put the partitions together),
+    3. purify (to make sure there is no contamination from other partition).
+"""
 
 import torch
-
 import itertools
 
+from .mask import Mask
 
-class MatrixMask(torch.nn.Module):
-    """Each mask must have two methods: `split` and `cat` to split and
-    concatenate the data according to the mask. Another method called ``purify``
-    is needed to make sure the data is zero where it must be zero.
-    (The ``purify`` method is used by some classes, but not all.)
+
+class MatrixMask(Mask, ABC):
+    """Applies the given mask of 0s and 1s to all matrices and then replaces
+    the vanishing matrices with the identity matrix.
     """
 
-    def __init__(self, *, lat_shape, identity_matrix=torch.eye(2), parity=0,
-            anisotropic_dir=None
-            ):
-        """
-        Parameters
-        ----------
-        anisotrpic_dir : int or None
-            If None, the mask is isotropic, othewise indicates anistropic
-            direction
-        """
-
-        super().__init__()
-        self.lat_shape = lat_shape
-        self.identity_matrix = identity_matrix
-        mask = self.evenodd(lat_shape, parity, anisotropic_dir=anisotropic_dir)
-        self.register_buffer('mask', mask)
-
-    @staticmethod
-    def evenodd(lat_shape, parity, anisotropic_dir=None):
-        shape = (*lat_shape, *[1]*len(lat_shape))
-        mask = torch.empty(shape, dtype=torch.uint8)
-        if anisotropic_dir is None:
-            for ind in itertools.product(*tuple([range(l) for l in shape])):
-                mask[ind] = (sum(ind) + parity) % 2
-        else:
-            mu = anisotropic_dir
-            assert 0 <= mu and mu < len(lat_shape)
-            for ind in itertools.product(*tuple([range(l) for l in shape])):
-                mask[ind] = (sum(ind) + parity - ind[mu]) % 2
-        return mask
-
     def split(self, x):
-        mask, eye = self.mask, self.identity_matrix
-        return (1 - mask) * x + mask * eye, mask * x + (1 - mask) * eye
+        eye = torch.eye(x.shape[-1], device=x.device)
+        return (self._mask * x + self._c_mask * eye,
+                self._c_mask * x + self._mask * eye)
 
     def cat(self, x_0, x_1):
-        return x_0 + x_1 - self.identity_matrix
+        eye = torch.eye(x.shape[-1], device=x.device)
+        return x_0 + x_1 - eye
 
     def purify(self, x_chnl, channel):
-        mask, eye = self.mask, self.identity_matrix
+        eye = torch.eye(x.shape[-1], device=x.device)
         if channel == 0:
-            return (1 - mask) * x_chnl + mask * eye
+            return self._mask * x + self._c_mask * eye
         else:
-            return mask * x_chnl + (1 - mask) * eye
+            return self._c_mask * x + self._mask * eye
+
+
+class EvenOddMatrixMask(MatrixMask):
+    """Creates an even-odd matrix mask of given shape and parity.
+
+    One can exclude a specific direction by providing a value to `exclude_mu`,
+    which is by default None. Then the mask in direction of `exclude_mu` is
+    constant.
+    """
+
+    @staticmethod
+    def make_mask(*, shape, parity=0, exclude_mu=None):
+        shape = [*shape, 1, 1]  # last 2 axes are for matrix space
+        mask = torch.empty(shape, dtype=torch.uint8)
+        for ind in itertools.product(*tuple([range(l) for l in shape])):
+            if exclude_mu is None:
+                mask[ind] = (1 - parity + sum(ind)) % 2
+            else:
+                mask[ind] = (1 - parity + sum(ind) - ind[exclude_mu]) % 2
+        return mask
+
+
+class AlongAxesEvenOddMatrixMask(MatrixMask):
+    """Creates a mask that alternates only in a specific given direction."""
+
+    @staticmethod
+    def make_mask(*, shape, parity=0, mu=0):
+        shape = [*shape, 1, 1]  # last 2 axes are for matrix space
+        mask = torch.empty(shape, dtype=torch.uint8)
+        for ind in itertools.product(*tuple([range(l) for l in shape])):
+            mask[ind] = (1 - parity + ind[mu]) % 2
+        return mask
