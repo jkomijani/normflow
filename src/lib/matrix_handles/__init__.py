@@ -6,3 +6,5 @@ from .matrix_handle import SU2MatrixParametrizer, SU3MatrixParametrizer
 
 from .staples_handle import WilsonStaplesHandle, U1WilsonStaplesHandle
 from .euler_handle import SU2MatrixEulerParametrizer
+
+from .flow_handle import UnitaryFlow_
