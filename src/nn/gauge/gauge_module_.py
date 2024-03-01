@@ -140,11 +140,8 @@ class GaugeModule_(Module_):
         new_slink, logJ = \
                 self._apply_slink_reverse_transform(slink, staples_object)
 
-        # x_mu = self.staples_handle.push2link(x_mu,
-        #        slink_rotation = new_slink @ slink.adjoint(),
-        #        staples_object = staples_object
-        #         )
-        x_mu = self.staples_handle.unstaple(new_slink,
+        x_mu = self.staples_handle.push2link(x_mu,
+                slink_rotation = new_slink @ slink.adjoint(),
                 staples_object = staples_object
                 )
 
@@ -155,41 +152,45 @@ class GaugeModule_(Module_):
     def _apply_slink_transform(self, slink, staples_object):
         # slink: stapled link
         # ======
-        # Part 0: Parametrize the input matrix
-        param, logJ_mat2par = self.matrix_handle.matrix2param_(slink)
+        # Spectral decomposition of the input matrix
+        eigangs, logJ_mat2ang = self.matrix_handle.matrix2eigang_(slink)
+        eigvecs = self.matrix_handle.eigvecs
+        logJ = logJ_mat2ang
 
-        # Part 1: transform the parameters
+        # Part 1: parametrize the eigenangles and transform the parameters
         if self.param_net_ is not None:
             # TODO: movedim must be handled in self.param_net_
+            param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
             param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
             param, logJ_par2par = self.param_net_(param)
             param = torch.movedim(param, 1, -1)  # return channel axis to -1
-            eigangs, logJ_par2ang = self.matrix_handle.param2eigangs_(param)
-            logJ = logJ_mat2par + logJ_par2par + logJ_par2ang
-        else:
-            raise Exception("param_net_ cannot be None")
+            eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
+            logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
         # ======
         # Part 2: transform the eigenvalues directly
         if self.eigangs_net_ is not None:
-            pass  # NOT READY
-            # eigangs, logJ_ang2ang = self.eigangs_net_(eigangs)
-            # logJ += logJ_ang2ang
+            eigangs, logJ_ang2ang = self.eigangs_net_(
+                    eigangs,
+                    eigvecs = eigvecs,
+                    staples_object = staples_object
+                    )
+            logJ += logJ_ang2ang
 
         # ======
         # Part 3: transform the eigenvectors
         if self.eigvecs_net_ is not None:
             eigvecs, logJ_vec2vec = self.eigvecs_net_(
-                    self.matrix_handle.eigvecs,
-                    eigangs=eigangs,
-                    staples_object=staples_object
+                    eigvecs,
+                    eigangs = eigangs,
+                    staples_object = staples_object
                     )
             logJ += logJ_vec2vec
-            self.matrix_handle.set_eigvecs(eigvecs)
+            self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
 
         # ======
         # Finally, put all pieces together
-        new_slink, logJ_ang2mat = self.matrix_handle.eigangs2matrix_(eigangs)
+        new_slink, logJ_ang2mat = self.matrix_handle.eigang2matrix_(eigangs)
         logJ += logJ_ang2mat
 
         return new_slink, logJ
@@ -197,42 +198,45 @@ class GaugeModule_(Module_):
     def _apply_slink_reverse_transform(self, slink, staples_object):
         # slink: stapled link
         # ======
-        # Part 0: Parametrize the input matrix
-        param, logJ_mat2par = self.matrix_handle.matrix2param_(slink)
+        # Part 0: Spectral decomposition of the input matrix
+        eigangs, logJ_mat2ang = self.matrix_handle.matrix2eigang_(slink)
+        eigvecs = self.matrix_handle.eigvecs
+        logJ = logJ_mat2ang
 
-        logJ = logJ_mat2par
         # ======
-        # Part inverse-3: transform the eigenvectors
+        # Part inverse-3: inverse-transform the eigenvectors
         if self.eigvecs_net_ is not None:
             eigvecs, logJ_vec2vec = self.eigvecs_net_.reverse(
-                    self.matrix_handle.eigvecs,
-                    eigangs=self.matrix_handle.eigangs,
-                    staples_object=staples_object
+                    eigvecs,
+                    eigangs = eigangs,
+                    staples_object = staples_object
                     )
             logJ += logJ_vec2vec
-            self.matrix_handle.set_eigvecs(eigvecs)
+            self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
 
         # ======
-        # Part inverse-2: transform the eigenvalues directly
+        # Part inverse-2: inverse-transform the eigenvalues directly
         if self.eigangs_net_ is not None:
-            pass  # NOT READY
-            # eigangs, logJ_ang2ang = self.eigangs_net_.reverse(eigangs)
-            # logJ += logJ_ang2ang
+            eigangs, logJ_ang2ang = self.eigangs_net_.reverse(
+                    eigangs,
+                    eigvecs = eigvecs,
+                    staples_object = staples_object
+                    )
+            logJ += logJ_ang2ang
 
-        # Part inverse-1: transform the parameters
+        # Part inverse-1: inverse-transform the parameters
         if self.param_net_ is not None:
             # TODO: movedim must be handled in self.param_net_
+            param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
             param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
             param, logJ_par2par = self.param_net_.reverse(param)
             param = torch.movedim(param, 1, -1)  # return channel axis to -1
-            eigangs, logJ_par2ang = self.matrix_handle.param2eigangs_(param)
-            logJ += (logJ_par2par + logJ_par2ang)
-        else:
-            raise Exception("param_net_ cannot be None")
+            eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
+            logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
         # ======
         # Finally, put all pieces together
-        new_slink, logJ_ang2mat = self.matrix_handle.eigangs2matrix_(eigangs)
+        new_slink, logJ_ang2mat = self.matrix_handle.eigang2matrix_(eigangs)
         logJ += logJ_ang2mat
 
         return new_slink, logJ
