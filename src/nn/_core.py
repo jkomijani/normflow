@@ -64,6 +64,9 @@ class ModuleList_(torch.nn.ModuleList):
         super().__init__(nets_)
         self.label = label
 
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
     def forward(self, x, log0=0):
         for net_ in self:
             x, log0 = net_.forward(x, log0)
@@ -74,8 +77,8 @@ class ModuleList_(torch.nn.ModuleList):
             x, log0 = net_.backward(x, log0)
         return x, log0
 
-    def __call__(self, *args, **kwargs):
-        return self.forward(*args, **kwargs)
+    def reverse(self, *args, **kwargs):
+        return self.backward(*args, **kwargs)
 
     def grouped_parameters(self):
         if self._groups is None:
@@ -160,6 +163,9 @@ class MultiChannelModule_(torch.nn.ModuleList):
 
     def backward(self, x, log0=0):
         return self._map(x, [net_.backward for net_ in self], log0=log0)
+
+    def reverse(self, *args, **kwargs):
+        return self.backward(*args, **kwargs)
 
     def _map(self, x, f_, log0=0):
         if self.keep_channels_axis:
