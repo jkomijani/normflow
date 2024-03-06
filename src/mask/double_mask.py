@@ -10,7 +10,8 @@ Each mask must have three methods:
 
 import torch
 
-from .mask import EvenOddMask, AlongAxesEvenOddMask
+from .mask import EvenOddMask
+from .partitioner import AlongAxisEvenOddPartitioner
 
 
 class DoubleMask(torch.nn.Module):
@@ -35,17 +36,18 @@ class DoubleMask(torch.nn.Module):
         return self.invisibility_mask.cat(x, self._x_invisible)
 
     def purify(self, x_chnl, channel, **kwargs):
-        return self.invisibility_mask.purify(
-                self.outer_mask.purify(x_chnl, channel, **kwargs),
-                0  # 1, which corresponds to self._x_invisible is out of access
-                )
+        outer_purified = self.outer_mask.purify(x_chnl, channel, **kwargs)
+        return self.invisibility_mask.purify(outer_purified, channel=0)
 
 
 class GaugeLinksDoubleMask(DoubleMask):
 
-    def __init__(self, *, shape, parity, mu, channels_exist=True):
-        # If axis = 1 is the channels axis (e.g., eigenvalues), then mu should
-        # be modified accordingly.
-        mask0 = EvenOddMask(shape=mask_shape, parity=parity)
-        mask1 = AlongAxesEvenOddMask(shape=mask_shape, mu=mu)
+    def __init__(self, *, shape, parity, mu):
+        mask0 = EvenOddMask(shape=shape, parity=parity, exclude_mu=mu)
+        mask1 = AlongAxisEvenOddPartitioner(mu)
         super().__init__(invisibility_mask=mask0, outer_mask=mask1)
+        self._mask0_splitted = mask0._mask[mask1.even_ind[1:]]
+
+    def purify(self, x_chnl, channel, **kwargs):
+        outer_purified = self.outer_mask.purify(x_chnl, channel, **kwargs)
+        return outer_purified * self._mask0_splitted
