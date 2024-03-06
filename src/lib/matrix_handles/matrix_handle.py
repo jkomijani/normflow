@@ -33,7 +33,10 @@ class UnMatrixParametrizer:
         self.order = None
 
     def matrix2phase_(self, matrix):
-        """Return angle of eigenvalues of input and logJ of transformation.
+        """Preform the spectral decomposition of the input matrix, save the
+        modal matrix, calculate the angles of eigenvalues, save and return
+        them, Moreover, the logarithm of Jacobian of transformation will be
+        returned.
 
         Here, `logJ` is the Jacobian of partitioning an integration over SU(n)
         matrices to integrals over corresponding spectral and modal matrices.
@@ -109,11 +112,17 @@ class UnMatrixParametrizer:
             vol *= prodabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
         return vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
 
-    def param2eigangs_(self, *args, **kwargs):
-        return self.param2phase_(*args, **kwargs)
+    def matrix2eigang_(self, *args, **kwargs):
+        return self.matrix2phase_(*args, **kwargs)
 
-    def eigangs2matrix_(self, *args, **kwargs):
+    def eigang2matrix_(self, *args, **kwargs):
         return self.phase2matrix_(*args, **kwargs)
+
+    def eigang2param_(self, *args, **kwargs):
+        return self.phase2param_(*args, **kwargs)
+
+    def param2eigang_(self, *args, **kwargs):
+        return self.param2phase_(*args, **kwargs)
 
     def set_eigangs(self, eigangs):
         self.phase = eigangs
