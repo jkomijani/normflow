@@ -159,11 +159,8 @@ class GaugeModule_(Module_):
 
         # Part 1: parametrize the eigenangles and transform the parameters
         if self.param_net_ is not None:
-            # TODO: movedim must be handled in self.param_net_
             param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
-            param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
             param, logJ_par2par = self.param_net_(param)
-            param = torch.movedim(param, 1, -1)  # return channel axis to -1
             eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
             logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
@@ -226,11 +223,8 @@ class GaugeModule_(Module_):
 
         # Part inverse-1: inverse-transform the parameters
         if self.param_net_ is not None:
-            # TODO: movedim must be handled in self.param_net_
             param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
-            param = torch.movedim(param, -1, 1)  # channel axis: from -1 to 1
             param, logJ_par2par = self.param_net_.reverse(param)
-            param = torch.movedim(param, 1, -1)  # return channel axis to -1
             eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
             logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
