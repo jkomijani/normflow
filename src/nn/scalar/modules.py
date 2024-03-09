@@ -92,6 +92,8 @@ class ConvAct(torch.nn.Sequential):
 
     where :math:`\star` is n-dimensional cross-correlation operator acting on
     the features axes. The supported features dinensions are 1, 2, 3, and 4.
+    Note that is is possible to change the channels axis from 1 to any other
+    axis.
 
     Parameters
     ----------
@@ -109,6 +111,8 @@ class ConvAct(torch.nn.Sequential):
         Activations after each layer (default is None)
     pre_act (str or None, optional):
         A possible activation layer before the rest (default is None)
+    channels_axis (int, optional):
+        Specifies the channels axis (default is 1)
     """
 
     Conv = {1: torch.nn.Conv1d,
@@ -125,6 +129,7 @@ class ConvAct(torch.nn.Sequential):
             hidden_sizes = [],
             acts = [None],
             pre_act = None,
+            channels_axis: int = 1,
             **extra_kwargs  # all other kwargs to pass to torch.nn.Conv?d
             ):
 
@@ -148,10 +153,20 @@ class ConvAct(torch.nn.Sequential):
         conv_kwargs.update(
                 dict(in_channels=in_channels, out_channels=out_channels,
                      kernel_size=kernel_size, conv_dim=conv_dim,
-                     hidden_sizes=hidden_sizes, acts=acts, pre_act=pre_act
+                     hidden_sizes=hidden_sizes, acts=acts, pre_act=pre_act,
+                     channels_axis=channels_axis
                      )
                 )
         self.conv_kwargs = conv_kwargs
+
+    def forward(self, x):
+        channels_axis = self.conv_kwargs['channels_axis']
+        if channels_axis == 1:
+            return super().forward(x)
+        else:
+            x = torch.movedim(x, channels_axis, 1)
+            x = super().forward(x)
+            return torch.movedim(x, 1, channels_axis)
 
     def set_param2zero(self):
         # Do NOT use this unless for test, otherwise, the params do not change
@@ -312,14 +327,15 @@ class SplineNet(torch.nn.Module):
     ----------
     knots_len : int
         number of knots of the spline.
-    xlim & ylim : array-like
+    xlim & ylim : array-like, optional
         the min and max values for `x` & `y` of the knots.
     knots_x & knots_y & knots_d : None or tensors, optional
         fix corresponding tensors to the input if provided.
-     spline_shape : array-like  # (Question: Is this USED at all?)
+    spline_shape : array-like, optional
         specifies number of splines organized as a tensor
         (default is [], indicating there is only one spline).
-     knots_axis : int
+        (TODO: this can be removed as it is not used).
+    knots_axis : int, optional
         relevant only if spline_shape is not empty list (default value is -1).
     """
 
