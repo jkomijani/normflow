@@ -46,8 +46,8 @@ class GaugeLinksDoubleMask(DoubleMask):
         mask0 = EvenOddMask(shape=shape, parity=parity, exclude_mu=mu)
         mask1 = AlongAxisEvenOddPartitioner(mu)
         super().__init__(invisibility_mask=mask0, outer_mask=mask1)
-        self._mask0_splitted = mask0._mask[mask1.even_ind[1:]]
 
     def purify(self, x_chnl, channel, **kwargs):
         outer_purified = self.outer_mask.purify(x_chnl, channel, **kwargs)
-        return outer_purified * self._mask0_splitted
+        inner_mask = self.invisibility_mask._mask[self.outer_mask.even_ind[1:]]
+        return outer_purified * inner_mask
