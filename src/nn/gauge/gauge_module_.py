@@ -92,14 +92,15 @@ class GaugeModule_(Module_):
     unbounded_vector_axis = True
 
     def __init__(self,
-            *, mu, nu_list, staples_handle, matrix_handle,
-            param_net_, eigangs_net_=None, eigvecs_net_=None,
+            *, mu, nu_list, staples_handle, matrix_handle, param_net_,
+            dual_param_net_=None, eigangs_net_=None, eigvecs_net_=None,
             staples_kwargs={}, label="gauge_"
             ):
         super().__init__(label=label)
         self.mu = mu
         self.nu_list = nu_list
         self.param_net_ = param_net_
+        self.dual_param_net_ = dual_param_net_
         self.eigangs_net_ = eigangs_net_
         self.eigvecs_net_ = eigvecs_net_
         self.matrix_handle = matrix_handle
@@ -161,6 +162,12 @@ class GaugeModule_(Module_):
         if self.param_net_ is not None:
             param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
             param, logJ_par2par = self.param_net_(param)
+            if self.dual_param_net_ is not None:
+                param, logJ_par2par = self.dual_param_net_(
+                        param,
+                        staples_object.get_dual_param(eigvecs),
+                        log0=logJ_par2par
+                        )
             eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
             logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
@@ -224,7 +231,14 @@ class GaugeModule_(Module_):
         # Part inverse-1: inverse-transform the parameters
         if self.param_net_ is not None:
             param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
-            param, logJ_par2par = self.param_net_.reverse(param)
+            if self.dual_param_net_ is not None:
+                param, logJ_par2par = self.dual_param_net_.reverse(
+                        param, staples_object.get_dual_param(eigvecs)
+                        )
+            else:
+                logJ_par2par = 0
+            log0 = logJ_par2par
+            param, logJ_par2par = self.param_net_.reverse(param, log0=log0)
             eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
             logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
