@@ -71,7 +71,7 @@ class ModalMatrixFlow_(Module_):
 
 
 class SUnSpectralFlow_(Module_):
-    """NOT RELIABLE YET except for SU(2); see the `solve` method."""
+    """NOT RELIABLE YET; see the `integrate` method."""
 
     def __init__(self, tau_net=None, tau_par=torch.zeros(1), mask=None):
         super().__init__()
@@ -81,50 +81,37 @@ class SUnSpectralFlow_(Module_):
         else:
             self.tau_net = tau_net
 
-    def forward(self, eigangs, *, eigvecs, staples_object):
+    def forward(self, eigangs, *, eigvecs, staples_object, positive_tau=True):
         sigma = torch.linalg.diagonal(
                 eigvecs.adjoint() @ staples_object.svd_.Sigma @ eigvecs
                 ).real
         alpha = staples_object.svd_.rdet_angle.unsqueeze(-1)
-        tau = self.tau_net(phase=(eigangs + alpha))
+        if positive_tau:
+            tau = self.tau_net(phase=(eigangs + alpha))
+        else:
+            tau = - self.tau_net(phase=(eigangs + alpha))
         kwargs = dict(alpha=alpha, s=sigma, t=tau)
         if self.mask is None:
-            eigangs, logJ_density = self.solve(eigangs, **kwargs)
+            eigangs, logJ_density = self.integrate(eigangs, **kwargs)
         else:
             mask = self.mask
             x_0, x_1 = mask.split(eigangs)
-            x_0, logJ_density = self.solve(x_0, **kwargs)
+            x_0, logJ_density = self.integrate(x_0, **kwargs)
             x_0 = mask.purify(x_0, channel=0)
             eigangs = mask.cat(x_0, x_1)
             logJ_density = mask.purify(logJ_density.unsqueeze(-1), channel=0)
         logJ = self.sum_density(logJ_density)
         return eigangs, logJ
 
-    def reverse(self, eigangs, *, eigvecs, staples_object):
-        sigma = torch.linalg.diagonal(
-                eigvecs.adjoint() @ staples_object.svd_.Sigma @ eigvecs
-                ).real
-        alpha = staples_object.svd_.rdet_angle.unsqueeze(-1)
-        tau = self.tau_net(phase=(eigangs + alpha))
-        kwargs = dict(alpha=alpha, s=sigma, t=-tau)
-        if self.mask is None:
-            eigangs, logJ_density = self.solve(eigangs, **kwargs)
-        else:
-            mask = self.mask
-            x_0, x_1 = mask.split(eigangs)
-            x_0, logJ_density = self.solve(x_0, **kwargs)
-            x_0 = mask.purify(x_0, channel=0)
-            eigangs = mask.cat(x_0, x_1)
-            logJ_density = mask.purify(logJ_density.unsqueeze(-1), channel=0)
-        logJ = self.sum_density(logJ_density)
-        return eigangs, logJ
+    def reverse(self, *args, **kwargs):
+        return self.forward(*args, **kwargs, positive_tau=False)
 
     def tau_net(self, **kwargs):  # this is just the default self.tau_net
         return 0.02 * torch.nn.functional.softplus(self.tau_par)
 
-    def solve(self, x, *, s, t, alpha):
-        r"""Return the solution of :math:`\frac{dx}{dt} = - s \sin(x)` with the
-        condition that the sum of x (over the last axis) remains constant.
+    def integrate(self, x, *, s, t, alpha):
+        r"""Integrate :math:`\frac{dx}{dt} = - s \sin(x)` with the condition
+        that the sum of :math:`x` (over the last axis) remains constant.
 
         The prescription used here is to eliminate one of the elements of `x`
         in favor of the others. The inverse transformation is known in closed
@@ -156,25 +143,28 @@ class SUnSpectralFlow_(Module_):
 
             \tan[x(t) / 2] = e^{-s t} \tan[x(0) / 2] .
         """
-        shift_term = torch.zeros_like(x)
-        shift_term[x > np.pi] = 2 * np.pi
-        shift_term[x < -np.pi] = - 2 * np.pi
-
         tanxf = torch.tan(x / 2)  # f for half!
         coef = torch.exp(-s * t)
         x = 2 * torch.atan(coef * tanxf)
         grad = coef * (1 + tanxf**2) / (1 + (coef * tanxf)**2)  # dx(t) / dx(0)
 
+        return x, grad
+
+        # shift_term = torch.zeros_like(x)
+        # shift_term[x > np.pi] = 2 * np.pi
+        # shift_term[x < -np.pi] = - 2 * np.pi
+
         # the following lines are not compatible with automatic differentiation
         # x[x_0 == np.pi] = np.pi
         # x[x_0 == -np.pi] = -np.pi
 
-        return x + shift_term, grad
+        # return x + shift_term, grad
 
 
 class SU2SpectralFlow_(SUnSpectralFlow_):
+    """Unlike the superclass, this class is reliable."""
 
-    def solve(self, x, *, s, t, alpha):
+    def integrate(self, x, *, s, t, alpha):
         r"""Return the solution of :math:`\frac{dx}{dt} = - s \sin(x)`"""
         x, grad = self.exact_decoupled_solution(x, s=s, t=t)
         return x, torch.log(grad[..., 0])
