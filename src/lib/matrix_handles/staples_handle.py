@@ -20,7 +20,7 @@ class TemplateStaplesHandle:
         matrices that are obtained by performing SVD on the sum of the
         corresponding `staples.`
         """
-        svd_ = special_svd(staples_object.staples_sum)
+        svd_ = special_svd(staples_object.data())
         staples_object.svd_ = svd_
 
         if self.onesided:
@@ -78,7 +78,8 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         assert self.vector_axis == vector_axis, "vector axis?"
 
     @classmethod
-    def calc_staples(cls, links, *, mu, nu_list, staples_coeff=None):
+    def calc_staples(cls, links, *, mu, nu_list, staples_coeff=None,
+            mixed_staples_coeff=None):
         """Calculate the staples (from the Wilson gauge action) corresponding
         to the `links` that are in `mu` direction and summed over mu-nu planes
         with nu in `nu_list`.
@@ -107,7 +108,8 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             staples_sum = sum(
                [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
                )
-            return StaplesObject(staples_sum)
+            kwargs = dict(mu=mu, mixed_staples_coeff=mixed_staples_coeff)
+            return StaplesObject(staples_sum, **kwargs)
 
         else:
             all_staples = [None] * (2 * len(nu_list))
@@ -213,8 +215,56 @@ class StaplesObject:
 
     svd_ = None
 
-    def __init__(self, staples_sum):
+    def __init__(self, staples_sum, mu=None, mixed_staples_coeff=None):
         self.staples_sum = staples_sum
+        self.mixed_staples_coeff = mixed_staples_coeff
+        self.mu = mu
+
+    def data(self):
+        coeff = self.mixed_staples_coeff
+        if coeff is None:
+            return self.staples_sum
+        else:
+            mixed = self.mixedstaples()
+            return self.staples_sum + coeff['1'] * mixed['1'] \
+                    + coeff['2'] * mixed['2'] + coeff['3'] * mixed['3']
+
+    def mixedstaples(self):
+        gamma = self.staples_sum
+        gamma2 = gamma.adjoint() @ gamma
+        loop_left = torch.roll(gamma @ gamma.adjoint(), 1, dims=1 + self.mu)
+        loop_right = torch.roll(gamma2, -1, dims=1 + self.mu)
+        out_dict = {
+                '1': gamma @ gamma2,
+                '2': loop_right @ gamma + gamma @ loop_left,
+                '3': loop_right @ gamma @ loop_left
+                }
+        return out_dict
+
+    def _mixedstaples(self, link):
+        # Return G @ Gl @ L  +  R @ Gr @ G
+        # where G, Gl and Gr are staples corresponding to U, L and R as depicted
+        # in the following cartoon:
+        #
+        #  --Gl---G--       --G---Gr--
+        #  |    !   |       |   !    |
+        #  --L--@ U @   +   @ U @--R--
+        #
+        # and R @ Gr @ G @ Gl @ L from the following cartoon
+        #
+        #  --Gl---G---Gr--
+        #  |    !   !    |
+        #  --L--@ U @--R--
+        #
+        gamma = self.staples_sum
+        loop_left = torch.roll(gamma @ link, 1, dims=1 + self.mu)
+        loop_right = torch.roll(link @ gamma, -1, dims=1 + self.mu)
+        out_dict = {
+            '2': gamma @ loop_left + loop_right @ gamma,
+            '2d': gamma @ loop_left.adjoint() + loop_right.adjoint() @ gamma,
+            '3': loop_right @ gamma @ loop_left
+            }
+        return out_dict
 
     @property
     def singv(self):
@@ -229,6 +279,23 @@ class StaplesObject:
         else:
             singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
         return singv
+
+    def get_dual_param(self, eigvecs):
+        """Return singular values"""
+        try:
+            svd_ = self.svd_
+        except:
+            raise NameError()
+
+        if svd_.S.shape[-1] == 2:
+            dual = svd_.S[..., :1]
+        else:
+            sigma = torch.linalg.diagonal(
+                eigvecs.adjoint() @ svd_.Sigma @ eigvecs
+                ).real
+            alpha = svd_.rdet_angle.unsqueeze(-1)
+            dual = torch.cat([sigma, torch.cos(alpha), torch.sin(alpha)], -1)
+        return dual
 
 
 # =============================================================================
