@@ -25,7 +25,7 @@ import time
 import numpy as np
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
-from .lib.combo import estimate_logz, fmt_val_err
+from .lib.combo import fmt_val_err
 from .device import ModelDeviceHandler
 
 
@@ -133,21 +133,13 @@ class Fitter:
     def __init__(self, model):
         self._model = model
 
-        self.train_batch_size = 1
-
-        self.train_history = dict(
-            loss=[], logqp=[], logp=[], logz=[], ess=[], rho=[], accept_rate=[]
-            )
+        self.train_history = dict(loss=[None], ess=[None], logp=[None])
 
         self.hyperparam = dict(lr=0.001, weight_decay=0.01)
 
         self.checkpoint_dict = dict(
-            display=False,
-            print_stride=100,
-            print_batch_size=1024,
-            print_extra_func=None,
-            save_epochs=[],
-            save_fname_func=None
+            print_stride=1,
+            print_batch_size=None
             )
 
     def __call__(self,
@@ -184,7 +176,7 @@ class Fitter:
             weights
 
         checkpoint_dict : dict, optional
-            Can be set to control the displayed/printed results
+            Can be set to control printing the status of the training
         """
         self.hyperparam.update(hyperparam)
         self.checkpoint_dict.update(checkpoint_dict)
@@ -198,7 +190,10 @@ class Fitter:
             parameters = net_.parameters()
         self.optimizer = optimizer_class(parameters, **self.hyperparam)
 
-        self.scheduler = None if scheduler is None else scheduler(self.optimizer)
+        if scheduler is None:
+            self.scheduler = None
+        else:
+            self.scheduler = scheduler(self.optimizer)
 
         return self.train(n_epochs, batch_size)
 
@@ -220,26 +215,32 @@ class Fitter:
         if n_epochs == 0:
             return
 
-        self.train_batch_size = batch_size
-        previous_epochs = len(self.train_history["loss"])
-        if previous_epochs == 0:
-            self.checkpoint(0, None)
+        initial_epoch = len(self.train_history['loss'])
+        if initial_epoch == 1:
+            print(f">>> Checking the current status of the model <<<")
+            self._checkpoint(0, None, None, batch_size)
+
+        self.train_history['ess'].extend([0. for _ in range(n_epochs)])
+        self.train_history['loss'].extend([0. for _ in range(n_epochs)])
+        self.train_history['logp'].extend([0. for _ in range(n_epochs)])
+
+        if self._model.device_handler.rank == 0:
+            print(f">>> Training started for {n_epochs} epochs <<<")
 
         T1 = time.time()
-        for epoch in range(previous_epochs+1, previous_epochs+1 + n_epochs):
-            loss, logqp = self.step()
-            self.checkpoint(epoch, loss)
+        for epoch in range(initial_epoch, initial_epoch + n_epochs):
+            loss, logq, logp = self.step(batch_size)
+            self._checkpoint(epoch, logq, logp)
             if self.scheduler is not None:
                 self.scheduler.step()
         T2 = time.time()
 
         if self._model.device_handler.rank == 0:
-            print(f"({loss.device}) Time = {T2 - T1:.3g} sec.")
+            print(f">>> Training finished; total TIME = {T2 - T1:.3g} sec <<<")
 
-    def step(self):
-        """Perform a train step with a batch of inputs"""
+    def step(self, batch_size):
+        """Perform a train step with a batch of inputs of size `batch_size`."""
         model = self._model
-        batch_size = self.train_batch_size
 
         x, logr = model.prior.sample_(batch_size)
         y, logJ = model.net_(x)
@@ -259,41 +260,42 @@ class Fitter:
         else:
             self.optimizer.step()
 
-        return loss, logq - logp
+        return loss, logq, logp
 
-    def checkpoint(self, epoch, loss):
+    @torch.no_grad()
+    def _checkpoint(self, epoch, logq, logp, batch_size=None):
 
         rank = self._model.device_handler.rank
 
-        # Always save loss on rank 0 (for epoch > 0)
-        if rank == 0 and epoch > 0:
-            self.train_history['loss'].append(loss.item())
+        stride = self.checkpoint_dict['print_stride']
 
-        # For other quantities
-        print_stride = self.checkpoint_dict['print_stride']
-        print_batch_size = self.checkpoint_dict['print_batch_size']
-        save_epochs = self.checkpoint_dict['save_epochs']
-        save_fname_func = self.checkpoint_dict['save_fname_func']
+        # Generate new samples if demanded!
+        if epoch % stride == 0:
 
-        print_batch_size = print_batch_size // self._model.device_handler.nranks
+            bsize = self.checkpoint_dict['print_batch_size']
+            if bsize is None:
+                bsize = batch_size
+            if not (bsize is None):
+                _, logq, logp = self._model.posterior.sample__(bsize)
 
-        if epoch % print_stride == 0:
+        logq = self._model.device_handler.all_gather_into_tensor(logq)
+        logp = self._model.device_handler.all_gather_into_tensor(logp)
 
-            _, logq, logp = self._model.posterior.sample__(print_batch_size)
+        if rank == 0:
+            ess = self.calc_ess(logq, logp).item()
+            loss = self.loss_fn(logq, logp).item()
+            logp = (logp.mean().item(), logp.std().item())
 
-            logq = self._model.device_handler.all_gather_into_tensor(logq)
-            logp = self._model.device_handler.all_gather_into_tensor(logp)
+            if epoch % stride == 0:
+                str1 = f"Epoch: {epoch} | loss: {loss:.4f} | ess: {ess:.4f} | "
+                str2 = "log(p): {0}".format(fmt_val_err(*logp, err_digits=2))
+                print(str1 + str2)
 
-            if rank == 0:
-                loss_ = self.loss_fn(logq, logp)
-                self._append_to_train_history(logq, logp)
-                self.print_fit_status(epoch, loss=loss_)
+            self.train_history['ess'][epoch] = ess
+            self.train_history['loss'][epoch] = loss
+            self.train_history['logp'][epoch] = logp
 
-                # if self.checkpoint_dict['display']:
-                #     self.live_plot_handle.update(self.train_history)
-
-        if rank == 0 and epoch in save_epochs:
-            torch.save(self._model.net_, save_fname_func(epoch))
+        return
 
     @staticmethod
     def calc_kl_mean(logq, logp):
@@ -310,21 +312,6 @@ class Fitter:
 
     @staticmethod
     def calc_direct_kl_mean(logq, logp):
-        r"""Return *direct* KL mean, which is defined as
-
-        .. math::
-
-           \frac{\sum \frac{p}{q} (\log(\frac{p}{q}) + logz)}{\sum \frac{p}{q}}
-
-        where
-
-        .. math::
-
-           logz = \log( \sum(frac{p}{q}) / N)
-
-        wbere N is the number of samples. The direct KL means is invariant
-        under scaling p and/or q.
-        """
         logpq = logp - logq
         logz = torch.logsumexp(logpq, dim=0) - np.log(logp.shape[0])
         logpq = logpq - logz  # p is now normalized
@@ -364,54 +351,6 @@ class Fitter:
     @classmethod
     def calc_minus_logess(cls, logq, logp):
         return -cls.calc_logess(logq, logp)
-
-    @torch.no_grad()
-    def _append_to_train_history(self, logq, logp):
-        logqp = logq - logp
-        logz = estimate_logz(logqp, method='jackknife')  # returns (mean, std)
-        accept_rate = self._model.mcmc.estimate_accept_rate(logqp)
-        ess = self.calc_ess(logqp, 0)
-        rho = self.calc_corrcoef(logq, logp)
-        logqp = (logqp.mean().item(), logqp.std().item())
-        logp = (logp.mean().item(), logp.std().item())
-        self.train_history['logqp'].append(logqp)
-        self.train_history['logz'].append(logz)
-        self.train_history['logp'].append(logp)
-        self.train_history['ess'].append(ess)
-        self.train_history['rho'].append(rho)
-        self.train_history['accept_rate'].append(accept_rate)
-
-    def print_fit_status(self, epoch, loss=None):
-        mydict = self.train_history
-        if loss is None:
-            loss = mydict['loss'][-1]
-        else:
-            pass  # the printed loss can be different from mydict['loss'][-1]
-        logqp_mean, logqp_std = mydict['logqp'][-1]
-        logz_mean, logz_std = mydict['logz'][-1]
-        logp_mean, logp_std = mydict['logp'][-1]
-        accept_rate_mean, accept_rate_std = mydict['accept_rate'][-1]
-        # We now incorporate the effect of estimated log(z) to mean of log(q/p)
-        adjusted_logqp_mean = logqp_mean + logz_mean
-        ess = mydict['ess'][-1]
-        rho = mydict['rho'][-1]
-
-        if epoch == 0:
-            print(f"\n>>> Training progress ({ess.device}) <<<\n")
-            print("Note: log(q/p) is esitamted with normalized p; " \
-                  + "mean & error are obtained from samples in a batch\n")
-
-        str_ = f"Epoch: {epoch} | loss: {loss:g} | ess: {ess:g} | rho: {rho:g}"
-        str_ += " | log(p): {0} | log(q/p): {1} | accept_rate: {2}".format(
-                fmt_val_err(logp_mean, logp_std, err_digits=2),
-                fmt_val_err(adjusted_logqp_mean, logqp_std, err_digits=2),
-                fmt_val_err(accept_rate_mean, accept_rate_std, err_digits=1)
-                )
-
-        if self.checkpoint_dict['print_extra_func'] is not None:
-            str_ += self.checkpoint_dict['print_extra_func'](epoch)
-
-        print(str_)
 
 
 # =============================================================================
