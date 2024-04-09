@@ -110,7 +110,7 @@ class Posterior:
         return y, logq, logp
 
     # @torch.no_grad()
-    # The `no_grad` is removed for use with `subtract_explicit_param_autodiff`
+    # The `no_grad` is removed for use with `path_gradient_autodiff`
     def log_prob(self, y):
         """Returns log probability of the samples."""
         x, minus_logJ = self._model.net_.backward(y)
@@ -128,7 +128,7 @@ class Fitter:
     model : An instance of Model
     """
 
-    subtract_explicit_param_autodiff = True
+    path_gradient_autodiff = True
 
     def __init__(self, model):
         self._model = model
@@ -247,7 +247,7 @@ class Fitter:
         logp = - model.action(y)
         logq = logr - logJ
 
-        if self.subtract_explicit_param_autodiff:
+        if self.path_gradient_autodiff:
             logq_ydetached = model.posterior.log_prob(y.detach())
             logq = logq - (logq_ydetached - logq_ydetached.detach())
 
