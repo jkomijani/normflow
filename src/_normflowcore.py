@@ -217,7 +217,8 @@ class Fitter:
 
         initial_epoch = len(self.train_history['loss'])
         if initial_epoch == 1:
-            print(f">>> Checking the current status of the model <<<")
+            if self._model.device_handler.rank == 0:
+                print(f">>> Checking the current status of the model <<<")
             self._checkpoint(0, None, None, batch_size)
 
         self.train_history['ess'].extend([0. for _ in range(n_epochs)])
@@ -227,16 +228,17 @@ class Fitter:
         if self._model.device_handler.rank == 0:
             print(f">>> Training started for {n_epochs} epochs <<<")
 
-        T1 = time.time()
+        t_1 = time.time()
         for epoch in range(initial_epoch, initial_epoch + n_epochs):
             loss, logq, logp = self.step(batch_size)
             self._checkpoint(epoch, logq, logp)
             if self.scheduler is not None:
                 self.scheduler.step()
-        T2 = time.time()
+        t_2 = time.time()
 
         if self._model.device_handler.rank == 0:
-            print(f">>> Training finished; total TIME = {T2 - T1:.3g} sec <<<")
+            print(f">>> Training finished ({loss.device});", end='')
+            print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
     def step(self, batch_size):
         """Perform a train step with a batch of inputs of size `batch_size`."""
@@ -299,7 +301,7 @@ class Fitter:
 
     @staticmethod
     def calc_kl_mean(logq, logp):
-        """Return Kullback-Leibler divergence estimated from logq and logp"""
+        """Return Kullback-Leibler divergence estimated from logq and logp."""
         return (logq - logp).mean()  # KL, assuming samples from q
 
     @staticmethod
@@ -319,38 +321,26 @@ class Fitter:
         return (p_by_q * logpq).mean()
 
     @staticmethod
-    def calc_kl_mean_includelogz(logq, logp):
-        logqp = logq - logp
-        logz = torch.logsumexp(-logqp, dim=0) - np.log(logp.shape[0])
-        return logqp.mean() + logz
-
-    @staticmethod
     def calc_minus_logz(logq, logp):
         logz = torch.logsumexp(logp - logq, dim=0) - np.log(logp.shape[0])
         return -logz
 
     @staticmethod
     def calc_ess(logq, logp):
-        """ESS: effective sample size"""
+        """Rerturn effective sample size (ESS)."""
         logqp = logq - logp
-        log_ess = 2*torch.logsumexp(-logqp, dim=0) - torch.logsumexp(-2*logqp, dim=0)
+        log_ess = 2*torch.logsumexp(-logqp, dim=0) \
+                - torch.logsumexp(-2*logqp, dim=0)
         ess = torch.exp(log_ess) / len(logqp)  # normalized
         return ess
 
     @staticmethod
-    def calc_logess(logq, logp):
-        """log of ESS: effective sample size"""
+    def calc_minus_logess(logq, logp):
+        """Return logarith of inverse of effective sample size."""
         logqp = logq - logp
-        log_ess = 2*torch.logsumexp(-logqp, dim=0) - torch.logsumexp(-2*logqp, dim=0)
-        return log_ess - np.log(len(logqp))  # normalized
-
-    @classmethod
-    def calc_minus_ess(cls, logq, logp):
-        return -cls.calc_ess(logq, logp)
-
-    @classmethod
-    def calc_minus_logess(cls, logq, logp):
-        return -cls.calc_logess(logq, logp)
+        log_ess = 2*torch.logsumexp(-logqp, dim=0) \
+                - torch.logsumexp(-2*logqp, dim=0)
+        return - log_ess + np.log(len(logqp))  # normalized
 
 
 # =============================================================================
