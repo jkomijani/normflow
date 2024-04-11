@@ -34,7 +34,7 @@ distribution.
 
 Below is a simple example of a scalar theory in zero dimension:
 
-.. code-block:: python
+.. code-block::
 
     from normflow import Model
     from normflow.action import ScalarPhi4Action
@@ -51,7 +51,7 @@ Below is a simple example of a scalar theory in zero dimension:
     model = make_model()
     model.fit(n_epochs=1000, batch_size=1024, checkpoint_dict=dict(print_stride=100))
 
-The above code block prints an output similar to::
+The above code block results in an output similar to::
 
     >>> Checking the current status of the model <<<
     Epoch: 0 | loss: -1.8096 | ess: 0.4552 | log(p): 0.4(11)
@@ -72,7 +72,7 @@ The above code block prints an output similar to::
 After training the model, one can draw samples using an attribute called
 ``posterior``; to draw ``n`` samples from the trained distribution, use:
 
-.. code-block:: python
+.. code-block::
 
     x = model.posterior.sample(n)
 
@@ -83,7 +83,7 @@ similar to Markov Chain Monte Carlo (MCMC) simulations,
 one can employ a Metropolis accept/reject step and discard some of the first
 samples; to this end, one can use:
 
-.. code-block:: python
+.. code-block::
 
     x = model.mcmc.sample(n)
 
@@ -95,7 +95,7 @@ used to specify the number of GPUs used for training (the default value is one
 if any GPU is available).
 To this end, one can use:
 
-.. code-block:: python
+.. code-block::
 
     def fit_func(model):
         model.fit(n_epochs=500, batch_size=128)
