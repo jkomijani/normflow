@@ -35,15 +35,32 @@ class UnitaryFlow_:
     jacobian_mode = 'Gamma'  # can be changed to `Omega` if needed.
     return_logdet = True  # return log(|det(J)|).
 
-    def __init__(self, func, reverse_mode_iter=10):
+    def __init__(self, func, n_steps=1, reverse_mode_iter=10):
         # e.g., func = modal2antihermitian2unitary
         self.func = func
+        self.n_steps = n_steps
         self.reverse_mode_iter = reverse_mode_iter
 
     def __call__(self, matrix, **func_kwargs):
         return self.forward(matrix, **func_kwargs)
 
-    def forward(self, u_matrix, **func_kwargs):
+    def forward(self, matrix, **func_kwargs):
+        # This can be used ONLY with `return_logdet = True`
+        full_logJ = 0
+        for _ in range(self.n_steps):
+            matrix, logJ = self.one_step_forward(matrix, **func_kwargs)
+            full_logJ += logJ
+        return matrix, full_logJ
+
+    def reverse(self, matrix, **func_kwargs):
+        # This can be used ONLY with `return_logdet = True`
+        full_logJ = 0
+        for _ in range(self.n_steps):
+            matrix, logJ = self.one_step_reverse(matrix, **func_kwargs)
+            full_logJ += logJ
+        return matrix, full_logJ
+
+    def one_step_forward(self, u_matrix, **func_kwargs):
         f_matrix, f_jacobian = self.func(u_matrix, **func_kwargs)
         v_matrix = f_matrix @ u_matrix
         jacobian = self.calc_jacobian_matrix(u_matrix, v_matrix, f_jacobian)
@@ -52,7 +69,7 @@ class UnitaryFlow_:
         else:
             return v_matrix, jacobian
 
-    def reverse(self, v_matrix, **func_kwargs):
+    def one_step_reverse(self, v_matrix, **func_kwargs):
         u_tentative = v_matrix
         for _ in range(self.reverse_mode_iter):
             f_tentative, f_jacobian = self.func(u_tentative, **func_kwargs)
