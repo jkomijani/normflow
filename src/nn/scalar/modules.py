@@ -347,7 +347,8 @@ class SplineNet(torch.nn.Module):
     def __init__(self, knots_len, xlim=(0, 1), ylim=(0, 1),
             knots_x=None, knots_y=None, knots_d=None,
             spline_shape=[], knots_axis=-1,
-            smooth=False, Spline=RQSpline, label='spline', **spline_kwargs
+            smooth=False, Spline=RQSpline, set_param2zero=False,
+            label='spline', **spline_kwargs
             ):
         super().__init__()
         self.label = label
@@ -367,7 +368,7 @@ class SplineNet(torch.nn.Module):
         self.Spline = Spline
         self.spline_kwargs = spline_kwargs
 
-        init = lambda n: torch.zeros(*spline_shape, n)
+        init = lambda n: torch.randn(*spline_shape, n) / n**0.5
 
         if knots_x is None:
             self.xlim, self.xwidth = xlim, xlim[1] - xlim[0]
@@ -379,6 +380,9 @@ class SplineNet(torch.nn.Module):
 
         if knots_d is None:
             self.weights_d = None if smooth else torch.nn.Parameter(init(knots_len))
+
+        if set_param2zero:
+            self.set_param2zero()
 
     def forward(self, x):
         spline = self.make_spline()
@@ -417,3 +421,11 @@ class SplineNet(torch.nn.Module):
         mydict = {'knots_x': knots_x, 'knots_y': knots_y, 'knots_d': knots_d}
 
         return self.Spline(**mydict, **self.spline_kwargs)
+
+    def set_param2zero(self):
+        for param in self.parameters():
+            torch.nn.init.zeros_(param)
+
+    def set_param2normal(self, mean=0.0, std=1.0):
+        for param in self.parameters():
+            torch.nn.init.normal_(param, mean=mean, std=std)
