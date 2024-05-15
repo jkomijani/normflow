@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 
 import torch
@@ -6,14 +6,15 @@ import numpy as np
 import copy
 import io
 import base64
+from abc import abstractmethod, ABC
 
 
 # =============================================================================
-class Module_(torch.nn.Module):
+class Module_(torch.nn.Module, ABC):
     """A prototype class: like a `torch.nn.Module` except for the `forward`
-    and `backward` methods that handle the Jacobians of the transformation.
+    and `reverse` methods that handle the Jacobians of the transformation.
     We use trailing underscore to denote the neworks in which the `forward`
-    and `backward` methods handle the Jacobians of the transformation.
+    and `reverse` methods handle the Jacobians of the transformation.
     """
 
     propagate_density = False
@@ -22,10 +23,12 @@ class Module_(torch.nn.Module):
         super().__init__()
         self.label = label
 
+    @abstractmethod
     def forward(self, x, log0=0):
         pass
 
-    def backward(self, x, log0=0):
+    @abstractmethod
+    def reverse(self, x, log0=0):
         pass
 
     def transfer(self, **kwargs):
@@ -41,16 +44,17 @@ class Module_(torch.nn.Module):
         else:
             return torch.sum(x, dim=list(range(1, x.dim())))
 
-    def reverse(self, *args, **kwargs):
-        return self.backward(*args, **kwargs)
+    def set_param2zero(self):
+        for param in self.parameters():
+            torch.nn.init.zeros_(param)
 
 
 # =============================================================================
 class ModuleList_(torch.nn.ModuleList):
-    """Like `torch.nn.ModuleList` except for the `forward` and `backward`
+    """Like `torch.nn.ModuleList` except for the `forward` and `reverse`
     methods that handle the Jacobians of the transformation.
     We use trailing underscore to denote the neworks in which the `forward`
-    and `backward` methods handle the Jacobians of the transformation.
+    and `reverse` methods handle the Jacobians of the transformation.
 
     Parameters
     ----------
@@ -72,13 +76,10 @@ class ModuleList_(torch.nn.ModuleList):
             x, log0 = net_.forward(x, log0)
         return x, log0
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         for net_ in list(self)[::-1]:  # list() is needed for child classes...
-            x, log0 = net_.backward(x, log0)
+            x, log0 = net_.reverse(x, log0)
         return x, log0
-
-    def reverse(self, *args, **kwargs):
-        return self.backward(*args, **kwargs)
 
     def grouped_parameters(self):
         if self._groups is None:
@@ -161,11 +162,8 @@ class MultiChannelModule_(torch.nn.ModuleList):
     def forward(self, x, log0=0):
         return self._map(x, [net_.forward for net_ in self], log0=log0)
 
-    def backward(self, x, log0=0):
-        return self._map(x, [net_.backward for net_ in self], log0=log0)
-
-    def reverse(self, *args, **kwargs):
-        return self.backward(*args, **kwargs)
+    def reverse(self, x, log0=0):
+        return self._map(x, [net_.reverse for net_ in self], log0=log0)
 
     def _map(self, x, f_, log0=0):
         if self.keep_channels_axis:
@@ -232,9 +230,9 @@ class InvisibilityMaskWrapperModule_(Module_):
         logJ = self.sum_density(self.mask.purify(logJ_density, channel=0))
         return self.mask.cat(x_v, x_invisible), log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         x_v, x_invisible = self.mask.split(x)  # x_v: x_visible
-        x_v, logJ_density = self.net_.backward(x_v)
+        x_v, logJ_density = self.net_.reverse(x_v)
         x_v = self.mask.purify(x_v, channel=0)
         logJ = self.sum_density(self.mask.purify(logJ_density, channel=0))
         return self.mask.cat(x_v, x_invisible), log0 + logJ

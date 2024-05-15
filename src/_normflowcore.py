@@ -113,7 +113,7 @@ class Posterior:
     # The `no_grad` is removed for use with `path_gradient_autodiff`
     def log_prob(self, y):
         """Returns log probability of the samples."""
-        x, minus_logJ = self._model.net_.backward(y)
+        x, minus_logJ = self._model.net_.reverse(y)
         logr = self._model.prior.log_prob(x)
         logq = logr + minus_logJ
         return logq
@@ -138,7 +138,7 @@ class Fitter:
         self.hyperparam = dict(lr=0.001, weight_decay=0.01)
 
         self.checkpoint_dict = dict(
-            print_stride=1,
+            print_stride=10,
             print_batch_size=None
             )
 
@@ -345,17 +345,17 @@ class Fitter:
 
 # =============================================================================
 @torch.no_grad()
-def backward_sanitychecker(
+def reverse_sanitychecker(
         model, n_samples=5, net_=None, return_details=False
         ):
-    """Performs a sanity check on the backward method of networks."""
+    """Performs a sanity check on the reverse method of networks."""
 
     if net_ is None:
         net_ = model.net_
 
     x = model.prior.sample(n_samples)
     y, logJ = net_(x)
-    x_hat, log0_hat = net_.backward(y, log0=logJ)
+    x_hat, log0_hat = net_.reverse(y, log0=logJ)
 
     print("Sanity check is OK if following numbers are zero up to round off:")
     print(f"{torch.sum(torch.abs(x - x_hat)).item():g}",

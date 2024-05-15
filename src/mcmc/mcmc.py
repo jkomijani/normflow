@@ -149,7 +149,7 @@ class BlockedMCMCSampler(MCMCSampler):
         action = self._model.action
 
         try:
-            x = net_.backward(self._ref['sample'].unsqueeze(0))[0]
+            x = net_.reverse(self._ref['sample'].unsqueeze(0))[0]
             logqp_ref = self._ref['logqp']
         except:
             print("Starting from scratch & setting logqp_ref to None")
