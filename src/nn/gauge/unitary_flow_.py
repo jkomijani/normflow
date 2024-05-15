@@ -3,7 +3,7 @@
 """This module contains new neural networks for transforming matrices.
 
 The classes defined here are subclasses of Module_, and like Module_, the
-trailing underscore implies that the associated forward and backward methods
+trailing underscore implies that the associated forward and reverse methods
 handle the Jacobians of the transformation.
 """
 

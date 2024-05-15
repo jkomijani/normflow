@@ -3,7 +3,7 @@
 """This module introduces a neural network to handle the mean field of a field.
 
 The classes defined here are children of Module_, and like Module_, the trailing
-underscore implies that the associated forward and backward methods handle the
+underscore implies that the associated forward and reverse methods handle the
 Jacobians of the transformation.
 """
 
@@ -35,17 +35,17 @@ class MeanFieldNet_(Module_):
             x_mean_new_scaled, log0 = self.dc_.forward(x * rvol, log0)
             return x_mean_new_scaled / rvol, log0
 
-    def backward(self, x, log0=0, rvol=None):
+    def reverse(self, x, log0=0, rvol=None):
         # To normalize data, multiply \& divide by square root of volume
         if rvol is None:
             dim = list(range(1, x.dim()))
             rvol = np.product(x.shape[1:])**0.5  # square root of volume
             x_mean = torch.mean(x, dim=dim).reshape(-1, *[1 for _ in dim])
-            x_mean_new_scaled, log0 = self.dc_.backward(x_mean * rvol, log0)
+            x_mean_new_scaled, log0 = self.dc_.reverse(x_mean * rvol, log0)
             return x + (x_mean_new_scaled/rvol - x_mean), log0
         else:
             # assume x is already the mean of a field
-            x_mean_new_scaled, log0 = self.dc_.backward(x * rvol, log0)
+            x_mean_new_scaled, log0 = self.dc_.reverse(x * rvol, log0)
             return x_mean_new_scaled / rvol, log0
 
     def _hack(self, x, log0=0):

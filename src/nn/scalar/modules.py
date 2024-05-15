@@ -391,12 +391,12 @@ class SplineNet(torch.nn.Module):
         else:
             return spline(x.ravel()).reshape(x.shape)
 
-    def backward(self, x):
+    def reverse(self, x):
         spline = self.make_spline()
         if len(self.spline_shape) > 0:
-            return spline.backward(x)
+            return spline.reverse(x)
         else:
-            return spline.backward(x.ravel()).reshape(x.shape)
+            return spline.reverse(x.ravel()).reshape(x.shape)
 
     def make_spline(self):
         dim = self.knots_axis

@@ -3,7 +3,7 @@
 """This module contains new neural networks for transforming gauge fields.
 
 The classes defined here are children of MatrixModule_ (and in turn Module_),
-and the trailing underscore implies that the associated forward and backward
+and the trailing underscore implies that the associated forward and reverse
 methods handle the Jacobians of the transformation.
 """
 
@@ -30,13 +30,13 @@ class GaugeModuleList_(ModuleList_):
         else:
             return super().forward(x.clone(), log0)
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         if self.unbind_vector_axis:
             x = list(torch.unbind(x, self.vector_axis))
-            x, log0 = super().backward(x, log0)
+            x, log0 = super().reverse(x, log0)
             return torch.stack(x, dim=self.vector_axis), log0
         else:
-            return super().backward(x.clone(), log0)
+            return super().reverse(x.clone(), log0)
 
     def hack(self, x, log0=0):
         """Similar to the forward method, except that returns the output of
@@ -263,8 +263,6 @@ class GaugeModule_(Module_):
             x[:, self.mu] = x_mu
         return x
 
-    backward = reverse
-
 
 # =============================================================================
 class _GaugeModule_(MatrixModule_):
@@ -328,7 +326,7 @@ class _GaugeModule_(MatrixModule_):
 
         return x, logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         if self.unbounded_vector_axis:
             x_mu = x[self.mu]
         else:
@@ -341,7 +339,7 @@ class _GaugeModule_(MatrixModule_):
 
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
-        slink_rotation, logJ = super().backward(slink, log0=log0, reduce_=True)
+        slink_rotation, logJ = super().reverse(slink, log0=log0, reduce_=True)
 
         x_mu = self.staples_handle.push2link(x_mu,
                 slink_rotation=slink_rotation, staples_object=staples_object
@@ -371,7 +369,7 @@ class _GaugeModule_(MatrixModule_):
         if forward:
             slink_rotation, logJ = super().forward(slink, reduce_=True)
         else:
-            slink_rotation, logJ = super().backward(slink, reduce_=True)
+            slink_rotation, logJ = super().reverse(slink, reduce_=True)
 
         stack = dict(
                 x_mu_initial = x_mu,
@@ -477,7 +475,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 
         return x, logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         if self.unbounded_vector_axis:
             x_mu = x[self.mu]
         else:
@@ -490,7 +488,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
-        slink_rotation, logJ = super().backward(
+        slink_rotation, logJ = super().reverse(
                 slink, log0=log0, singv=staples_object.singv, reduce_=True
                 )
 
@@ -524,7 +522,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
                     slink, singv=staples_object.singv, reduce_=True
                     )
         else:
-            slink_rotation, logJ = super().backward(
+            slink_rotation, logJ = super().reverse(
                     slink, singv=staples_object.singv, reduce_=True
                     )
 
@@ -603,7 +601,7 @@ class PolyakovGaugeModule_(MatrixModule_):
 
         return x, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
 
         mu, x_mu = self.mu, x[self.mu]
         loop_dim = 1 + mu  # 1 is for the batch axis
@@ -623,7 +621,7 @@ class PolyakovGaugeModule_(MatrixModule_):
                 polyakov_loop, staples=polyakov_staples
                 )
 
-        rotation, logJ = super().backward(sploop, reduce_=True)
+        rotation, logJ = super().reverse(sploop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, loop_dim, 0)
         svd_.sU = select_embed(x_mu.shape, svd_.sU, loop_dim, 0)
         svd_.Vh = select_embed(x_mu.shape, svd_.Vh, loop_dim, 0)
@@ -646,13 +644,13 @@ class PolyakovGaugeModule_(MatrixModule_):
         x[mu] = rotation @ x_mu
         return x, log0 + logJ
 
-    def _backward(self, x, log0=0):
+    def _reverse(self, x, log0=0):
 
         mu, x_mu = self.mu, x[self.mu]
         dim = 1 + mu  # 1 is for the batch axis
 
         polyakov_loop = matrix_product(torch.unbind(x_mu, dim = dim))
-        rotation, logJ = super().backward(polyakov_loop, reduce_=True)
+        rotation, logJ = super().reverse(polyakov_loop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, dim, 0)
 
         x[mu] = rotation @ x_mu

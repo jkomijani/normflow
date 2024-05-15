@@ -3,7 +3,7 @@
 """This module contains new neural networks for transforming matrices.
 
 The classes defined here are children of Module_, and like Module_, the trailing
-underscore implies that the associated forward and backward methods handle the
+underscore implies that the associated forward and reverse methods handle the
 Jacobians of the transformation.
 """
 
@@ -50,7 +50,7 @@ class StapledMatrixModule_(Module_):
                 x, singv=singv, log0=log0, reduce_=reduce_, forward=True
                 )
 
-    def backward(self, x, *, singv, log0=0, reduce_=False):
+    def reverse(self, x, *, singv, log0=0, reduce_=False):
         return self._kernel(
                 x, singv=singv, log0=log0, reduce_=reduce_, forward=False
                 )
@@ -75,8 +75,8 @@ class StapledMatrixModule_(Module_):
             param, logJ_dualpar2par = self.dual_param_net_.forward(param, singv)
             param, logJ_par2par = self.param_net_.forward(param)
         else:
-            param, logJ_par2par = self.param_net_.backward(param)
-            param, logJ_dualpar2par = self.dual_param_net_.backward(param, singv)
+            param, logJ_par2par = self.param_net_.reverse(param)
+            param, logJ_dualpar2par = self.dual_param_net_.reverse(param, singv)
 
         # 4. Move back the channel axis to -1
         param = torch.movedim(param, 1, -1)  # return channel axis to -1
@@ -91,7 +91,7 @@ class StapledMatrixModule_(Module_):
         return matrix, log0 + logJ
 
     def _hack(self, matrix, *, singv, forward=True, reduce_=False):
-        """Similar to the forward/backward methods, but returns intermediate
+        """Similar to the forward/reverse methods, but returns intermediate
         parts too.
         """
         # 1. Parametrize the input matrix
@@ -113,8 +113,8 @@ class StapledMatrixModule_(Module_):
             param_mid, logJ_dualpar2par = self.dual_param_net_.forward(param, singv)
             param, logJ_par2par = self.param_net_.forward(param_mid)
         else:
-            param_mid, logJ_par2par = self.param_net_.backward(param)
-            param, logJ_dualpar2par = self.dual_param_net_.backward(param_mid, singv)
+            param_mid, logJ_par2par = self.param_net_.reverse(param)
+            param, logJ_dualpar2par = self.dual_param_net_.reverse(param_mid, singv)
 
         out_dict.update(
             dict(
@@ -163,9 +163,9 @@ class FixedStapledMatrixModule_(MatrixModule_):
         x = self.staples_handle.unstaple(x)
         return x, logJ
 
-    def backward(self, x, **kwargs):
+    def reverse(self, x, **kwargs):
         x, _ = self.staples_handle.staple(x)
-        x, logJ = super().backward(x, **kwargs)
+        x, logJ = super().reverse(x, **kwargs)
         x = self.staples_handle.unstaple(x)
         return x, logJ
 

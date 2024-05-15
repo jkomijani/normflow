@@ -4,7 +4,7 @@
 fields.
 
 The classes defined here are children of MatrixModule_ (and in turn Module_),
-and the trailing underscore implies that the associated forward and backward
+and the trailing underscore implies that the associated forward and reverse
 methods handle the Jacobians of the transformation.
 """
 
@@ -45,12 +45,12 @@ class PlanarGaugeModuleList_(ModuleList_):
             x[mu], log0 = net_.forward(x[mu], x[nu], log0=log0)
         return torch.stack(x, dim=self.vector_axis), log0
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         x = list(torch.unbind(x, self.vector_axis))
         for net_ in self[::-1]:
             mu = net_.zpmask.mu
             nu = net_.zpmask.nu
-            x[mu], log0 = net_.backward(x[mu], x[nu], log0=log0)
+            x[mu], log0 = net_.reverse(x[mu], x[nu], log0=log0)
         return torch.stack(x, dim=self.vector_axis), log0
 
     def hack(self, x, log0=0):
@@ -103,9 +103,9 @@ class PlanarGaugeModule_(MatrixModule_):
                 )
         return x_mu, logJ
 
-    def backward(self, x_mu, x_nu, log0=0):
+    def reverse(self, x_mu, x_nu, log0=0):
         plaq_0 = self.plaq_handle.calc_zpmasked_open_plaq(x_mu, x_nu, self.zpmask)
-        plaq_1, logJ = super().backward(plaq_0, log0, reduce_=True)
+        plaq_1, logJ = super().reverse(plaq_0, log0, reduce_=True)
         plaq_0 = None  # because reduce_ is set to True above
         x_mu = self.plaq_handle.push_plaq2links(
                 new_plaq=plaq_1, old_plaq=plaq_0, links=x_mu, zpmask=self.zpmask

@@ -114,7 +114,7 @@ class SplineTemplate:
         func = self._calc_segment_func(segments_ind, **kwargs)
         return func(x)
 
-    def backward(self, y, grad=False, squeezed=False):
+    def reverse(self, y, grad=False, squeezed=False):
         """Inverse of the forward method."""
         y = y.unsqueeze(self.knots_axis) if squeezed else y
         segments_ind = self.searchsorted(self.knots_y, y, self.knots_axis)

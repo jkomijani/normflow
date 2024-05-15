@@ -21,11 +21,11 @@ class DualCoupling_(Coupling_):
 
         return self.mask.cat(x_active, x_invisible), log0 + logJ
 
-    def backward(self, x, s, log0=0):
+    def reverse(self, x, s, log0=0):
         x_active, x_invisible = self.mask.split(x)
         s_frozen, s_invisible = self.mask.split(s)
 
-        x_active, logJ = self.atomic_backward(
+        x_active, logJ = self.atomic_reverse(
             x_active=x_active, x_frozen=s_frozen, parity=0, net=self.nets[0]
             )
 

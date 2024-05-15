@@ -5,7 +5,7 @@ This module contains new neural networks that are subclasses of Module_ and
 couple sites to each other.
 
 As in Module_, the trailing underscore implies that the associated forward and
-backward methods handle the Jacobians of the transformation.
+reverse methods handle the Jacobians of the transformation.
 """
 
 
@@ -64,11 +64,11 @@ class Coupling_(Module_, ABC):
                                                   )
         return self.mask.cat(*x), log0
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         x = list(self.mask.split(x))  # x = [x_0, x_1]
         for k in list(range(len(self.nets)))[::-1]:
             parity = k % 2
-            x[parity], log0 = self.atomic_backward(
+            x[parity], log0 = self.atomic_reverse(
                                                   x_active=x[parity],
                                                   x_frozen=x[1 - parity],
                                                   parity=parity,
@@ -82,7 +82,7 @@ class Coupling_(Module_, ABC):
         pass
 
     @abstractmethod
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         pass
 
     def preprocess_fz(self, x):  # fz: frozen
@@ -111,7 +111,7 @@ class ShiftCoupling_(Coupling_):
         t = self.postprocess(net(self.preprocess_fz(x_frozen)))
         return self.mask.purify(x_active + t, channel=parity), log0
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         t = self.postprocess(net(self.preprocess_fz(x_frozen)))
         return self.mask.purify(x_active - t, channel=parity), log0
 
@@ -129,7 +129,7 @@ class AffineCoupling_(Coupling_):
         s = torch.abs(s)  # then exp(-s) is never larger than 1
         return t + x_active * torch.exp(-s), log0 - self.sum_density(s)
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         out = net(self.preprocess_fz(x_frozen))
         t, s = out.chunk(2, dim=self.channels_axis)
         # purify: get rid of unwanted contributions to x_frozen
@@ -187,14 +187,14 @@ class RQSplineCoupling_(Coupling_):
         logg = self.mask.purify(torch.log(g), channel=parity)
         return fx_active, log0 + self.sum_density(logg)
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         out = net(self.preprocess_fz(x_frozen))
         spline = self.make_spline(out)
         # below g is the gradient of spline @ x_active
-        fx_active, g = spline.backward(self.preprocess(x_active), grad=True)
+        fx_active, g = spline.reverse(self.preprocess(x_active), grad=True)
         fx_active, g = self.postprocess(fx_active), self.postprocess(g)
         # the above two lines are equivalent to the following for default cases
-        # fx_active, g = spline.backward(x_active, grad=True, squeezed=True)
+        # fx_active, g = spline.reverse(x_active, grad=True, squeezed=True)
         fx_active = self.mask.purify(fx_active, channel=parity)
         logg = self.mask.purify(torch.log(g), channel=parity)
         return fx_active, log0 + self.sum_density(logg)
@@ -322,12 +322,12 @@ class MultiRQSplineCoupling_(Coupling_):
         logg = self.mask.purify(torch.log(g), channel=parity)
         return fx_active, log0 + self.sum_density(logg)
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         out = net(self.preprocess_fz(x_frozen))
         spline = self.make_spline(out)
         # below g is the gradient of spline @ x_active
         fx_active, g = self.apply_spline(
-                self.preprocess(x_active), spline, backward=True
+                self.preprocess(x_active), spline, reverse=True
                 )
         fx_active, g = self.postprocess(fx_active), self.postprocess(g)
         fx_active = self.mask.purify(fx_active, channel=parity)
@@ -412,11 +412,11 @@ class MultiRQSplineCoupling_(Coupling_):
 
         return splines
 
-    def apply_spline(self, x_actives, splines, backward=False):
+    def apply_spline(self, x_actives, splines, reverse=False):
         x_actives_out = []
         gs = []
         for i, x_active in enumerate(x_actives):
-            transformation = splines[i].backward if backward else splines[i]
+            transformation = splines[i].reverse if reverse else splines[i]
             x_active, g = transformation(x_active, grad=True)
             x_actives_out.append(x_active)
             gs.append(g)

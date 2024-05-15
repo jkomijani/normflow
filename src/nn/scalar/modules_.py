@@ -5,7 +5,7 @@ This module contains new neural networks that are subclasses of Module_ and
 do not couple sites to each other.
 
 As in Module_, the trailing underscore implies that the associated forward and
-backward methods handle the Jacobians of the transformation.
+reverse methods handle the Jacobians of the transformation.
 """
 
 
@@ -25,7 +25,7 @@ class Identity_(Module_):
     def forward(self, x, log0=0, **extra):
         return x, log0
 
-    def backward(self, x, log0=0, **extra):
+    def reverse(self, x, log0=0, **extra):
         return x, log0
 
 
@@ -37,7 +37,7 @@ class Clone_(Module_):
     def forward(self, x, log0=0, **extra):
         return x.clone(), log0
 
-    def backward(self, x, log0=0, **extra):
+    def reverse(self, x, log0=0, **extra):
         return x.clone(), log0
 
 
@@ -58,7 +58,7 @@ class ScaleNet_(Module_):
     def forward(self, x, log0=0):
         return x * self.weight, log0 + self.log_jacobian(x.shape)
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return x / self.weight, log0 - self.log_jacobian(x.shape)
 
     def log_jacobian(self, x_shape):
@@ -75,7 +75,7 @@ class Tanh_(Module_):
         logJ = -2 * self.sum_density(torch.log(torch.cosh(x)))
         return torch.tanh(x), log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return ArcTanh_().forward(x, log0)
 
 
@@ -86,7 +86,7 @@ class ArcTanh_(Module_):
         logJ = 2 * self.sum_density(torch.log(torch.cosh(y)))
         return y, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return Tanh_().forward(x, log0)
 
 
@@ -98,7 +98,7 @@ class Expit_(Module_):
         logJ = self.sum_density(-x + 2 * torch.log(y))
         return y, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return Logit_().forward(x, log0)
 
 
@@ -110,7 +110,7 @@ class Logit_(Module_):
         logJ = - self.sum_density(torch.log(x * (1 - x)))
         return y, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return Expit_().forward(x, log0)
 
 
@@ -142,7 +142,7 @@ class Pade11_(Module_):
         logJ = self.sum_density(torch.log(d1) - 2 * torch.log(denom))
         return x / denom, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         d1 = self.get_derivative_reshaped(x.shape)
         denom = x + (1 - x) / d1
         logJ = self.sum_density(-torch.log(d1) - 2 * torch.log(denom))
@@ -191,7 +191,7 @@ class Pade22_(Module_):
         g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
         return g_0, log0 + self.sum_density(torch.log(g_1))
 
-    def backward(self, y, log0=0):
+    def reverse(self, y, log0=0):
         d0, d1 = self.get_derivatives_reshaped(y.shape)
         x = self.reverse_pade22(y, d0, d1)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
@@ -266,7 +266,7 @@ class _Pade32_(Module_):
         logJ = self.sum_density(torch.log(dy_by_dx))
         return y, log0 + logJ
 
-    def backward(self, y, log0=0):
+    def reverse(self, y, log0=0):
         """We solve a cubic relation that has only one real solution."""
         a = self.get_derivative_reshaped(y.shape)  # a is derivative at x=0
         delta0 = a**2 - 3 * a / y**2
@@ -305,12 +305,12 @@ class SplineNet_(SplineNet, Module_):
         logJ = self.sum_density(torch.log(g))
         return fx, log0 + logJ
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         spline = self.make_spline()
         if len(self.spline_shape) > 0:
-            fx, g = spline.backward(x, grad=True)  # g is gradient @ x
+            fx, g = spline.reverse(x, grad=True)  # g is gradient @ x
         else:
-            fx, g = spline.backward(x.ravel(), grad=True)  # g is gradient @ x
+            fx, g = spline.reverse(x.ravel(), grad=True)  # g is gradient @ x
             fx, g = fx.reshape(x.shape), g.reshape(x.shape)
         logJ = self.sum_density(torch.log(g))
         return fx, log0 + logJ
@@ -410,5 +410,5 @@ class SgnBiasNet_(Module_):
     def forward(self, x, log0=0):
         return x + torch.sgn(x) * self.w**2, log0
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         return x - torch.sgn(x) * self.w**2, log0

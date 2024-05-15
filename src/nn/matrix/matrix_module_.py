@@ -3,7 +3,7 @@
 """This module contains new neural networks for transforming matrices.
 
 The classes defined here are children of Module_, and like Module_, the trailing
-underscore implies that the associated forward and backward methods handle the
+underscore implies that the associated forward and reverse methods handle the
 Jacobians of the transformation.
 """
 
@@ -36,7 +36,7 @@ class MatrixModule_(Module_):
     def forward(self, x, log0=0, reduce_=False):
         return self._kernel(x, log0=log0, reduce_=reduce_, forward=True)
 
-    def backward(self, x, log0=0, reduce_=False):
+    def reverse(self, x, log0=0, reduce_=False):
         return self._kernel(x, log0=log0, reduce_=reduce_, forward=False)
 
     def _kernel(self, matrix, *, forward, reduce_, log0=0):
@@ -57,7 +57,7 @@ class MatrixModule_(Module_):
         if forward:
             param, logJ_par2par = self.param_net_.forward(param)
         else:
-            param, logJ_par2par = self.param_net_.backward(param)
+            param, logJ_par2par = self.param_net_.reverse(param)
 
         # 4. Move back the channel axis to -1
         param = torch.movedim(param, 1, -1)  # return channel axis to -1
@@ -72,7 +72,7 @@ class MatrixModule_(Module_):
         return matrix, log0 + logJ
 
     def _hack(self, matrix, forward=True, reduce_=False):
-        """Similar to the forward/backward methods, but returns intermediate
+        """Similar to the forward/reverse methods, but returns intermediate
         parts too.
         """
         # 1. Parametrize the input matrix
@@ -91,7 +91,7 @@ class MatrixModule_(Module_):
         if forward:
             param, logJ_par2par = self.param_net_.forward(param)
         else:
-            param, logJ_par2par = self.param_net_.backward(param)
+            param, logJ_par2par = self.param_net_.reverse(param)
 
         # 4. Move back the channel axis to -1
         param = torch.movedim(param, 1, -1)  # return channel axis to -1

@@ -99,7 +99,7 @@ class SU3PhaseMeshGrid:
         # volume of (X, Y, Z).
         phase = torch.stack([X, Y, Z], dim=-1)
         y = torch.diag_embed(torch.exp(1j * phase)).reshape(-1, 3, 3)
-        _, mlogJ = model.net_.backward(y)  # mlogJ: minus logJ
+        _, mlogJ = model.net_.reverse(y)  # mlogJ: minus logJ
         V = calc_conjugacy_vol(phase).squeeze(-1)  # squeeze dim of phases
         # mlogJ: already includes the conjugacy volume of input & output
         # V: the conjugacy volume of transforming phase to y, which cancels the

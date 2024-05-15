@@ -3,7 +3,7 @@
 """This module introduces a neural network to handle the PSD of a field.
 
 The classes defined here are children of Module_, and like Module_, the trailing
-underscore implies that the associated forward and backward methods handle the
+underscore implies that the associated forward and reverse methods handle the
 Jacobians of the transformation.
 """
 
@@ -30,12 +30,12 @@ class PSDBlock_(Module_):
         y_fft, logJ_fft = self.fftnet_.forward(x - x_mean)
         return (y_mf + y_fft), (log0 + logJ_mf + logJ_fft)
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         dim = list(range(1, x.dim()))
         rvol = np.product(x.shape[1:])**0.5  # square root of volume
         x_mean = torch.mean(x, dim=dim).reshape(-1, *[1 for _ in dim])
-        y_mf, logJ_mf = self.mfnet_.backward(x_mean, rvol=rvol)
-        y_fft, logJ_fft = self.fftnet_.backward(x - x_mean)
+        y_mf, logJ_mf = self.mfnet_.reverse(x_mean, rvol=rvol)
+        y_fft, logJ_fft = self.fftnet_.reverse(x - x_mean)
         return (y_mf + y_fft), (log0 + logJ_mf + logJ_fft)
 
     def _hack(self, x, log0=0):

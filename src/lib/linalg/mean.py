@@ -27,7 +27,7 @@ class NeighborMean(torch.autograd.Function):
         return avg
 
     @staticmethod
-    def backward(ctx, grad_avg):
+    def reverse(ctx, grad_avg):
         grad_x = neighbor_mean(grad_avg)
         return grad_x
 

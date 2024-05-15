@@ -124,7 +124,7 @@ class FFTNet_(Module_):
         dim = self.rfft_dim
         return irfft(rfft(x, dim=dim) * w, dim=dim), log0 + self.log_jacobian(w)
 
-    def backward(self, x, log0=0):
+    def reverse(self, x, log0=0):
         """Take `rfftn`, multiply by `weights`, and take `irfftn`."""
         w = 1/self.ipsd**0.5
         dim = self.rfft_dim
@@ -237,10 +237,10 @@ class IPSD(SplineNet):
             sigma_k2[ind] = 1  # replace 0 with 1 to get correct jacobian item
         return sigma_k2
 
-    def _backward(self, x):
+    def _reverse(self, x):
         # Note that this typically is not used!
         y = torch.exp(self.logy)
-        return super().backward((x - y[0]) / y[1])
+        return super().reverse((x - y[0]) / y[1])
 
     def transfer(self, scale_factor=1, ndim=1):
         ipsd = copy.deepcopy(self)
@@ -284,13 +284,13 @@ class IPSDnozeromode(SplineNet):
         sigma_k2[ind] = 1  # replace 0 with 1 to avoid divergence in 1/ipsd
         return sigma_k2
 
-    def _backward(self, x):
+    def _reverse(self, x):
         # Note that this typically is not used!
         y = torch.exp(self.logy)
         x = x / y[0]
         ind = tuple([0]*x.dim())
         x[ind] = 0  # replace back 1 with the original 0
-        return super().backward(x)
+        return super().reverse(x)
 
     def transfer(self, scale_factor=1, ndim=1):
         ipsd = copy.deepcopy(self)

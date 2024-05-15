@@ -4,7 +4,7 @@
 This module contains special cases of coupling layers that are controled.
 
 As in Module_, the trailing underscore implies that the associated forward and
-backward methods handle the Jacobians of the transformation.
+reverse methods handle the Jacobians of the transformation.
 """
 
 
@@ -33,13 +33,13 @@ class DirectCntrCoupling_(Coupling_):
         x_and_control = (self.mask.cat(*x), control)
         return x_and_control, log0
 
-    def backward(self, x_and_control, log0=0):
+    def reverse(self, x_and_control, log0=0):
         x, control = x_and_control
         x = list(self.mask.split(x))  # x = [x_0, x_1]
         for k in list(range(len(self.nets)))[::-1]:
             parity = k % 2
             x_frozen = control if k == 0 else x[1 - parity]
-            x[parity], log0 = self.atomic_backward(
+            x[parity], log0 = self.atomic_reverse(
                                                   x_active=x[parity],
                                                   x_frozen=x_frozen,
                                                   parity=parity,
@@ -74,8 +74,8 @@ class CntrCoupling_(DirectCntrCoupling_):
         (x, control), log0 = super().forward((x, self.control), log0=log0)
         return x, log0
 
-    def backward(self, x, log0=0):
-        (x, control), log0 = super().backward((x, self.control), log0=log0)
+    def reverse(self, x, log0=0):
+        (x, control), log0 = super().reverse((x, self.control), log0=log0)
         return x, log0
 
 

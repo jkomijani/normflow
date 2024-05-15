@@ -46,7 +46,7 @@ class Pade11Coupling_(Coupling_):
 
         return x_active, log0 + logJ
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d1 = self.softplus(t)
@@ -90,7 +90,7 @@ class Pade22Coupling_(Coupling_):
 
         return x_active, log0 + logJ
 
-    def atomic_backward(self, *, x_active, x_frozen, parity, net, log0=0):
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
@@ -188,8 +188,8 @@ class SUnParamAffineCoupling_(AffineCoupling_):
     def forward(self, x, log0=0):
         return self.expit_(*super().forward(*self.logit_(x, log0=log0)))
 
-    def backward(self, x, log0=0):
-        return self.expit_(*super().backward(*self.logit_(x, log0=log0)))
+    def reverse(self, x, log0=0):
+        return self.expit_(*super().reverse(*self.logit_(x, log0=log0)))
 
     def preprocess_fz(self, x):
         return x
