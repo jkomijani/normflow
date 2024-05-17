@@ -347,7 +347,7 @@ class SplineNet(torch.nn.Module):
     def __init__(self, knots_len, xlim=(0, 1), ylim=(0, 1),
             knots_x=None, knots_y=None, knots_d=None,
             spline_shape=[], knots_axis=-1,
-            smooth=False, Spline=RQSpline, set_param2zero=False,
+            smooth=False, Spline=RQSpline, set_param2zero=True,
             label='spline', **spline_kwargs
             ):
         super().__init__()
