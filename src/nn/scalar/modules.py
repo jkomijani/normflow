@@ -334,7 +334,6 @@ class SplineNet(torch.nn.Module):
     spline_shape : array-like, optional
         specifies number of splines organized as a tensor
         (default is [], indicating there is only one spline).
-        (TODO: this can be removed as it is not used).
     knots_axis : int, optional
         relevant only if spline_shape is not empty list (default value is -1).
     """
@@ -366,9 +365,12 @@ class SplineNet(torch.nn.Module):
         self.knots_axis = knots_axis
 
         self.Spline = Spline
-        self.spline_kwargs = spline_kwargs
+        self.spline_kwargs = dict(**spline_kwargs, knots_axis=knots_axis)
 
-        init = lambda n: torch.randn(*spline_shape, n) / n**0.5
+        def init(n):
+            spline_shape_ = list(spline_shape)
+            spline_shape_.insert(knots_axis, n)
+            return torch.randn(*spline_shape_) / n**0.5
 
         if knots_x is None:
             self.xlim, self.xwidth = xlim, xlim[1] - xlim[0]
@@ -400,7 +402,8 @@ class SplineNet(torch.nn.Module):
 
     def make_spline(self):
         dim = self.knots_axis
-        zero_shape = (*self.spline_shape, 1)
+        zero_shape = list(self.spline_shape)
+        zero_shape.insert(dim, 1)
         zero = lambda w: torch.zeros(zero_shape, device=w.device)
         cumsumsoftmax = lambda w: torch.cumsum(self.softmax(w), dim=dim)
         to_coord = lambda w: torch.cat((zero(w), cumsumsoftmax(w)), dim=dim)
