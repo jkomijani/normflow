@@ -208,9 +208,8 @@ class Fitter:
         batch_size : int
             Size of samples used at each epoch
 
-        **Note**: this method is meant to be called by `__call__`,
-        but it can be called directly subject to `__call__`
-        being called at least once.
+        **Note**: this method is meant to be called by ``__call__``, but it can
+        be called directly subject to ``__call__`` being called at least once.
         """
         if n_epochs == 0:
             return
@@ -345,9 +344,7 @@ class Fitter:
 
 # =============================================================================
 @torch.no_grad()
-def reverse_sanitychecker(
-        model, n_samples=5, net_=None, return_details=False
-        ):
+def reverse_sanitychecker(model, n_samples=4, net_=None):
     """Performs a sanity check on the reverse method of networks."""
 
     if net_ is None:
@@ -358,9 +355,5 @@ def reverse_sanitychecker(
     x_hat, log0_hat = net_.reverse(y, log0=logJ)
 
     print("Sanity check is OK if following numbers are zero up to round off:")
-    print(f"{torch.sum(torch.abs(x - x_hat)).item():g}",
-          f"{torch.sum(torch.abs(log0_hat)).item():g}"
-         )
-
-    if return_details:
-        return (x, y, x_hat), (logJ, log0_hat)
+    mean = lambda z: z.abs().mean().item()
+    print(f"{mean(x - x_hat):g} & {mean(log0_hat):g}")
