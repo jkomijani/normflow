@@ -19,8 +19,9 @@ from ..matrix.stapled_matrix_module_ import StapledMatrixModule_
 # =============================================================================
 class GaugeModuleList_(ModuleList_):
 
-    vector_axis = 1
-    unbind_vector_axis = True  # the vector axis then will be moved to 0
+    vector_axis = 1  # The vector axis of inputs to forward & reverse are 1
+
+    unbind_vector_axis = True  # "vector_axis" will be switched to 0 internally
 
     def forward(self, x, log0=0):
         if self.unbind_vector_axis:
@@ -89,7 +90,7 @@ class GaugeModule_(Module_):
         `param_net_` and other networs must be compatible.
     """
 
-    unbounded_vector_axis = True
+    unbounded_vector_axis = True  # "vector_axis" of inputs is supposed to be 0
 
     def __init__(self,
             *, mu, nu_list, staples_handle, matrix_handle, param_net_,
@@ -105,6 +106,9 @@ class GaugeModule_(Module_):
         self.eigvecs_net_ = eigvecs_net_
         self.matrix_handle = matrix_handle
         self.staples_handle = staples_handle
+        if self.unbounded_vector_axis:
+            # swtich "vector_axis" of self.staples_handle to 0
+            self.staples_hanlde.vector_axis = 0
         self.staples_kwargs = staples_kwargs
 
     def forward(self, x, log0=0):
@@ -296,6 +300,8 @@ class _GaugeModule_(MatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
+        if self.unbounded_vector_axis:
+            self.staples_hanlde.vector_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
@@ -443,6 +449,8 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
+        if self.unbounded_vector_axis:
+            self.staples_hanlde.vector_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
@@ -568,6 +576,8 @@ class PolyakovGaugeModule_(MatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
+        if self.unbounded_vector_axis:
+            self.staples_hanlde.vector_axis = 0
         self.parity = parity
 
     def forward(self, x, log0=0):
