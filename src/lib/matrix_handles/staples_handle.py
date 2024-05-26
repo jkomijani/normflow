@@ -77,8 +77,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
     def makesure_correct_vector_axis(self, vector_axis):
         assert self.vector_axis == vector_axis, "vector axis?"
 
-    @classmethod
-    def calc_staples(cls, links, *, mu, nu_list, staples_coeff=None,
+    def calc_staples(self, links, *, mu, nu_list, staples_coeff=None,
             mixed_staples_coeff=None):
         """Calculate the staples (from the Wilson gauge action) corresponding
         to the `links` that are in `mu` direction and summed over mu-nu planes
@@ -106,18 +105,18 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
 
         if staples_coeff is None:
             staples_sum = sum(
-               [cls.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
-               )
+              [self.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
+            )
             kwargs = dict(mu=mu, mixed_staples_coeff=mixed_staples_coeff)
             return StaplesObject(staples_sum, **kwargs)
 
         else:
             all_staples = [None] * (2 * len(nu_list))
             for k, nu in enumerate(nu_list):
-                all_staples[2*k] = cls.calc_planar_staples(
+                all_staples[2*k] = self.calc_planar_staples(
                     links, mu=mu, nu=nu, up_only=True
                     )
-                all_staples[2*k + 1] = cls.calc_planar_staples(
+                all_staples[2*k + 1] = self.calc_planar_staples(
                     links, mu=mu, nu=nu, down_only=True
                     )
 
@@ -125,9 +124,8 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             staples = sum([all_staples[j] * staples_coeff[j] for j in range_])
             return StaplesObject(staples)
 
-    @classmethod
     def calc_planar_staples(
-            cls, links, *, mu, nu, up_only=False, down_only=False
+            self, links, *, mu, nu, up_only=False, down_only=False
             ):
         """Similar to calc_staples, except that the staples are calculated on
         mu-nu plane.
@@ -141,7 +139,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         #                f|   |d
         #                 --e--
 
-        if cls.vector_axis == 0:
+        if self.vector_axis == 0:
             x_mu = links[mu]
             x_nu = links[nu]
         else:
@@ -155,13 +153,13 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         if up_only:
             a = torch.roll(c, -1, dims=1 + mu)
             b = torch.roll(u, -1, dims=1 + nu)
-            return cls.staple1_rule(a, b, c)
+            return self.staple1_rule(a, b, c)
 
         elif down_only:
             e = torch.roll(u, +1, dims=1 + nu)
             f = torch.roll(c, +1, dims=1 + nu)
             d = torch.roll(f, -1, dims=1 + mu)
-            return cls.staple2_rule(d, e, f)
+            return self.staple2_rule(d, e, f)
 
         else:
             a = torch.roll(c, -1, dims=1 + mu)
@@ -169,7 +167,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             e = torch.roll(u, +1, dims=1 + nu)
             f = torch.roll(c, +1, dims=1 + nu)
             d = torch.roll(f, -1, dims=1 + mu)
-            return cls.staple1_rule(a, b, c) + cls.staple2_rule(d, e, f)
+            return self.staple1_rule(a, b, c) + self.staple2_rule(d, e, f)
 
     @staticmethod
     def staple1_rule(a, b, c):
@@ -243,8 +241,8 @@ class StaplesObject:
 
     def _mixedstaples(self, link):
         # Return G @ Gl @ L  +  R @ Gr @ G
-        # where G, Gl and Gr are staples corresponding to U, L and R as depicted
-        # in the following cartoon:
+        # where G, Gl and Gr are staples corresponding to U, L and R as
+        # depicted in the following cartoon:
         #
         #  --Gl---G--       --G---Gr--
         #  |    !   |       |   !    |
