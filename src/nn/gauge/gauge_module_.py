@@ -108,7 +108,7 @@ class GaugeModule_(Module_):
         self.staples_handle = staples_handle
         if self.unbounded_vector_axis:
             # swtich "vector_axis" of self.staples_handle to 0
-            self.staples_hanlde.vector_axis = 0
+            self.staples_handle.vector_axis = 0
         self.staples_kwargs = staples_kwargs
 
     def forward(self, x, log0=0):
@@ -301,7 +301,7 @@ class _GaugeModule_(MatrixModule_):
         self.nu_list = nu_list
         self.staples_handle = staples_handle
         if self.unbounded_vector_axis:
-            self.staples_hanlde.vector_axis = 0
+            self.staples_handle.vector_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
@@ -450,7 +450,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         self.nu_list = nu_list
         self.staples_handle = staples_handle
         if self.unbounded_vector_axis:
-            self.staples_hanlde.vector_axis = 0
+            self.staples_handle.vector_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
@@ -577,7 +577,7 @@ class PolyakovGaugeModule_(MatrixModule_):
         self.nu_list = nu_list
         self.staples_handle = staples_handle
         if self.unbounded_vector_axis:
-            self.staples_hanlde.vector_axis = 0
+            self.staples_handle.vector_axis = 0
         self.parity = parity
 
     def forward(self, x, log0=0):
