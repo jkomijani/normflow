@@ -45,7 +45,7 @@ class UnGroup(GinibreCMatrixDist):
         super().__init__(n=n, shape=shape)
 
         self.log_group_vol = self.calc_log_group_volume(n)
-        self.log_tot_vol = self.log_group_vol + log(np.product(shape))
+        self.log_tot_vol = self.log_group_vol + log(np.prod(shape))
 
     def sample(self, size=(1,)):  # this is the `sample` of dist (not prior)
         """Draw random samples."""
@@ -122,7 +122,7 @@ class U1Group:
         self.shape = shape
         self.uniform_dist = torch.distributions.uniform.Uniform(low, high)
         self.log_group_vol = np.log(2 * pi)
-        self.log_tot_vol = np.log(2 * pi) + np.log(np.product(shape))
+        self.log_tot_vol = np.log(2 * pi) + np.log(np.prod(shape))
 
     def sample(self, size=(1,)):  # this is the `sample` of dist (not prior)
         return torch.exp(1j * self.uniform_dist.sample(size))
