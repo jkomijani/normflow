@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This module contains new neural networks..."""
 
@@ -331,6 +331,8 @@ class SplineNet(torch.nn.Module):
         the min and max values for `x` & `y` of the knots.
     knots_x & knots_y & knots_d : None or tensors, optional
         fix corresponding tensors to the input if provided.
+    weights_x & weights_y & weights_d : None or tensors, optional
+        fix corresponding tensors to the input if provided.
     spline_shape : array-like, optional
         specifies number of splines organized as a tensor
         (default is [], indicating there is only one spline).
@@ -338,13 +340,9 @@ class SplineNet(torch.nn.Module):
         relevant only if spline_shape is not empty list (default value is -1).
     """
 
-    softmax = torch.nn.Softmax(dim=0)
-    softplus = torch.nn.Softplus(beta=np.log(2))
-    # we set the beta of Softplus to log(2) so that self.softplust(0) is 1.
-    # Then, it would be easy to set the derivatives to 1 (with zero inputs).
-
     def __init__(self, knots_len, xlim=(0, 1), ylim=(0, 1),
             knots_x=None, knots_y=None, knots_d=None,
+            weights_x=None, weights_y=None, weights_d=None,
             spline_shape=[], knots_axis=-1,
             smooth=False, Spline=RQSpline, set_param2zero=True,
             label='spline', **spline_kwargs
@@ -367,6 +365,12 @@ class SplineNet(torch.nn.Module):
         self.Spline = Spline
         self.spline_kwargs = dict(**spline_kwargs, knots_axis=knots_axis)
 
+        self.softmax = torch.nn.Softmax(dim=self.knots_axis)
+        self.softplus = torch.nn.Softplus(beta=np.log(2))
+        # we set the beta of Softplus to log(2) so that self.softplust(0)
+        # returns 1. With this setting it would be easy to set the derivatives
+        # to 1 (with zero inputs).
+
         def init(n):
             spline_shape_ = list(spline_shape)
             spline_shape_.insert(knots_axis, n)
@@ -374,31 +378,33 @@ class SplineNet(torch.nn.Module):
 
         if knots_x is None:
             self.xlim, self.xwidth = xlim, xlim[1] - xlim[0]
-            self.weights_x = torch.nn.Parameter(init(knots_len - 1))
+            if weights_x is None:
+                weights_x = torch.nn.Parameter(init(knots_len - 1))
+            self.weights_x = weights_x
 
         if knots_y is None:
             self.ylim, self.ywidth = ylim, ylim[1] - ylim[0]
-            self.weights_y = torch.nn.Parameter(init(knots_len - 1))
+            if weights_y is None:
+                weights_y = torch.nn.Parameter(init(knots_len - 1))
+            self.weights_y = weights_y
 
         if knots_d is None:
-            self.weights_d = None if smooth else torch.nn.Parameter(init(knots_len))
+            if weights_d is None and (not smooth):
+                weights_d = torch.nn.Parameter(init(knots_len))
+            self.weights_d = weights_d
 
         if set_param2zero:
             self.set_param2zero()
 
     def forward(self, x):
         spline = self.make_spline()
-        if len(self.spline_shape) > 0:
-            return spline(x)
-        else:
-            return spline(x.ravel()).reshape(x.shape)
+        x_reshaped = x.reshape(*self.spline_shape, -1)
+        return spline(x_reshaped).reshape(x.shape)
 
     def reverse(self, x):
         spline = self.make_spline()
-        if len(self.spline_shape) > 0:
-            return spline.reverse(x)
-        else:
-            return spline.reverse(x.ravel()).reshape(x.shape)
+        x_reshaped = x.reshape(*self.spline_shape, -1)
+        return spline.reverse(x_reshaped).reshape(x.shape)
 
     def make_spline(self):
         dim = self.knots_axis

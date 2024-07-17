@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """
 This module contains new neural networks that are subclasses of Module_ and
@@ -297,21 +297,17 @@ class SplineNet_(SplineNet, Module_):
 
     def forward(self, x, log0=0):
         spline = self.make_spline()
-        if len(self.spline_shape) > 0:
-            fx, g = spline(x, grad=True)  # g is gradient of the spline @ x
-        else:
-            fx, g = spline(x.ravel(), grad=True)  # g is gradient of spline @ x
-            fx, g = fx.reshape(x.shape), g.reshape(x.shape)
+        x_reshaped = x.reshape(*self.spline_shape, -1)
+        fx, g = spline(x_reshaped, grad=True)  # g is gradient @ x
+        fx, g = fx.reshape(x.shape), g.reshape(x.shape)
         logJ = self.sum_density(torch.log(g))
         return fx, log0 + logJ
 
     def reverse(self, x, log0=0):
         spline = self.make_spline()
-        if len(self.spline_shape) > 0:
-            fx, g = spline.reverse(x, grad=True)  # g is gradient @ x
-        else:
-            fx, g = spline.reverse(x.ravel(), grad=True)  # g is gradient @ x
-            fx, g = fx.reshape(x.shape), g.reshape(x.shape)
+        x_reshaped = x.reshape(*self.spline_shape, -1)
+        fx, g = spline.reverse(x_reshaped, grad=True)  # g is gradient @ x
+        fx, g = fx.reshape(x.shape), g.reshape(x.shape)
         logJ = self.sum_density(torch.log(g))
         return fx, log0 + logJ
 
