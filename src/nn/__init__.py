@@ -13,6 +13,8 @@ from .scalar.cntr_couplings_ import CntrShiftCoupling_, CntrAffineCoupling_
 from .scalar.cntr_couplings_ import CntrRQSplineCoupling_
 from .scalar.cntr_couplings_ import CntrMultiRQSplineCoupling_
 
+from .scalar.auto_regressive_ import LatticeAutoReg_
+
 from .scalar.fftflow_ import FFTNet_
 from .scalar.meanfield_ import MeanFieldNet_
 from .scalar.psd_ import PSDBlock_
