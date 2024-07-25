@@ -74,6 +74,9 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
 
     vector_axis = 1
 
+    def calc_staples_sum(self, *args, **kwargs):
+        return self.calc_staples(*args, **kwargs).staples_sum
+
     def makesure_correct_vector_axis(self, vector_axis):
         assert self.vector_axis == vector_axis, "vector axis?"
 
