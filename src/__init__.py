@@ -3,7 +3,8 @@
 # _normflowcore
 from ._normflowcore import Model
 from ._normflowcore import np, torch
-from ._normflowcore import reverse_sanitychecker
+from ._normflowcore import reverse_flow_sanitychecker
+reverse_sanitychecker = reverse_flow_sanitychecker  # for legacy (don't use it)
 
 # the rest...
 from . import action

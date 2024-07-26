@@ -344,16 +344,17 @@ class Fitter:
 
 # =============================================================================
 @torch.no_grad()
-def reverse_sanitychecker(model, n_samples=4, net_=None):
-    """Performs a sanity check on the reverse method of networks."""
+def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
+    """Performs a sanity check on the reverse method of modules."""
 
     if net_ is None:
         net_ = model.net_
 
     x = model.prior.sample(n_samples)
     y, logJ = net_(x)
-    x_hat, log0_hat = net_.reverse(y, log0=logJ)
+    x_hat, minus_logJ = net_.reverse(y)
 
-    print("Sanity check is OK if following numbers are zero up to round off:")
     mean = lambda z: z.abs().mean().item()
-    print(f"{mean(x - x_hat):g} & {mean(log0_hat):g}")
+
+    print("reverse method is OK if following values vanish (up to round off):")
+    print(f"{mean(x - x_hat):g} & {mean(logJ + minus_logJ):g}")
