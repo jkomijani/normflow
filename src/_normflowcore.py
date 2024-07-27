@@ -357,4 +357,4 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
     mean = lambda z: z.abs().mean().item()
 
     print("reverse method is OK if following values vanish (up to round off):")
-    print(f"{mean(x - x_hat):g} & {mean(logJ + minus_logJ):g}")
+    print(f"{mean(x - x_hat):g} & {mean(1 + minus_logJ / logJ):g}")
