@@ -263,6 +263,11 @@ class Fitter:
 
         return loss, logq, logp
 
+    def print_trian_history(self, keys=['loss', 'ess', 'logp']):
+        for key, value in self.train_history.items():
+            print(key)
+            print(value)
+
     @torch.no_grad()
     def _checkpoint(self, epoch, logq, logp, batch_size=None):
 
@@ -274,10 +279,13 @@ class Fitter:
         if epoch % stride == 0:
 
             bsize = self.checkpoint_dict['print_batch_size']
-            if bsize is None:
-                bsize = batch_size
-            if not (bsize is None):
-                _, logq, logp = self._model.posterior.sample__(bsize)
+
+            if (bsize is None) and (logq is not None):
+                pass  # use the input logq & logp
+            else:
+                # draw samples to calculate logq & logp
+                bsize_ = batch_size if (bsize is None) else bsize
+                _, logq, logp = self._model.posterior.sample__(bsize_)
 
         logq = self._model.device_handler.all_gather_into_tensor(logq)
         logp = self._model.device_handler.all_gather_into_tensor(logp)
