@@ -73,12 +73,12 @@ class ModuleList_(torch.nn.ModuleList):
 
     def forward(self, x, log0=0):
         for net_ in self:
-            x, log0 = net_.forward(x, log0)
+            x, log0 = net_.forward(x, log0=log0)
         return x, log0
 
     def reverse(self, x, log0=0):
         for net_ in list(self)[::-1]:  # list() is needed for child classes...
-            x, log0 = net_.reverse(x, log0)
+            x, log0 = net_.reverse(x, log0=log0)
         return x, log0
 
     def grouped_parameters(self):
