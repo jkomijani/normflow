@@ -93,11 +93,6 @@ class WilsonGaugeAction:
         return dict(beta=self.beta, ndim=self.ndim)
 
 
-class GaugeAction(WilsonGaugeAction):
-    """For now the only supported gauge action is Wilson gauge action."""
-    pass
-
-
 # =============================================================================
 class U1WilsonGaugeAction(WilsonGaugeAction):
     """A special case of GaugeAction with special `plaq_rule`, ...."""
@@ -119,11 +114,6 @@ class U1WilsonGaugeAction(WilsonGaugeAction):
                 dim = tuple(range(1, len(angle_plaq.shape)))
                 topo_charge += torch.sum(angle_plaq, dim=dim) / (2 * pi)
         return topo_charge
-
-
-class U1GaugeAction(U1WilsonGaugeAction):
-    """For now the only supported gauge action is Wilson gauge action."""
-    pass
 
 
 # =============================================================================
