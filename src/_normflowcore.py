@@ -249,7 +249,8 @@ class Fitter:
         logq = logr - logJ
 
         if self.path_gradient_autodiff:
-            logq_ydetached = model.posterior.log_prob(y.detach())
+            x, minus_logj = model.net_.reverse(y.detach())
+            logq_ydetached = minus_logj + model.prior.log_prob(x)
             logq = logq - (logq_ydetached - logq_ydetached.detach())
 
         loss = self.loss_fn(logq, logp)
