@@ -10,35 +10,33 @@ class MatrixAction:
     r"""The action is defined for $n \times n$ matrix M as
 
     .. math::
-        S = beta / n  Tr f(M) \Gamma \\
-        f(M) = Re \sum a_k M^k.
+        S = \frac{\beta}{n} Tr (M G)
+
+    where :math:`G` is a constant matrix that by default is set to identity.
     """
+
     def __init__(self, *, beta, staples_matrix=None):
-        # staples_matrix is the Gamma matrix above
+        # staples_matrix is the constant `G` matrix above
         self.beta = beta
         self.staples_matrix = staples_matrix
 
-    def reset_parameters(self, *, beta):
-        self.beta = beta
-       
     def __call__(self, cfgs):
         return self.action(cfgs)
-  
+
     def action(self, cfgs):
         """Returns action corresponding to input configurations."""
-        action = self.action_density(cfgs)
-        # The following if True for more-than-one-point matrix models.
-        if action.ndim > 1:
-            dim = tuple(range(1, action.ndim))  # 0 axis is the batch axis
-            action = torch.sum(action, dim=dim)
 
-        return action
-   
-    def action_density(self, cfgs):
-        """Returns action density corresponding to input configurations."""
         if self.staples_matrix is not None:
             cfgs = cfgs @ self.staples_matrix
-        return -self.beta * calc_reduced_trace(cfgs).real
+
+        reduced_trace = calc_reduced_trace(cfgs).real
+
+        # sum over the traces if it is a "more-than-one-point" matrix models.
+        if reduced_trace.ndim > 1:
+            dim = tuple(range(1, reduced_trace.ndim))  # 0 axis is batch axis
+            reduced_trace = torch.sum(reduced_trace, dim=dim)
+
+        return -self.beta * reduced_trace
 
     def log_prob(self, x, action_logz=0):
         """Returns log probability up to an additive constant."""
