@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This is a module for defining matrix models..."""
 
