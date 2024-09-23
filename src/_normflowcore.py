@@ -56,6 +56,7 @@ class Model:
         self.action = action
 
         self.fit = Fitter(self)
+        self.train = self.fit  # an lias for fit
 
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
