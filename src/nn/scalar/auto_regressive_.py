@@ -12,12 +12,26 @@ from ...mask.partitioner import ListPartitioner
 
 
 class LatticeAutoReg_(ModuleList_):
+    """An Auto-regressive model with exponential improvement in number of
+    layers suitable for large lattices.
+
+    Parameters
+    ----------
+    lat_shape: Tuple[int, ...]
+        shape of underlying lattice
+    nets_: Union[Tuple[Module_, ...], None]
+        a tuple of instances of `Module_` or None. Default is None, indicating
+        a default set of `Modules` that are based on `DistConvetor_` and
+        `AffineCoupling_` are used.
+    """
 
     def __init__(self, lat_shape, nets_=None):
 
         if nets_ is None:
             nets_ = LatticeAutoReg_.make_auto_regression_modules(lat_shape)
+
         super().__init__(nets_)
+
         self.all_slices = self.get_slices(lat_shape)[::-1]
         self.n_depth = len(self.all_slices)
 
@@ -114,6 +128,33 @@ class LatticeAutoReg_(ModuleList_):
 
 
 class AutoRegSubmodule_(Module_):
+    """A submodule for Auto-regressive model with exponential improvement in
+    number of layers suitable for large lattices.
+
+    The submodule takes active and frozen variables, transforms the active
+    variables, concatenates the transformed and frozen variables, and returns
+    them, which can be used as a frozen variable for the next submodule of the
+    autoregressive model.
+
+    Parameters
+    ----------
+    lat_shape: Tuple[int, ...]
+        shape of underlying lattice
+    nets1: Tuple[Module, ...]
+        a tuple of instances of `Module` that are used in constrcuting an
+        instance of `AffineCoupling_` that takes as input both active and
+        frozen variables.
+    nets2: Tuple[Module, ...]
+        a tuple of instances of `Module` that are used in constrcuting an
+        instance of `AffineCoupling_` that takes as input the transformed
+        variables.
+    knots_len: int (optional)
+        specifies the number of knots in `DistConvertor_` that acts on the
+        trasformed data.
+    expansion_axis: int (optional)
+        the axis for concatenating the transformed and frozen variables.
+        Default is 0, excluding the batch axis.
+    """
 
     def __init__(self, nets1, nets2, shape, expansion_axis=0, knots_len=10):
         super().__init__()
