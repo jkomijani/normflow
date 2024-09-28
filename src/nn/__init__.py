@@ -3,6 +3,8 @@ from ._core import MultiChannelModule_, MultiOutChannelModule_
 from ._core import InvisibilityMaskWrapperModule_
 
 from .scalar.modules import ConvAct, LinearAct
+from .scalar.modules import Pade32
+
 from .scalar.modules_ import DistConvertor_, Identity_, Clone_
 from .scalar.modules_ import UnityDistConvertor_, PhaseDistConvertor_
 from .scalar.modules_ import Pade11_, Pade22_, Pade32_
@@ -36,10 +38,10 @@ from .gauge.gauge_param_couplings_ import SU2RQSplineCoupling_
 from .gauge.gauge_param_couplings_ import U1RQSplineCoupling_
 from .gauge.gauge_param_couplings_ import SUnParamAffineCoupling_
 
-from .gauge.gauge_param_dual_couplings_ import  Pade11DualCoupling_
-from .gauge.gauge_param_dual_couplings_ import  Pade22DualCoupling_
-from .gauge.gauge_param_dual_couplings_ import  SU2RQSplineDualCoupling_
-from .gauge.gauge_param_dual_couplings_ import  SU3RQSplineDualCoupling_
+from .gauge.gauge_param_dual_couplings_ import Pade11DualCoupling_
+from .gauge.gauge_param_dual_couplings_ import Pade22DualCoupling_
+from .gauge.gauge_param_dual_couplings_ import SU2RQSplineDualCoupling_
+from .gauge.gauge_param_dual_couplings_ import SU3RQSplineDualCoupling_
 
 from .gauge.trivializing_map_ import WilsonTrivMap_
 
