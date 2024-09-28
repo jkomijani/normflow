@@ -27,20 +27,6 @@ class Abs(torch.nn.Module):
         return torch.abs(x)
 
 
-class Expit(torch.nn.Module):
-    """This can be also called Sigmoid and is basically torch.nn.Sigmoid"""
-
-    def forward(self, x):
-        return torch.special.expit
-
-
-class Logit(torch.nn.Module):
-    """This is inverse of Sigmoid"""
-
-    def forward(self, x):
-        return torch.special.logit
-
-
 ACTIVATIONS = torch.nn.ModuleDict(
                     [['tanh', torch.nn.Tanh()],
                      ['relu', torch.nn.ReLU()],
@@ -48,8 +34,6 @@ ACTIVATIONS = torch.nn.ModuleDict(
                      ['softplus', torch.nn.Softplus()],
                      ['avg_neighbor_pool', AvgNeighborPool()],
                      ['abs', Abs()],
-                     ['expit', Expit()],
-                     ['logit', Logit()],
                      ['none', torch.nn.Identity()]
                     ]
               )
@@ -301,6 +285,57 @@ class LinearAct(torch.nn.Sequential):
                 torch.nn.init.normal_(param, mean=mean, std=std)
 
 
+class Affine(torch.nn.Module):
+    """An affine transformation, :math:`a x + b`, with trainable parameters.
+
+    If the input has a channel axis, it is possible to set up different
+    parameters for each channel.
+
+    Parameters
+    ----------
+    channels_axis: Union[int, None], optional
+        it specifies the axis corresponding to the channels in the input.
+        Default is None, indicating there are no channels.
+
+    n_channels: int, optional
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
+    """
+
+    softplus = torch.nn.Softplus(beta=np.log(2))
+
+    def __init__(self,
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1
+                 ):
+
+        super().__init__()
+
+        self.bias = torch.nn.Parameter(torch.zeros(n_channels))
+        self.w_0 = torch.nn.Parameter(torch.zeros(n_channels))
+        self.n_channels = n_channels
+        self.channels_axis = channels_axis
+
+    def forward(self, x):
+        scale, bias = self.get_parameters_reshaped(x.shape)
+        return scale * x + bias
+
+    def reverse(self, y):
+        scale, bias = self.get_parameters_reshaped(y.shape)
+        return (y - bias) / scale
+
+    def get_parameters_reshaped(self, shape):
+        if self.channels_axis is None:
+            w_0 = self.w_0
+            bias = self.bias
+        else:
+            shape = [1 for _ in shape]
+            shape[self.channels_axis] = self.n_channels
+            w_0 = self.w_0.reshape(*shape)
+            bias = self.bias.reshape(*shape)
+        return self.softplus(w_0), bias
+
+
 class Pade32(torch.nn.Module):
     r"""An invertible transformation as a Pade approximant of order [3/2],
 
@@ -356,12 +391,12 @@ class Pade32(torch.nn.Module):
         self.channels_axis = channels_axis
         self.n_channels = n_channels
 
-    def forward(self, x, log0=0):
+    def forward(self, x):
         a = self.get_parameter_reshaped(x.shape)  # a is derivative at x = 0
         y = a * x * (a + x**2) / (1 + a * x**2)
         return y
 
-    def reverse(self, y, log0=0):
+    def reverse(self, y):
         a = self.get_derivative_reshaped(y.shape)  # a is derivative at x = 0
         x = self.reverse_pade32(y / a, a)
         return x

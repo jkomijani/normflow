@@ -42,34 +42,6 @@ class Clone_(Module_):
         return x.clone(), log0
 
 
-class ScaleNet_(Module_):
-    """Scales the input by a positive weight."""
-    # TODO: one can consider different weights for different channels
-
-    softplus = torch.nn.Softplus(beta=np.log(2))
-
-    def __init__(self, label='scale_'):
-        super().__init__(label=label)
-        self._weight = torch.nn.Parameter(torch.zeros(1))
-
-    @property
-    def weight(self):
-        return self.softplus(self._weight)
-
-    def forward(self, x, log0=0):
-        return x * self.weight, log0 + self.log_jacobian(x.shape)
-
-    def reverse(self, x, log0=0):
-        return x / self.weight, log0 - self.log_jacobian(x.shape)
-
-    def log_jacobian(self, x_shape):
-        if Module_.propagate_density:
-            return torch.log(self.weight) * torch.ones(x_shape)
-        else:
-            logwscaled = torch.log(self.weight) * np.prod(x_shape[1:])
-            return logwscaled * torch.ones(x_shape[0], device=self._weight.device)
-
-
 class Tanh_(Module_):
 
     def forward(self, x, log0=0):
@@ -113,6 +85,64 @@ class Logit_(Module_):
 
     def reverse(self, x, log0=0):
         return Expit_().forward(x, log0)
+
+
+
+# =============================================================================
+# The following Modules have trainable parameters
+# =============================================================================
+
+class Affine_(Module_):
+    """An affine transformation, :math:`a x + b`, with trainable parameters.
+
+    If the input has a channel axis, it is possible to set up different
+    parameters for each channel.
+
+    Parameters
+    ----------
+    channels_axis: Union[int, None], optional
+        it specifies the axis corresponding to the channels in the input.
+        Default is None, indicating there are no channels.
+
+    n_channels: int, optional
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
+    """
+
+    softplus = torch.nn.Softplus(beta=np.log(2))
+
+    def __init__(self,
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1
+                 ):
+
+        super().__init__()
+
+        self.bias = torch.nn.Parameter(torch.zeros(n_channels))
+        self.w_0 = torch.nn.Parameter(torch.zeros(n_channels))
+        self.n_channels = n_channels
+        self.channels_axis = channels_axis
+
+    def forward(self, x, log0=0):
+        scale, bias = self.get_parameters_reshaped(x.shape)
+        logj = self.sum_density(torch.log(scale) * torch.ones_like(x))
+        return scale * x + bias, log0 + logj
+
+    def reverse(self, y, log0=0):
+        scale, bias = self.get_parameters_reshaped(y.shape)
+        logj = - self.sum_density(torch.log(scale) * torch.ones_like(y))
+        return (y - bias) / scale, log0 + logj
+
+    def get_parameters_reshaped(self, shape):
+        if self.channels_axis is None:
+            w_0 = self.w_0
+            bias = self.bias
+        else:
+            shape = [1 for _ in shape]
+            shape[self.channels_axis] = self.n_channels
+            w_0 = self.w_0.reshape(*shape)
+            bias = self.bias.reshape(*shape)
+        return self.softplus(w_0), bias
 
 
 class Pade11_(Module_):
@@ -435,56 +465,27 @@ class PhaseDistConvertor_(SplineNet_):
 
 
 class DistConvertor_(ModuleList_):
-    """As a PDF convertor for real random variables (from minus to plus
-    infinity).
+    """As a PDF convertor for real random variables.
 
-    Steps: pass through Expit_, SplineNet_, and Logit_
+    Steps: pass through `Expit_`, `SplineNet_`, and `Logit_`
     """
 
-    def __init__(self, knots_len, symmetric=False, label='dc_',
-            sgnbias=False, initial_scale=False, final_scale=False,
-            **kwargs
-            ):
+    def __init__(self, knots_len, symmetric=False, **kwargs):
+
+        assert knots_len > 1, f"SplineNet is not defined for {knots_len} knots"
 
         if symmetric:
             extra = dict(xlim=(0.5, 1), ylim=(0.5, 1), extrap={'left':'anti'})
         else:
             extra = dict(xlim=(0, 1), ylim=(0, 1))
 
-        if knots_len > 1:
-            spline_ = SplineNet_(knots_len, label='spline_', **kwargs, **extra)
-            nets_ = [Expit_(label='expit_'), spline_, Logit_(label='logit_')]
-        else:
-            nets_ = []
-
-        if initial_scale:
-            nets_ = [ScaleNet_(label='scale_')] + nets_
-        elif final_scale:
-            nets_ = nets_ + [ScaleNet_(label='scale_')]
-
-        if sgnbias:  # SgnBiasNet_() **must** come first if exits
-            nets_ = [SgnBiasNet_()] + nets_
+        nets_ = [Expit_(), SplineNet_(knots_len, **kwargs, **extra), Logit_()]
 
         super().__init__(nets_)
-        self.label = label
 
     @property
     def spline_layer_(self):
-        for net_ in self:
-            if net_.label == 'spline_':
-                return net_
-
-    @property
-    def scale_layer_(self):
-        for net_ in self:
-            if net_.label == 'scale_':
-                return net_
-
-    @property
-    def sgnbias_layer_(self):
-        for net_ in self:
-            if net_.label == 'sgnbias_':
-                return net_
+        return self[1]
 
 
 class SgnBiasNet_(Module_):
