@@ -5,7 +5,7 @@ from ._core import InvisibilityMaskWrapperModule_
 from .scalar.modules import ConvAct, LinearAct
 from .scalar.modules_ import DistConvertor_, Identity_, Clone_
 from .scalar.modules_ import UnityDistConvertor_, PhaseDistConvertor_
-from .scalar.modules_ import Pade11_, Pade22_
+from .scalar.modules_ import Pade11_, Pade22_, Pade32_
 
 from .scalar.couplings_ import ShiftCoupling_, AffineCoupling_
 from .scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_

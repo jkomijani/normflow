@@ -12,6 +12,7 @@ reverse methods handle the Jacobians of the transformation.
 import torch
 import copy
 import numpy as np
+from typing import Union
 
 from .modules import SplineNet
 from .._core import Module_, ModuleList_
@@ -91,7 +92,7 @@ class ArcTanh_(Module_):
 
 
 class Expit_(Module_):
-    """This can be also called Sigmoid_"""
+    """This can be also called `Sigmoid_`."""
 
     def forward(self, x, log0=0):
         y = 1 / (1 + torch.exp(-x))
@@ -103,7 +104,7 @@ class Expit_(Module_):
 
 
 class Logit_(Module_):
-    """This is inverse of Sigmoid_"""
+    """This is inverse of `Sigmoid_`."""
 
     def forward(self, x, log0=0):
         y = torch.log(x / (1 - x))
@@ -115,7 +116,7 @@ class Logit_(Module_):
 
 
 class Pade11_(Module_):
-    r"""An invertible transformation as a Pade approximant of order 1/1
+    r"""An invertible transformation as a Pade approximant of order [1/1],
 
     .. math::
 
@@ -130,7 +131,7 @@ class Pade11_(Module_):
 
     softplus = torch.nn.Softplus(beta=np.log(2))
 
-    def __init__(self, n_channels=1, channels_axis=1, label='pade11'):
+    def __init__(self, n_channels=1, channels_axis=None, label='pade11'):
         super().__init__(label=label)
         self.w1 = torch.nn.Parameter(torch.zeros(n_channels))
         self.n_channels = n_channels
@@ -149,7 +150,7 @@ class Pade11_(Module_):
         return x / denom, log0 + logJ
 
     def get_derivative_reshaped(self, shape):
-        if self.n_channels == 1:
+        if self.channels_axis is None:
             w1 = self.w1
         else:
             shape = [1 for _ in shape]
@@ -159,7 +160,7 @@ class Pade11_(Module_):
 
 
 class Pade22_(Module_):
-    r"""An invertible transformation as a Pade approximant of order 2/2
+    r"""An invertible transformation as a Pade approximant of order [2/2],
 
     .. math::
 
@@ -171,8 +172,8 @@ class Pade22_(Module_):
 
     softplus = torch.nn.Softplus(beta=np.log(2))
 
-    def __init__(
-            self, n_channels=1, channels_axis=1, symmetric=False, label='pade22'
+    def __init__(self,
+            n_channels=1, channels_axis=None, symmetric=False, label='pade22'
             ):
         super().__init__(label=label)
         self.w0 = torch.nn.Parameter(torch.zeros(n_channels))
@@ -199,7 +200,7 @@ class Pade22_(Module_):
         return x, log0 - self.sum_density(torch.log(g_1))
 
     def get_derivatives_reshaped(self, shape):
-        if self.n_channels == 1:
+        if self.channels_axis is None:
             w0 = self.w0
             w1 = self.w1
         else:
@@ -235,31 +236,66 @@ class Pade22_(Module_):
         return x
 
 
-class _Pade32_(Module_):
-    # The INVERSE is still PROBLEMATIC!
-    r"""An invertible transformation as a Pade approximant of order 3/2
+class Pade32_(Module_):
+    r"""An invertible transformation as a Pade approximant of order [3/2],
 
     .. math::
 
         f(x) = x (a + x^2) / (1 + a x^2)
 
-    which is invertible for :math:`0 < a < 3`.
-    Note that this transformation is not the most general invertible Pade 3/2,
-    but it has the following traits: it is odd and regular at any finite real
-    :math:`x`, it has three fixed points at zero and plus/minus unity,
-    and it is proportional to :math:`x` as :math:`x \to \pm \infty`.
+    which is invertible for :math:`0 < a < 3`. By default, this module treats
+    :math:`a` as a trainable paramter, but there is an option to fix it to a
+    given constant. Moreover, if the input has a channel axis, it is possible
+    to consider different values of :math:`a` for each channel.
 
-    Moreover, this can be used as a nonlinear activation (if :math:`a \neq 1`).
+    Note that the above transformation is not the most general invertible
+    Pade [3/2], but it has the following traits: it is odd and regular at
+    any finite real :math:`x`, it has three fixed points at zero and plus/minus
+    unity, and it is proportional to :math:`x` as :math:`x \to \pm \infty`.
+
+    Furthere remarks:
+    1.  For inversion, one should solve a cubic equation, which has only one
+        real solution.
+    1.  An interesting observation: :math:`f(1/x) = 1 / f(x)`.
+    2.  The transformation is identity when :math:`a = 1`.
+    3.  It can be used as a nonlinear activation (if :math:`a \neq 1`).
+
+    Parameters
+    ----------
+    channels_axis: Union[int, None], optional
+        it specifies the axis corresponding to the channels in the input.
+        Default is None, indicating there are no channels.
+
+    n_channels: int, optional
+        it is relavant only if `channels_axis` is an integer, and it indicates
+        the number of channels.
+
+    w_0: Union[float, None], optional
+        it is by default None, indicating that :math:`a` is considered
+        a trainable paramter. Otherwise, we have :math:`a = 3 \expit(w_0)`.
     """
 
-    def __init__(self, n_channels=1, channels_axis=1, label='pade32'):
+    def __init__(self,
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1,
+                 w_0: Union[float, None] = None,
+                 label: str = 'pade32'
+                ):
+
         super().__init__(label=label)
-        self.w0 = torch.nn.Parameter(- torch.log(2 + torch.randn(n_channels)))
-        self.n_channels = n_channels
+
+        if w_0 is None:
+            # We introduce parameter `w_0`, and then: `a = 3 expit(w_0)`.
+            # The initial value for `w_0` is normal with mean `log(2)`.
+            # Note that 3 expit(-log(2)) = 1, indicating no nonlinearity
+            w_0 = torch.nn.Parameter(- np.log(2) + torch.randn(n_channels))
+
+        self.w_0 = w_0
         self.channels_axis = channels_axis
+        self.n_channels = n_channels
 
     def forward(self, x, log0=0):
-        a = self.get_derivative_reshaped(x.shape)  # a is derivative at x=0
+        a = self.get_derivative_reshaped(x.shape)  # a is derivative at x = 0
         s = x**2
         y = x * (a + s) / (1 + a * s)
         dy_by_dx = (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
@@ -267,25 +303,43 @@ class _Pade32_(Module_):
         return y, log0 + logJ
 
     def reverse(self, y, log0=0):
-        """We solve a cubic relation that has only one real solution."""
-        a = self.get_derivative_reshaped(y.shape)  # a is derivative at x=0
-        delta0 = a**2 - 3 * a / y**2
-        delta1 = - 2 * a**3 + (9 * a**2 - 27) / y**2
-        delta = 2**(-1/3) * (- delta1 + torch.sqrt(delta1**2 - 4*delta0**3))**(1/3)
-        x = y * (a + delta + delta0 / delta) / 3
+        a = self.get_derivative_reshaped(y.shape)  # a is derivative at x = 0
+        x = self.reverse_pade32(y, a)
         s = x**2
         dy_by_dx = (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
-        logJ = self.sum_density(-torch.log(dy_by_dx))
+        logJ = - self.sum_density(torch.log(dy_by_dx))
         return x, log0 + logJ
 
     def get_derivative_reshaped(self, shape):
-        if self.n_channels == 1:
-            w0 = self.w0
+        if self.channels_axis is None:
+            w_0 = self.w_0
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
-            w0 = self.w0.reshape(*shape)
-        return 3 * torch.special.expit(w0)
+            w_0 = self.w_0.reshape(*shape)
+        return 3 * torch.special.expit(w_0)
+
+    @staticmethod
+    def reverse_pade32(y, a):
+        """We solve a cubic relation that has only one real solution.
+
+        More specfically, we would like to invert
+
+        .. math::
+
+            f(x) = x (a + x^2) / (1 + a x^2)
+
+        where :math:`0 < a < 3`.
+        """
+        # `f(x) / x` is always positive unless for `x = 0`, where f(0) = 0`.
+        del0 = a**2 - 3 * a / y**2
+        del1 = - 2 * a**3 + (9 * a**2 - 27) / y**2
+        delta = 2**(-1/3) * (- del1 + torch.sqrt(del1**2 - 4*del0**3))**(1/3)
+        x = y * (a + delta + del0 / delta) / 3
+        # The above algorithm works for all `y` but `y = 0`. For this special
+        # case we use `torch.nan_to_num` to set to 0.
+        x = torch.nan_to_num(x, nan=0., posinf=0., neginf=0.)
+        return x
 
 
 class SplineNet_(SplineNet, Module_):
