@@ -127,12 +127,27 @@ class Pade11_(Module_):
 
     This transformation is equivalent to math:`\expit(\logit(x) - \log(a))`
     and its inverse is :math:`f(y; 1/a)`.
+
+    Parameters
+    ----------
+    channels_axis: Union[int, None], optional
+        it specifies the axis corresponding to the channels in the input.
+        Default is None, indicating there are no channels.
+
+    n_channels: int, optional
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
 
-    def __init__(self, n_channels=1, channels_axis=None, label='pade11'):
-        super().__init__(label=label)
+    def __init__(self,
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1
+                 ):
+
+        super().__init__()
+
         self.w1 = torch.nn.Parameter(torch.zeros(n_channels))
         self.n_channels = n_channels
         self.channels_axis = channels_axis
@@ -168,19 +183,38 @@ class Pade22_(Module_):
 
     with :math:`a, b > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is
     useful for input and output variables that vary between zero and one.
+
+    Parameters
+    ----------
+    channels_axis: Union[int, None], optional
+        it specifies the axis corresponding to the channels in the input.
+        Default is None, indicating there are no channels.
+
+    n_channels: int, optional
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
+
+    symmetric: bool, optional
+        if True, the transformation is symmtetric wrt `[0.5, 0.5]`. Default is
+        False.
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
 
     def __init__(self,
-            n_channels=1, channels_axis=None, symmetric=False, label='pade22'
-            ):
-        super().__init__(label=label)
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1,
+                 symmetric: bool = False
+                 ):
+
+        super().__init__()
+
         self.w0 = torch.nn.Parameter(torch.zeros(n_channels))
         if not symmetric:
             self.w1 = torch.nn.Parameter(torch.zeros(n_channels))
         else:
             self.w1 = self.w0
+
         self.n_channels = n_channels
         self.channels_axis = channels_axis
         self.symmetric = symmetric
@@ -267,8 +301,8 @@ class Pade32_(Module_):
         Default is None, indicating there are no channels.
 
     n_channels: int, optional
-        it is relavant only if `channels_axis` is an integer, and it indicates
-        the number of channels.
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
 
     w_0: Union[float, None], optional
         it is by default None, indicating that :math:`a` is considered
@@ -278,11 +312,10 @@ class Pade32_(Module_):
     def __init__(self,
                  channels_axis: Union[int, None] = None,
                  n_channels: int = 1,
-                 w_0: Union[float, None] = None,
-                 label: str = 'pade32'
+                 w_0: Union[float, None] = None
                 ):
 
-        super().__init__(label=label)
+        super().__init__()
 
         if w_0 is None:
             # We introduce parameter `w_0`, and then: `a = 3 expit(w_0)`.

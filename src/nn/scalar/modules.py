@@ -332,8 +332,8 @@ class Pade32(torch.nn.Module):
         Default is None, indicating there are no channels.
 
     n_channels: int, optional
-        it is relavant only if `channels_axis` is an integer, and it indicates
-        the number of channels.
+        it specifies the number of channels if `channels_axis` is an integer;
+        otherwise, it must be set 1, which is the default value.
 
     w_0: Union[float, None], optional
         it is by default None, indicating that :math:`a` is considered
