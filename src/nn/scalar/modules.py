@@ -306,24 +306,22 @@ class Pade32(torch.nn.Module):
 
     .. math::
 
-        f(x) = x (a + x^2) / (1 + a x^2)
+        f(x) = a x (a + x^2) / (1 + a x^2)
 
-    which is invertible for :math:`0 < a < 3`. By default, this module treats
-    :math:`a` as a trainable paramter, but there is an option to fix it to a
-    given constant. Moreover, if the input has a channel axis, it is possible
-    to consider different values of :math:`a` for each channel.
+    which is invertible for all real values of :math:`x` if :math:`0 < a < 3`.
+
+
+    By default, this module treats :math:`a` as a trainable parameter,
+    but there is an option to fix it to a constant. Moreover, if the input has
+    a channel axis, it is possible to set up different parameters for each
+    channel.
 
     Note that the above transformation is not the most general invertible
-    Pade [3/2], but it has the following traits: it is odd and regular at
-    any finite real :math:`x`, it has three fixed points at zero and plus/minus
-    unity, and it is proportional to :math:`x` as :math:`x \to \pm \infty`.
+    Pade [3/2], but it has the following traits: it is odd and analytic one the
+    real axis, and close to identity for large values of :math:`x`.
 
-    Furthere remarks:
-    1.  For inversion, one should solve a cubic equation, which has only one
-        real solution.
-    1.  An interesting observation: :math:`f(1/x) = 1 / f(x)`.
-    2.  The transformation is identity when :math:`a = 1`.
-    3.  It can be used as a nonlinear activation (if :math:`a \neq 1`).
+    The matrix inversion is possible by solving a cubic equation, which has
+    only one real solution.
 
     Parameters
     ----------
@@ -337,7 +335,7 @@ class Pade32(torch.nn.Module):
 
     w_0: Union[float, None], optional
         it is by default None, indicating that :math:`a` is considered
-        a trainable paramter. Otherwise, we have :math:`a = 3 \expit(w_0)`.
+        a trainable paramter. Otherwise, we set :math:`a = 3 \expit(w_0)`.
     """
 
     def __init__(self,
@@ -359,16 +357,16 @@ class Pade32(torch.nn.Module):
         self.n_channels = n_channels
 
     def forward(self, x, log0=0):
-        a = self.get_derivative_reshaped(x.shape)  # a is derivative at x = 0
-        y = x * (a + x**2) / (1 + a * x**2)
+        a = self.get_parameter_reshaped(x.shape)  # a is derivative at x = 0
+        y = a * x * (a + x**2) / (1 + a * x**2)
         return y
 
     def reverse(self, y, log0=0):
         a = self.get_derivative_reshaped(y.shape)  # a is derivative at x = 0
-        x = self.reverse_pade32(y, a)
+        x = self.reverse_pade32(y / a, a)
         return x
 
-    def get_derivative_reshaped(self, shape):
+    def get_parameter_reshaped(self, shape):
         if self.channels_axis is None:
             w_0 = self.w_0
         else:

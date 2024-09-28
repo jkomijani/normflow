@@ -128,6 +128,10 @@ class Pade11_(Module_):
     This transformation is equivalent to math:`\expit(\logit(x) - \log(a))`
     and its inverse is :math:`f(y; 1/a)`.
 
+    This module treats :math:`a` as a trainable parameter. If the input has a
+    channel axis, it is possible to set up different parameters for each
+    channel.
+
     Parameters
     ----------
     channels_axis: Union[int, None], optional
@@ -153,18 +157,18 @@ class Pade11_(Module_):
         self.channels_axis = channels_axis
 
     def forward(self, x, log0=0):
-        d1 = self.get_derivative_reshaped(x.shape)
+        d1 = self.get_parameter_reshaped(x.shape)
         denom = x + (1 - x) * d1
         logJ = self.sum_density(torch.log(d1) - 2 * torch.log(denom))
         return x / denom, log0 + logJ
 
     def reverse(self, x, log0=0):
-        d1 = self.get_derivative_reshaped(x.shape)
+        d1 = self.get_parameter_reshaped(x.shape)
         denom = x + (1 - x) / d1
         logJ = self.sum_density(-torch.log(d1) - 2 * torch.log(denom))
         return x / denom, log0 + logJ
 
-    def get_derivative_reshaped(self, shape):
+    def get_parameter_reshaped(self, shape):
         if self.channels_axis is None:
             w1 = self.w1
         else:
@@ -183,6 +187,10 @@ class Pade22_(Module_):
 
     with :math:`a, b > 0` that maps :math:`[0, 1] \to [0, 1]`. This map is
     useful for input and output variables that vary between zero and one.
+
+    This module treats :math:`a, b` as trainable parameters. If the input has a
+    channel axis, it is possible to set up different parameters for each
+    channel.
 
     Parameters
     ----------
@@ -220,20 +228,20 @@ class Pade22_(Module_):
         self.symmetric = symmetric
 
     def forward(self, x, log0=0):
-        d0, d1 = self.get_derivatives_reshaped(x.shape)
+        d0, d1 = self.get_parameters_reshaped(x.shape)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
         g_0 = x * (x + d0 * (1 - x)) / denom
         g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
         return g_0, log0 + self.sum_density(torch.log(g_1))
 
     def reverse(self, y, log0=0):
-        d0, d1 = self.get_derivatives_reshaped(y.shape)
+        d0, d1 = self.get_parameters_reshaped(y.shape)
         x = self.reverse_pade22(y, d0, d1)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
         g_1 = (d0 + 2 * (1 - d0) * x + (d1 + d0 - 2) * x**2) / denom**2
         return x, log0 - self.sum_density(torch.log(g_1))
 
-    def get_derivatives_reshaped(self, shape):
+    def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
             w0 = self.w0
             w1 = self.w1
@@ -275,24 +283,22 @@ class Pade32_(Module_):
 
     .. math::
 
-        f(x) = x (a + x^2) / (1 + a x^2)
+        f(x) = a x (a + x^2) / (1 + a x^2)
 
-    which is invertible for :math:`0 < a < 3`. By default, this module treats
-    :math:`a` as a trainable paramter, but there is an option to fix it to a
-    given constant. Moreover, if the input has a channel axis, it is possible
-    to consider different values of :math:`a` for each channel.
+    which is invertible for all real values of :math:`x` if :math:`0 < a < 3`.
+
+
+    By default, this module treats :math:`a` as a trainable parameter,
+    but there is an option to fix it to a constant. Moreover, if the input has
+    a channel axis, it is possible to set up different parameters for each
+    channel.
 
     Note that the above transformation is not the most general invertible
-    Pade [3/2], but it has the following traits: it is odd and regular at
-    any finite real :math:`x`, it has three fixed points at zero and plus/minus
-    unity, and it is proportional to :math:`x` as :math:`x \to \pm \infty`.
+    Pade [3/2], but it has the following traits: it is odd and analytic one the
+    real axis, and close to identity for large values of :math:`x`.
 
-    Furthere remarks:
-    1.  For inversion, one should solve a cubic equation, which has only one
-        real solution.
-    1.  An interesting observation: :math:`f(1/x) = 1 / f(x)`.
-    2.  The transformation is identity when :math:`a = 1`.
-    3.  It can be used as a nonlinear activation (if :math:`a \neq 1`).
+    The matrix inversion is possible by solving a cubic equation, which has
+    only one real solution.
 
     Parameters
     ----------
@@ -306,13 +312,14 @@ class Pade32_(Module_):
 
     w_0: Union[float, None], optional
         it is by default None, indicating that :math:`a` is considered
-        a trainable paramter. Otherwise, we have :math:`a = 3 \expit(w_0)`.
+        a trainable paramter. Otherwise, we set :math:`a = 3 \expit(w_0)`.
     """
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
                  n_channels: int = 1,
-                 w_0: Union[float, None] = None
+                 w_0: Union[float, None] = None,
+                 include_affine: bool = False
                 ):
 
         super().__init__()
@@ -328,22 +335,22 @@ class Pade32_(Module_):
         self.n_channels = n_channels
 
     def forward(self, x, log0=0):
-        a = self.get_derivative_reshaped(x.shape)  # a is derivative at x = 0
+        a = self.get_parameter_reshaped(x.shape)  # a is derivative at x = 0
         s = x**2
-        y = x * (a + s) / (1 + a * s)
-        dy_by_dx = (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
+        y = a * x * (a + s) / (1 + a * s)
+        dy_by_dx = a * (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
         logJ = self.sum_density(torch.log(dy_by_dx))
         return y, log0 + logJ
 
     def reverse(self, y, log0=0):
-        a = self.get_derivative_reshaped(y.shape)  # a is derivative at x = 0
-        x = self.reverse_pade32(y, a)
+        a = self.get_parameter_reshaped(y.shape)  # a is derivative at x = 0
+        x = self.reverse_pade32(y / a, a)
         s = x**2
-        dy_by_dx = (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
+        dy_by_dx = a * (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
         logJ = - self.sum_density(torch.log(dy_by_dx))
         return x, log0 + logJ
 
-    def get_derivative_reshaped(self, shape):
+    def get_parameter_reshaped(self, shape):
         if self.channels_axis is None:
             w_0 = self.w_0
         else:
