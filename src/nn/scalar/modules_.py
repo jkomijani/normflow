@@ -45,8 +45,8 @@ class Clone_(Module_):
 class Tanh_(Module_):
 
     def forward(self, x, log0=0):
-        logJ = -2 * self.sum_density(torch.log(torch.cosh(x)))
-        return torch.tanh(x), log0 + logJ
+        logj = -2 * self.sum_density(torch.log(torch.cosh(x)))
+        return torch.tanh(x), log0 + logj
 
     def reverse(self, x, log0=0):
         return ArcTanh_().forward(x, log0)
@@ -56,8 +56,8 @@ class ArcTanh_(Module_):
 
     def forward(self, x, log0=0):
         y = torch.atanh(x)
-        logJ = 2 * self.sum_density(torch.log(torch.cosh(y)))
-        return y, log0 + logJ
+        logj = 2 * self.sum_density(torch.log(torch.cosh(y)))
+        return y, log0 + logj
 
     def reverse(self, x, log0=0):
         return Tanh_().forward(x, log0)
@@ -68,8 +68,8 @@ class Expit_(Module_):
 
     def forward(self, x, log0=0):
         y = 1 / (1 + torch.exp(-x))
-        logJ = self.sum_density(-x + 2 * torch.log(y))
-        return y, log0 + logJ
+        logj = self.sum_density(-x + 2 * torch.log(y))
+        return y, log0 + logj
 
     def reverse(self, x, log0=0):
         return Logit_().forward(x, log0)
@@ -80,8 +80,8 @@ class Logit_(Module_):
 
     def forward(self, x, log0=0):
         y = torch.log(x / (1 - x))
-        logJ = - self.sum_density(torch.log(x * (1 - x)))
-        return y, log0 + logJ
+        logj = - self.sum_density(torch.log(x * (1 - x)))
+        return y, log0 + logj
 
     def reverse(self, x, log0=0):
         return Expit_().forward(x, log0)
@@ -110,6 +110,7 @@ class Affine_(Module_):
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
+    # with beta = log(2), we have softplust(0) = 1
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
@@ -174,6 +175,7 @@ class Pade11_(Module_):
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
+    # with beta = log(2), we have softplust(0) = 1
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
@@ -187,18 +189,18 @@ class Pade11_(Module_):
         self.channels_axis = channels_axis
 
     def forward(self, x, log0=0):
-        d1 = self.get_parameter_reshaped(x.shape)
+        d1 = self.get_parameters_reshaped(x.shape)
         denom = x + (1 - x) * d1
-        logJ = self.sum_density(torch.log(d1) - 2 * torch.log(denom))
-        return x / denom, log0 + logJ
+        logj = self.sum_density(torch.log(d1) - 2 * torch.log(denom))
+        return x / denom, log0 + logj
 
-    def reverse(self, x, log0=0):
-        d1 = self.get_parameter_reshaped(x.shape)
-        denom = x + (1 - x) / d1
-        logJ = self.sum_density(-torch.log(d1) - 2 * torch.log(denom))
-        return x / denom, log0 + logJ
+    def reverse(self, y, log0=0):
+        d1 = self.get_parameters_reshaped(y.shape)
+        denom = y + (1 - y) / d1
+        logj = self.sum_density(-torch.log(d1) - 2 * torch.log(denom))
+        return y / denom, log0 + logj
 
-    def get_parameter_reshaped(self, shape):
+    def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
             w1 = self.w1
         else:
@@ -238,6 +240,7 @@ class Pade22_(Module_):
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
+    # with beta = log(2), we have softplust(0) = 1
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
@@ -355,39 +358,38 @@ class Pade32_(Module_):
         super().__init__()
 
         if w_0 is None:
-            # We introduce parameter `w_0`, and then: `a = 3 expit(w_0)`.
-            # The initial value for `w_0` is normal with mean `log(2)`.
+            # We introduce parameter w_0, and then `a = 3 expit(w_0 - log(2))`.
             # Note that 3 expit(-log(2)) = 1, indicating no nonlinearity
-            w_0 = torch.nn.Parameter(- np.log(2) + torch.randn(n_channels))
+            w_0 = torch.nn.Parameter(torch.randn(n_channels))
 
         self.w_0 = w_0
         self.channels_axis = channels_axis
         self.n_channels = n_channels
 
     def forward(self, x, log0=0):
-        a = self.get_parameter_reshaped(x.shape)  # a is derivative at x = 0
+        a = self.get_parameters_reshaped(x.shape)  # a is derivative at x = 0
         s = x**2
         y = a * x * (a + s) / (1 + a * s)
         dy_by_dx = a * (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
-        logJ = self.sum_density(torch.log(dy_by_dx))
-        return y, log0 + logJ
+        logj = self.sum_density(torch.log(dy_by_dx))
+        return y, log0 + logj
 
     def reverse(self, y, log0=0):
-        a = self.get_parameter_reshaped(y.shape)  # a is derivative at x = 0
+        a = self.get_parameters_reshaped(y.shape)  # a is derivative at x = 0
         x = self.reverse_pade32(y / a, a)
         s = x**2
         dy_by_dx = a * (a * s**2 + (3 - a**2) * s + a) / (1 + a * s)**2
-        logJ = - self.sum_density(torch.log(dy_by_dx))
-        return x, log0 + logJ
+        logj = - self.sum_density(torch.log(dy_by_dx))
+        return x, log0 + logj
 
-    def get_parameter_reshaped(self, shape):
+    def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
             w_0 = self.w_0
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
             w_0 = self.w_0.reshape(*shape)
-        return 3 * torch.special.expit(w_0)
+        return 3 * torch.special.expit(w_0 - np.log(2))
 
     @staticmethod
     def reverse_pade32(y, a):
@@ -424,16 +426,16 @@ class SplineNet_(SplineNet, Module_):
         x_reshaped = x.reshape(*self.spline_shape, -1)
         fx, g = spline(x_reshaped, grad=True)  # g is gradient @ x
         fx, g = fx.reshape(x.shape), g.reshape(x.shape)
-        logJ = self.sum_density(torch.log(g))
-        return fx, log0 + logJ
+        logj = self.sum_density(torch.log(g))
+        return fx, log0 + logj
 
     def reverse(self, x, log0=0):
         spline = self.make_spline()
         x_reshaped = x.reshape(*self.spline_shape, -1)
         fx, g = spline.reverse(x_reshaped, grad=True)  # g is gradient @ x
         fx, g = fx.reshape(x.shape), g.reshape(x.shape)
-        logJ = self.sum_density(torch.log(g))
-        return fx, log0 + logJ
+        logj = self.sum_density(torch.log(g))
+        return fx, log0 + logj
 
 
 class UnityDistConvertor_(SplineNet_):

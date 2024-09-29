@@ -303,6 +303,7 @@ class Affine(torch.nn.Module):
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
+    # with beta = log(2), we have softplust(0) = 1
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
@@ -382,33 +383,32 @@ class Pade32(torch.nn.Module):
         super().__init__()
 
         if w_0 is None:
-            # We introduce parameter `w_0`, and then: `a = 3 expit(w_0)`.
-            # The initial value for `w_0` is normal with mean `log(2)`.
+            # We introduce parameter w_0, and then `a = 3 expit(w_0 - log(2))`.
             # Note that 3 expit(-log(2)) = 1, indicating no nonlinearity
-            w_0 = torch.nn.Parameter(- np.log(2) + torch.randn(n_channels))
+            w_0 = torch.nn.Parameter(torch.randn(n_channels))
 
         self.w_0 = w_0
         self.channels_axis = channels_axis
         self.n_channels = n_channels
 
     def forward(self, x):
-        a = self.get_parameter_reshaped(x.shape)  # a is derivative at x = 0
+        a = self.get_parameters_reshaped(x.shape)  # a is derivative at x = 0
         y = a * x * (a + x**2) / (1 + a * x**2)
         return y
 
     def reverse(self, y):
-        a = self.get_derivative_reshaped(y.shape)  # a is derivative at x = 0
+        a = self.get_parameters_reshaped(y.shape)  # a is derivative at x = 0
         x = self.reverse_pade32(y / a, a)
         return x
 
-    def get_parameter_reshaped(self, shape):
+    def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
             w_0 = self.w_0
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
             w_0 = self.w_0.reshape(*shape)
-        return 3 * torch.special.expit(w_0)
+        return 3 * torch.special.expit(w_0 - np.log(2))
 
     @staticmethod
     def reverse_pade32(y, a):
