@@ -122,16 +122,11 @@ class Posterior:
 
 # =============================================================================
 class Fitter:
-    """A class for training a given model.
-
-    Parameters
-    ----------
-    model : An instance of Model
-    """
+    """A class for training a given model."""
 
     path_gradient_autodiff = True
 
-    def __init__(self, model):
+    def __init__(self, model: Model):
         self._model = model
 
         self.train_history = dict(loss=[None], ess=[None], logp=[None])
@@ -149,6 +144,7 @@ class Fitter:
             optimizer_class=torch.optim.AdamW,
             scheduler=None,
             loss_fn=None,
+            alpha_tmax=None,
             hyperparam={},
             checkpoint_dict={}
             ):
@@ -158,26 +154,31 @@ class Fitter:
         Parameters
         ----------
         n_epochs : int
-            Number of epochs of training
+            Number of epochs of training.
 
         batch_size : int
-            Size of samples used at each epoch
+            Size of samples used at each epoch.
 
         optimizer_class : optimization class, optional
             By default is set to torch.optim.AdamW, but can be changed.
 
         scheduler : scheduler class, optional
-            By default no scheduler is used
+            By default no scheduler is used.
 
         loss_fn : None or function, optional
-            The default value is None, which translates to using KL divergence
+            The default value is None, which translates to using KL divergence.
+
+        alpha_tmax : int or None, optional
+            If a positive integer, a scheduler would be setup for interpolating
+            between prior and target distributions. Default is None.
+            (See `AlphaScheduler`.)
 
         hyperparam : dict, optional
             Can be used to set hyperparameters like the learning rate and decay
-            weights
+            weights.
 
         checkpoint_dict : dict, optional
-            Can be set to control printing the status of the training
+            Can be set to control printing the status of the training.
         """
         self.hyperparam.update(hyperparam)
         self.checkpoint_dict.update(checkpoint_dict)
@@ -195,6 +196,8 @@ class Fitter:
             self.scheduler = None
         else:
             self.scheduler = scheduler(self.optimizer)
+
+        self.alpha_scheduler = AlphaScheduler(alpha_tmax)
 
         return self.train(n_epochs, batch_size)
 
@@ -234,6 +237,7 @@ class Fitter:
             self._checkpoint(epoch, logq, logp)
             if self.scheduler is not None:
                 self.scheduler.step()
+            self.alpha_scheduler.step()
         t_2 = time.time()
 
         if self._model.device_handler.rank == 0:
@@ -243,15 +247,16 @@ class Fitter:
     def step(self, batch_size):
         """Perform a train step with a batch of inputs of size `batch_size`."""
         model = self._model
+        alpha = self.alpha_scheduler.alpha
 
         x, logr = model.prior.sample_(batch_size)
         y, logJ = model.net_(x)
-        logp = - model.action(y)
-        logq = logr - logJ
+        logp = - alpha * model.action(y)
+        logq = alpha * logr - logJ
 
         if self.path_gradient_autodiff:
             x, minus_logj = model.net_.reverse(y.detach())
-            logq_ydetached = minus_logj + model.prior.log_prob(x)
+            logq_ydetached = minus_logj + alpha * model.prior.log_prob(x)
             logq = logq - (logq_ydetached - logq_ydetached.detach())
 
         loss = self.loss_fn(logq, logp)
@@ -350,6 +355,19 @@ class Fitter:
         log_ess = 2*torch.logsumexp(-logqp, dim=0) \
                 - torch.logsumexp(-2*logqp, dim=0)
         return - log_ess + np.log(len(logqp))  # normalized
+
+
+class AlphaScheduler:
+    """Introduces a parameter and a scheduler to change it."""
+
+    def __init__(self, t_max=None):
+
+        self.alpha = 1 if t_max is None else 0
+        self.t_max = t_max
+
+    def step(self):
+        if not (self.t_max is None):
+            self.alpha = min(1, self.alpha + 1 / self.t_max)
 
 
 # =============================================================================
