@@ -288,6 +288,7 @@ class LinearAct(torch.nn.Sequential):
 class Affine(torch.nn.Module):
     """An affine transformation, :math:`a x + b`, with trainable parameters.
 
+    This module treats :math:`a, b` as trainable parameters with :math:`a > 0`.
     If the input has a channel axis, it is possible to set up different
     parameters for each channel.
 
@@ -300,6 +301,13 @@ class Affine(torch.nn.Module):
     n_channels: int, optional
         it specifies the number of channels if `channels_axis` is an integer;
         otherwise, it must be set 1, which is the default value.
+
+    w_scale: Union[Tensor, float, None], optional
+        the default value is None, indicating that :math:`a` is a trainable
+        parameter. If provided, we set :math:`a = Softplus(w_{scale}, log(2))`.
+
+    w_bias: Union[Tensor, float, None], optional
+        the default value is None, indicating that :math:`b` is a trainable
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
@@ -312,8 +320,17 @@ class Affine(torch.nn.Module):
 
         super().__init__()
 
-        self.bias = torch.nn.Parameter(torch.zeros(n_channels))
-        self.w_0 = torch.nn.Parameter(torch.zeros(n_channels))
+        if channels_axis is None:
+            assert n_channels == 1
+
+        if w_scale is None:
+            w_scale = torch.nn.Parameter(torch.zeros(n_channels))
+
+        if w_bias is None:
+            w_bias = torch.nn.Parameter(torch.zeros(n_channels))
+
+        self.w_scale = w_scale
+        self.w_bias = w_bias
         self.n_channels = n_channels
         self.channels_axis = channels_axis
 
@@ -327,14 +344,14 @@ class Affine(torch.nn.Module):
 
     def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
-            w_0 = self.w_0
-            bias = self.bias
+            w_scale = self.w_scale
+            w_bias = self.w_bias
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
-            w_0 = self.w_0.reshape(*shape)
-            bias = self.bias.reshape(*shape)
-        return self.softplus(w_0), bias
+            w_scale = self.w_scale.reshape(*shape)
+            w_bias = self.w_bias.reshape(*shape)
+        return self.softplus(w_scale), w_bias
 
 
 class Pade32(torch.nn.Module):
@@ -353,8 +370,9 @@ class Pade32(torch.nn.Module):
     channel.
 
     Note that the above transformation is not the most general invertible
-    Pade [3/2], but it has the following traits: it is odd and analytic one the
-    real axis, and close to identity for large values of :math:`x`.
+    Pade [3/2], but it has the following traits: it is odd and analytic on the
+    real axis, and asymptotic to the identity transformation for large values
+    of :math:`|x|`.
 
     The matrix inversion is possible by solving a cubic equation, which has
     only one real solution.
@@ -369,25 +387,28 @@ class Pade32(torch.nn.Module):
         it specifies the number of channels if `channels_axis` is an integer;
         otherwise, it must be set 1, which is the default value.
 
-    w_0: Union[float, None], optional
-        it is by default None, indicating that :math:`a` is considered
-        a trainable paramter. Otherwise, we set :math:`a = 3 \expit(w_0)`.
+    w_a: Union[Tensor, float, None], optional
+        the default value is None, indicating that :math:`a` is a trainable
+        parameter. If provided, we set :math:`a = 3 \expit(w_a - log(2))`.
     """
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
                  n_channels: int = 1,
-                 w_0: Union[float, None] = None
+                 w_a: Union[float, None] = None
                 ):
 
         super().__init__()
 
-        if w_0 is None:
-            # We introduce parameter w_0, and then `a = 3 expit(w_0 - log(2))`.
-            # Note that 3 expit(-log(2)) = 1, indicating no nonlinearity
-            w_0 = torch.nn.Parameter(torch.randn(n_channels))
+        if channels_axis is None:
+            assert n_channels == 1
 
-        self.w_0 = w_0
+        if w_a is None:
+            # We introduce parameter w_a, and then `a = 3 expit(w_a - log(2))`.
+            # Note that 3 expit(-log(2)) = 1, indicating no nonlinearity
+            w_a = torch.nn.Parameter(torch.randn(n_channels))
+
+        self.w_a = w_a
         self.channels_axis = channels_axis
         self.n_channels = n_channels
 
@@ -403,12 +424,12 @@ class Pade32(torch.nn.Module):
 
     def get_parameters_reshaped(self, shape):
         if self.channels_axis is None:
-            w_0 = self.w_0
+            w_a = self.w_a
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
-            w_0 = self.w_0.reshape(*shape)
-        return 3 * torch.special.expit(w_0 - np.log(2))
+            w_a = self.w_a.reshape(*shape)
+        return 3 * torch.special.expit(w_a - np.log(2))
 
     @staticmethod
     def reverse_pade32(y, a):
