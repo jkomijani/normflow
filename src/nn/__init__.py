@@ -9,7 +9,7 @@ from .scalar.modules import Pade32
 from .scalar.modules_ import DistConvertor_, Identity_, Clone_
 from .scalar.modules_ import UnityDistConvertor_, PhaseDistConvertor_
 from .scalar.modules_ import Affine_
-from .scalar.modules_ import Pade11_, Pade22_, Pade32_
+from .scalar.modules_ import Pade11_, Pade22_, Pade32_, Pade32a_
 
 from .scalar.couplings_ import ShiftCoupling_, AffineCoupling_
 from .scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_

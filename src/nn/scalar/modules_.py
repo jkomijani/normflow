@@ -161,7 +161,7 @@ class Affine_(Module_):
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
-            w_scale = self.w_a.reshape(*shape)
+            w_scale = self.w_scale.reshape(*shape)
             w_bias = self.w_bias.reshape(*shape)
         return self.softplus(w_scale), w_bias
 
@@ -441,6 +441,30 @@ class Pade32_(Module_):
         # case we use `torch.nan_to_num` to set to 0.
         x = torch.nan_to_num(x, nan=0., posinf=0., neginf=0.)
         return x
+
+
+class Pade32a_(ModuleList_):
+    """An invertible transformation as a Pade approximant of order [3/2] that
+    is constructed by sequential maps of Affine() and Pade32_().
+    """
+
+    def __init__(self,
+                 channels_axis: Union[int, None] = None,
+                 n_channels: int = 1,
+                 w_scale: Union[torch.Tensor, float, None] = None,
+                 w_bias: Union[torch.Tensor, float, None] = None,
+                 w_a: Union[torch.Tensor, float, None] = None
+                ):
+
+        affine_ = Affine_(channels_axis, n_channels, w_scale, w_bias)
+        pade32_ = Pade32_(channels_axis, n_channels, w_a)
+
+        super().__init__([affine_, pade32_])
+
+    def reset_options(self, w_scale, w_bias, w_a):
+        self[0].w_scale = w_scale
+        self[0].w_bias = w_scale
+        self[1].w_a = w_a
 
 
 class SplineNet_(SplineNet, Module_):

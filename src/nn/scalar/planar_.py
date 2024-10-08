@@ -5,8 +5,7 @@ import torch
 from typing import Union, Callable
 
 from .._core import Module_
-from .._core import ModuleList_
-from .modules_ import Pade32_, Affine_
+from .modules_ import Pade32a_
 
 
 class MultiPlanarFlow_(Module_):
@@ -33,12 +32,9 @@ class MultiPlanarFlow_(Module_):
     m: int
         number of (hidden) channels
     net_: Union[Callable, None], optional
-        a module that transforms the projected data and also returns `logj`
-        of transformation. (It is `h` in the above expression.) If not provided
-        as input, the default case would be used, which is
-        ``net_ = Pade32_(**kwargs) o Affine_(**kwargs)``, where ``**kwargs``
-        provides information about number of channels: If `m == 1`, no channels
-        are introduced. Otherwise, the number of channels is set to `m`.
+        an implementation of `h` that transforms the projected data and also
+        returns `logj` of transformation. If not provided as input, the default
+        case would be used, which is ``net_ = Pade32a_(n_channels=m)``.
     """
     def __init__(self,
                  n: int,
@@ -63,8 +59,7 @@ class MultiPlanarFlow_(Module_):
 
         if net_ is None:
             # if m > 1 set n_channels = m & channels axis = 1
-            kws = dict(channels_axis = None if m==1 else 1, n_channels=m)
-            net_ = ModuleList_([Pade32_(**kws), Affine_(**kws)])
+            net_ = Pade32a_(channels_axis = None if m==1 else 1, n_channels=m)
 
         self.net_ = net_
 
