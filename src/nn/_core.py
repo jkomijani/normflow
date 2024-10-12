@@ -7,14 +7,93 @@ import copy
 import io
 import base64
 from abc import abstractmethod, ABC
+from typing import Type, List
 
 
 # =============================================================================
 class Module_(torch.nn.Module, ABC):
-    """A prototype class: like a `torch.nn.Module` except for the `forward`
-    and `reverse` methods that handle the Jacobians of the transformation.
-    We use trailing underscore to denote the neworks in which the `forward`
-    and `reverse` methods handle the Jacobians of the transformation.
+    """
+    An abstract subclass of `torch.nn.Module` designed for creating invertible
+    transformations that compute the logarithm of the Jacobian of the
+    transformation.
+
+    The trailing underscore in the class name indicates that the `forward`
+    method not only returns the transformed inputs but also computes and
+    returns the logarithm of the Jacobian determinant as the second item in a
+    two-item tuple. This functionality is crucial for applications where the
+    computation of the Jacobian is necessary, such as in normalizing flows.
+
+    Transformations derived from this class are expected to be invertible.
+    The `reverse` method applies the inverse of the transformation.
+
+    To illustrate the use of this abstract class, consider the implementation
+    of the hyperbolic tangent transformation using a subclass named `Tanh_`::
+
+
+        class Tanh_(Module_):
+
+            def forward(self, x, log0=0):
+                '''
+                Apply the hyperbolic tangent transformation.
+
+                Parameters
+                ----------
+                x: torch.Tensor
+                    Input tensor to be transformed.
+                log0: float, optional
+                    The logarithm of the Jacobian determinant from a previous
+                    transformation. Default is 0.
+
+                Returns
+                -------
+                y: torch.Tensor
+                    Transformed output tensor after applying `tanh`.
+                logj: float
+                    Updated logarithm of the Jacobian determinant.
+                '''
+                y = torch.tanh(x)
+                logj = -2 * torch.log(torch.cosh(x)).sum()
+                return y, log0 + logj
+
+            def reverse(self, y, log0=0):
+                '''
+                Apply the inverse hyperbolic tangent transformation.
+
+                Parameters
+                ----------
+                y: torch.Tensor
+                    Input tensor to be transformed.
+                log0: float, optional
+                    The logarithm of the Jacobian determinant from a previous
+                    transformation. Default is 0.
+
+                Returns
+                -------
+                x: torch.Tensor
+                    Transformed output tensor after applying `atanh`.
+                logj: float
+                    Updated logarithm of the Jacobian determinant.
+                '''
+                x = torch.atanh(y)
+                logj = 2 * torch.log(torch.cosh(x)).sum()
+                return x, log0 + logj
+
+
+    As the example shows, both the `forward` and `reverse` methods can accept
+    an optional second input, `log0`, which allows users to carry over the
+    logarithm of the Jacobian from a previous transformation. This feature
+    makes it easy to chain multiple transformations together, ensuring that the
+    logarithm of the Jacobian is computed cumulatively across all
+    transformations.
+
+    By inheriting from this class, users define their transformations with log
+    Jacobian computations, streamlining the process of implementing complex
+    probabilistic models.
+
+    Note: The example provided does not consider a batch axis. It is
+    recommended to include such a batch axis so that the log Jacobian is
+    calculated for each sample separately, allowing for more efficient batch
+    processing.
     """
 
     propagate_density = False
@@ -50,23 +129,21 @@ class Module_(torch.nn.Module, ABC):
 
 
 # =============================================================================
-class ModuleList_(torch.nn.ModuleList):
-    """Like `torch.nn.ModuleList` except for the `forward` and `reverse`
-    methods that handle the Jacobians of the transformation.
-    We use trailing underscore to denote the neworks in which the `forward`
-    and `reverse` methods handle the Jacobians of the transformation.
+class ModuleList_(torch.nn.ModuleList, Module_):
+    """
+    A custom module that inherits from both `torch.nn.ModuleList` and `Module_`
+    classes. This class is designed to manage a list of submodules that are
+    themselves instances of `Module_`.
 
-    Parameters
-    ----------
-    nets_ : list
-        Items of the list must be instances of Module_ or ModuleList_
+    By combining the functionalities of `torch.nn.ModuleList` and `Module_`,
+    this class allows for efficient management of multiple invertible
+    transformations, facilitating complex probabilistic modeling tasks.
     """
 
     _groups = None
 
-    def __init__(self, nets_, label=None):
+    def __init__(self, nets_: List[Module_]):
         super().__init__(nets_)
-        self.label = label
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
