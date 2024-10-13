@@ -1,6 +1,11 @@
 # Copyright (c) 2021-2024 Javad Komijani
 
-"""This module contains new neural networks..."""
+"""
+This module includes several basic subclasses of `torch.nn.Module` that are
+designed specifically for scalar tensors. These subclasses implement various
+transformations, making them useful for applications in machine learning,
+particularly in probabilistic modeling and generative tasks.
+"""
 
 
 import torch
@@ -11,6 +16,10 @@ from typing import Union
 from ...lib.spline import RQSpline
 from ...lib.linalg import neighbor_mean
 from .convNd import Conv4d
+
+
+Number = Union[int, float, complex]
+Tensor = torch.Tensor
 
 
 class AvgNeighborPool(torch.nn.Module):
@@ -286,28 +295,35 @@ class LinearAct(torch.nn.Sequential):
 
 
 class Affine(torch.nn.Module):
-    """An affine transformation, :math:`a x + b`, with trainable parameters.
+    """
+    An affine transformation, :math:`a x + b`, with trainable parameters.
 
-    This module treats :math:`a, b` as trainable parameters with :math:`a > 0`.
-    If the input has a channel axis, it is possible to set up different
-    parameters for each channel.
+    This module treats the parameters :math:`a, b` as trainable by default.
+    To ensure the invertibility of the transformation, the `Softplus` function
+    is utilized to impose the constraint :math:`a > 0`.
+    Furthermore, if the input data includes a channel axis, it is possible to
+    specify different parameters for each channel, thereby accommodating a
+    variety of use cases.
 
     Parameters
     ----------
-    channels_axis: Union[int, None], optional
-        it specifies the axis corresponding to the channels in the input.
-        Default is None, indicating there are no channels.
+    channels_axis : Union[int, None], optional
+        Indicates the axis corresponding to the channels in the input data.
+        The default value is None, which means that there are no channels
+        in the input.
 
-    n_channels: int, optional
-        it specifies the number of channels if `channels_axis` is an integer;
-        otherwise, it must be set 1, which is the default value.
+    n_channels : int, optional
+        Specifies the number of channels when `channels_axis` is set to an
+        integer value. This parameter becomes irrelevant if `channels_axis`
+        is None.
 
-    w_scale: Union[Tensor, float, None], optional
-        the default value is None, indicating that :math:`a` is a trainable
-        parameter. If provided, we set :math:`a = Softplus(w_{scale}, log(2))`.
+    w_scale: Union[Tensor, Number, None], optional
+        The default is None, meaning :math:`a` is a trainable parameter. If
+        provided, :math:`a` is set to `Softplus(w_{scale}, log(2))`.
 
-    w_bias: Union[Tensor, float, None], optional
-        the default value is None, indicating that :math:`b` is a trainable
+    w_bias: Union[Tensor, Number, None], optional
+        The default is None, meaning :math:`b` is a trainable parameter. If
+        provided, :math:`b` is set to `w_{bias}`.
     """
 
     softplus = torch.nn.Softplus(beta=np.log(2))
@@ -315,7 +331,9 @@ class Affine(torch.nn.Module):
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
-                 n_channels: int = 1
+                 n_channels: int = 1,
+                 w_scale: Union[Tensor, Number, None] = None,
+                 w_bias: Union[Tensor, Number, None] = None
                  ):
 
         super().__init__()
@@ -355,47 +373,52 @@ class Affine(torch.nn.Module):
 
 
 class Pade32(torch.nn.Module):
-    r"""An invertible transformation as a Pade approximant of order [3/2],
+    r"""
+    An invertible transformation as a Pade approximant of order [3/2],
 
     .. math::
 
-        f(x) = a x (a + x^2) / (1 + a x^2)
+        f(x) = a x \frac{a + x^2}{1 + a x^2}
 
-    which is invertible for all real values of :math:`x` if :math:`0 < a < 3`.
+    which is monotonically increasing for all real values of :math:`x`,
+    provided that :math:`0 < a < 3`.
 
+    This module treats the parameter :math:`a` as trainable by default.
+    To ensure the invertibility of the transformation, the `Expit` function
+    is utilized to impose the necessary constraint.
+    Furthermore, if the input data includes a channel axis, it is possible to
+    specify different parameters for each channel, thereby accommodating a
+    variety of use cases.
 
-    By default, this module treats :math:`a` as a trainable parameter,
-    but there is an option to fix it to a constant. Moreover, if the input has
-    a channel axis, it is possible to set up different parameters for each
-    channel.
+    Note that this transformation is not the most general invertible Pade
+    [3/2], but it has the following traits: it is odd and analytic on the
+    real axis, and asymptotic to the identity transformation for large
+    values of :math:`|x|`.
 
-    Note that the above transformation is not the most general invertible
-    Pade [3/2], but it has the following traits: it is odd and analytic on the
-    real axis, and asymptotic to the identity transformation for large values
-    of :math:`|x|`.
-
-    The matrix inversion is possible by solving a cubic equation, which has
-    only one real solution.
+    The inversion is possible by solving a cubic equation, which has only one
+    real solution.
 
     Parameters
     ----------
-    channels_axis: Union[int, None], optional
-        it specifies the axis corresponding to the channels in the input.
-        Default is None, indicating there are no channels.
+    channels_axis : Union[int, None], optional
+        Indicates the axis corresponding to the channels in the input data.
+        The default value is None, which means that there are no channels
+        in the input.
 
-    n_channels: int, optional
-        it specifies the number of channels if `channels_axis` is an integer;
-        otherwise, it must be set 1, which is the default value.
+    n_channels : int, optional
+        Specifies the number of channels when `channels_axis` is set to an
+        integer value. This parameter becomes irrelevant if `channels_axis`
+        is None.
 
-    w_a: Union[Tensor, float, None], optional
-        the default value is None, indicating that :math:`a` is a trainable
-        parameter. If provided, we set :math:`a = 3 \expit(w_a - log(2))`.
+    w_a: Union[Tensor, Number, None], optional
+        The default is None, indicating that :math:`a` is a trainable
+        parameter. If provided, :math:`a` is set to `3 expit(w_a - log(2))`.
     """
 
     def __init__(self,
                  channels_axis: Union[int, None] = None,
                  n_channels: int = 1,
-                 w_a: Union[float, None] = None
+                 w_a: Union[Tensor, Number, None] = None
                 ):
 
         super().__init__()
@@ -499,10 +522,9 @@ class SplineNet(torch.nn.Module):
             weights_x=None, weights_y=None, weights_d=None,
             spline_shape=[], knots_axis=-1,
             smooth=False, Spline=RQSpline, set_param2zero=True,
-            label='spline', **spline_kwargs
+            **spline_kwargs
             ):
         super().__init__()
-        self.label = label
 
         # knots_len and spline_shape are relevant only if flag is True
         flag = (knots_x is None) or (knots_y is None) or (knots_d is None)
