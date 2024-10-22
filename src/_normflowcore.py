@@ -3,17 +3,17 @@
 """This is a module containing the core components for normalizing flow.
 
 The central high-level class is called Model, which takes instances of
-other classes as input (prior, net_, and action) and provides untilities
+other classes as input (`prior`, `net_`, and `action`) and provides untilities
 to perform training and drawing samples.
 
 Every instance of the central high-level class Model alreay has an instance of
 Fitter, which can be used for training.
 
-For drawing samples, one can use ".raw_dist", which does not perform any
-Metropolis accept/reject on the samples, or one can use ".mcmc" if Metropolis
+For drawing samples, one can use `posterior`, which does not perform any
+Metropolis accept/reject on the samples, or one can use `mcmc` if Metropolis
 accept/reject needed.
 
-Other central classes in this module are Module_, and ModuleList_
+Other central classes in this module are `Module_`, and `ModuleList_`
 that allow us to define neural networks; these two classes are imported and
 used by other modules of this package.
 """
@@ -56,7 +56,7 @@ class Model:
         self.action = action
 
         self.fit = Fitter(self)
-        self.train = self.fit  # an lias for fit
+        self.train = self.fit  # an alias for fit
 
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
@@ -100,8 +100,8 @@ class Posterior:
         x, logr = self._model.prior.sample_(batch_size)
         if preprocess_func is not None:
             x, logr = preprocess_func(x, logr)
-        y, logJ = self._model.net_(x)
-        logq = logr - logJ
+        y, logj = self._model.net_(x)
+        logq = logr - logj
         return y, logq
 
     @torch.no_grad()
@@ -114,9 +114,9 @@ class Posterior:
     # The `no_grad` is removed for use with `path_gradient_autodiff`
     def log_prob(self, y):
         """Returns log probability of the samples."""
-        x, minus_logJ = self._model.net_.reverse(y)
+        x, minus_logj = self._model.net_.reverse(y)
         logr = self._model.prior.log_prob(x)
-        logq = logr + minus_logJ
+        logq = logr + minus_logj
         return logq
 
 
@@ -199,9 +199,10 @@ class Fitter:
 
         self.alpha_scheduler = AlphaScheduler(alpha_tmax)
 
-        return self.train(n_epochs, batch_size)
+        if n_epochs > 0:
+            self._train(n_epochs, batch_size)
 
-    def train(self, n_epochs, batch_size):
+    def _train(self, n_epochs, batch_size):
         """Train the model.
 
         Parameters
@@ -211,12 +212,7 @@ class Fitter:
 
         batch_size : int
             Size of samples used at each epoch
-
-        **Note**: this method is meant to be called by ``__call__``, but it can
-        be called directly subject to ``__call__`` being called at least once.
         """
-        if n_epochs == 0:
-            return
 
         initial_epoch = len(self.train_history['loss'])
         if initial_epoch == 1:
@@ -224,11 +220,13 @@ class Fitter:
                 print(f">>> Checking the current status of the model <<<")
             self._checkpoint(0, None, None, batch_size)
 
-        self.train_history['ess'].extend([0. for _ in range(n_epochs)])
-        self.train_history['loss'].extend([0. for _ in range(n_epochs)])
-        self.train_history['logp'].extend([0. for _ in range(n_epochs)])
+        self.train_history['ess'].extend([None] * n_epochs)
+        self.train_history['loss'].extend([None] * n_epochs)
+        self.train_history['logp'].extend([None] * n_epochs)
 
-        if self._model.device_handler.rank == 0:
+        rank = self._model.device_handler.rank
+
+        if rank == 0:
             print(f">>> Training started for {n_epochs} epochs <<<")
 
         t_1 = time.time()
@@ -240,7 +238,7 @@ class Fitter:
             self.alpha_scheduler.step()
         t_2 = time.time()
 
-        if self._model.device_handler.rank == 0:
+        if rank == 0:
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
@@ -250,9 +248,9 @@ class Fitter:
         alpha = self.alpha_scheduler.alpha
 
         x, logr = model.prior.sample_(batch_size)
-        y, logJ = model.net_(x)
+        y, logj = model.net_(x)
         logp = - alpha * model.action(y)
-        logq = alpha * logr - logJ
+        logq = alpha * logr - logj
 
         if self.path_gradient_autodiff:
             x, minus_logj = model.net_.reverse(y.detach())
@@ -260,13 +258,12 @@ class Fitter:
             logq = logq - (logq_ydetached - logq_ydetached.detach())
 
         loss = self.loss_fn(logq, logp)
+
         self.optimizer.zero_grad()  # clears old gradients from last steps
+
         loss.backward()
 
-        if torch.isnan(loss):
-            print("OOPS: loss is divergent -> no *step* is taken.")
-        else:
-            self.optimizer.step()
+        self.optimizer.step()
 
         return loss, logq, logp
 
@@ -379,10 +376,10 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
         net_ = model.net_
 
     x = model.prior.sample(n_samples)
-    y, logJ = net_(x)
-    x_hat, minus_logJ = net_.reverse(y)
+    y, logj = net_(x)
+    x_hat, minus_logj = net_.reverse(y)
 
     mean = lambda z: z.abs().mean().item()
 
     print("reverse method is OK if following values vanish (up to round off):")
-    print(f"{mean(x - x_hat):g} & {mean(1 + minus_logJ / logJ):g}")
+    print(f"{mean(x - x_hat):g} & {mean(1 + minus_logj / logj):g}")
