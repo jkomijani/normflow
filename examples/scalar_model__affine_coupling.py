@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from normflow import np, torch, Model
-from normflow import reverse_sanitychecker
+from normflow import reverse_flow_sanitychecker
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
 from normflow.mask import EvenOddMask
@@ -53,7 +53,7 @@ def main(kappa=0.67, m_sq=-4*0.67, lambd=0.5, n_epochs=1000, batch_size=128,
     else:
         model.fit(**fit_kwargs)
 
-    reverse_sanitychecker(model)
+    reverse_flow_sanitychecker(model)
     return model
 
 
