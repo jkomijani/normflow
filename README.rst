@@ -32,9 +32,7 @@ Training involves optimizing the parameters of the neural network to achieve a
 transformation that effectively maps the prior distribution to the target
 distribution.
 
-Below is a simple example of a scalar theory in zero dimension:
-
-.. code-block::
+Below is a simple example of a scalar theory in zero dimension::
 
     from normflow import Model
     from normflow.action import ScalarPhi4Action
@@ -70,9 +68,7 @@ The above code block results in an output similar to::
 
 
 After training the model, one can draw samples using an attribute called
-``posterior``; to draw ``n`` samples from the trained distribution, use:
-
-.. code-block::
+``posterior``; to draw ``n`` samples from the trained distribution, use::
 
     x = model.posterior.sample(n)
 
@@ -81,9 +77,7 @@ distribution, which is specified by the action.
 To generate samples that are correctly drawn from the target distribution,
 similar to Markov Chain Monte Carlo (MCMC) simulations,
 one can employ a Metropolis accept/reject step and discard some of the first
-samples; to this end, one can use:
-
-.. code-block::
+samples; to this end, one can use::
 
     x = model.mcmc.sample(n)
 
@@ -93,9 +87,7 @@ Metropolis accept/reject step to ensure that the samples are correctly drawn.
 Moreover, the model has an attribute called ``device_handler``, which can be
 used to specify the number of GPUs used for training (the default value is one
 if any GPU is available).
-To this end, one can use:
-
-.. code-block::
+To this end, one can use::
 
     def fit_func(model):
         model.fit(n_epochs=500, batch_size=128)
