@@ -1,3 +1,4 @@
+# Base modules:
 from ._core import Module_, ModuleList_
 from ._core import MultiChannelModule_, MultiOutChannelModule_
 from ._core import InvisibilityMaskWrapperModule_
@@ -6,19 +7,27 @@ from .scalar.modules import ConvAct, LinearAct
 from .scalar.modules import Affine
 from .scalar.modules import Pade32
 
+
+# Subclasses of Module_
 from .scalar.modules_ import DistConvertor_, Identity_, Clone_
 from .scalar.modules_ import UnityDistConvertor_, PhaseDistConvertor_
 from .scalar.modules_ import Affine_
 from .scalar.modules_ import Pade11_, Pade22_, Pade32_, Pade32a_
 
+# Coupling layers:
 from .scalar.couplings_ import ShiftCoupling_, AffineCoupling_
 from .scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_
 from .scalar.cntr_couplings_ import CntrShiftCoupling_, CntrAffineCoupling_
 from .scalar.cntr_couplings_ import CntrRQSplineCoupling_
 from .scalar.cntr_couplings_ import CntrMultiRQSplineCoupling_
 
+
+# Special transformations:
+
 from .scalar.planar_ import MultiPlanarFlow_
-from .scalar.auto_regressive_ import LatticeAutoReg_
+
+from .scalar.auto_regressive_ import FiboARModule_
+from .scalar.auto_regressive_ import VectorARModule_
 
 from .scalar.fftflow_ import FFTNet_
 from .scalar.meanfield_ import MeanFieldNet_
