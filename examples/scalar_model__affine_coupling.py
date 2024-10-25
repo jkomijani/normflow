@@ -1,6 +1,9 @@
-#!/usr/bin/env python3
+# Copyright (c) 2021-2024 Javad Komijani
 
-from normflow import np, torch, Model
+import torch
+import numpy as np
+
+from normflow import Model
 from normflow import reverse_flow_sanitychecker
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
