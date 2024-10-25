@@ -25,7 +25,7 @@ The central high-level class of the package is called `Model`, which can be
 instantiated by providing instances of the three objects mentioned above:
 the prior, the neural network, and the action.
 
-Following the terminology used by **scikit-learn**, each instance of `Model`
+Following the terminology used by *scikit-learn*, each instance of `Model`
 comes with a `fit` method, responsible for training the model. For those who
 prefer an alternative to the scikit-learn terminology, an alias called `train`
 is also available and functions identically. The training process involves
@@ -63,16 +63,18 @@ model = make_model()
 model.fit(n_epochs=1000, batch_size=1024, checkpoint_dict=dict(print_stride=100))
 ```
 
-In this example:
+In this example, we have:
 
--   **Prior Distribution**: A normal distribution with a shape of `(1,)`.
+-   **Prior Distribution**: A normal distribution is used with a shape of `(1,)`.
+
 -   **Action**: A quartic scalar theory is defined with parameters
     `kappa=0`, `m_sq=-2.0`, and `lambda=0.2`.
+
 -   **Neural Network**: The `DistConvertor_` class is used to create the
     transformation network, with `knots_len=10` and symmetry enabled.
     Any instance of this class converts the probability distribution of inputs
-    a rational quadratic spline. In this example, the spline has 10 knots, and
-    the distribution is assumed to be symmetric with respect to the origin.
+    using a rational quadratic spline. In this example, the spline has 10 knots,
+    and the distribution is assumed to be symmetric with respect to the origin.
 
 -   **Training**: The model is trained for `1000` epochs with a batch size of
     `1024`. Progress is printed every `100` epochs.
@@ -126,6 +128,18 @@ x = model.mcmc.sample(n)
 This command draws `n` samples from the trained distribution and applies a
 Metropolis accept/reject step to ensure that the samples are correctly drawn.
 
+<p align="center">
+    <img src="docs/images/Normflow.png" alt="Block diagram for the method of normalizing flows" width="80%" />
+</p>
+<p align="center">
+    Block diagram for the method of normalizing flows
+</p>
+
+
+The *TRAIN* and *GENERATE* blocks in the above figure depict the procedures for
+training the model and generating samples/configurations. For more information
+see [arXiv:2301.01504](https://arxiv.org/abs/2301.01504).
+
 Moreover, the model has an attribute called `device_handler`, which can be used
 to specify the number of GPUs used for training (the default value is one if
 any GPU is available). To this end, you can use the following approach:
@@ -151,5 +165,5 @@ of the package, and we welcome contributions and feedback to help us improve
 and expand its functionality.
 
 
-| Created by Javad Komijani in 2021
+| Created by Javad Komijani in 2021 \
 | Copyright (C) 2021-24, Javad Komijani
