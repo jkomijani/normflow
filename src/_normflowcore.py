@@ -1,23 +1,11 @@
 # Copyright (c) 2021-2024 Javad Komijani
 
-"""This is a module containing the core components for normalizing flow.
-
-The central high-level class is called Model, which takes instances of
-other classes as input (`prior`, `net_`, and `action`) and provides untilities
-to perform training and drawing samples.
-
-Every instance of the central high-level class Model alreay has an instance of
-Fitter, which can be used for training.
-
-For drawing samples, one can use `posterior`, which does not perform any
-Metropolis accept/reject on the samples, or one can use `mcmc` if Metropolis
-accept/reject needed.
-
-Other central classes in this module are `Module_`, and `ModuleList_`
-that allow us to define neural networks; these two classes are imported and
-used by other modules of this package.
 """
-
+This module contains high-level classes for normalizing flow techniques,
+with the central `Model` class integrating essential components such as priors,
+networks, and actions. It provides utilities for training and sampling,
+along with support for MCMC sampling and device management.
+"""
 
 import torch
 import time
@@ -31,50 +19,98 @@ from .device import ModelDeviceHandler
 
 # =============================================================================
 class Model:
-    """The central high-level class of the package, which
-    takes instances of other classes as input (prior, net_, and action)
-    and provides untilities to perform training and drawing samples.
+    """
+    The central high-level class of the package, which integrates instances of
+    essential classes (`prior`, `net_`, and `action`) to provide utilities for
+    training and sampling. This class interfaces with various core components
+    to facilitate training, posterior inference, MCMC sampling, and device
+    management.
 
     Parameters
     ----------
-    prior : An instance of a Prior class (e.g NormalPrior).
+    prior : instance of a `Prior` class
+        An instance of a Prior class (e.g., `NormalPrior`) representing the
+        model's prior distribution.
 
-    net_ : An instance of ModuleList_ or similar classes. The trailing
-        underscore implies that the associate forward method handles
-        the Jacobian of the transformation.
+    net_ : instance of a `Module_` class
+        A model component responsible for the transformations required in the
+        model. The trailing underscore indicates that the associated forward
+        method computes and returns the Jacobian of the transformation, which
+        is crucial in the method of normalizing flows.
 
-    action : An instance of a class that describes the action.
+    action : instance of an `Action` class
+        Defines the model's action, which specified the target distribution
+        during training.
 
-    name : str, option
-        A string to label the model
+    Attributes
+    ----------
+    fit : Fitter
+        An instance of the Fitter class, responsible for training the model.
+        `fit` is aliased to `train` for flexibility in usage.
+
+    posterior : Posterior
+        An instance of the Posterior class, which manages posterior inference
+        on the model parameters.
+
+    mcmc : MCMCSampler
+        An instance of the MCMCSampler class, enabling MCMC sampling for
+        posterior distributions.
+
+    blocked_mcmc : BlockedMCMCSampler
+        An instance of the BlockedMCMCSampler class, providing blockwise
+        MCMC sampling for improved sampling efficiency.
+
+    device_handler : ModelDeviceHandler
+        Manages the device (CPU/GPU) for model training and inference, ensuring
+        seamless operation across hardware setups.
     """
 
-    def __init__(self, *, prior, net_, action, name=None):
-        self.name = name
+    def __init__(self, *, prior, net_, action):
+
         self.net_ = net_
         self.prior = prior
         self.action = action
 
+        # Components for training, sampling, and device handling
         self.fit = Fitter(self)
-        self.train = self.fit  # an alias for fit
+        self.train = self.fit  # Alias for `fit`
 
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
         self.blocked_mcmc = BlockedMCMCSampler(self)
         self.device_handler = ModelDeviceHandler(self)
 
-    def transform(self, x):
-        return self.net_(x)[0]
 
-
+# =============================================================================
 class Posterior:
-    """A class for drawing samples from given model. Note that the samples
-    are drawn directly from the model without performing any accept/reject
-    filtering.
+    """
+    Creates samples directly from a trained probabilistic model.
+
+    The `Posterior` class generates samples from a specified model without
+    using an accept-reject step, making it suitable for tasks that require
+    quick, direct sampling. All methods in this class use `torch.no_grad()`
+    to prevent gradient computation.
 
     Parameters
     ----------
-    model : An instance of Model
+    model : Model
+        A trained model to sample from.
+
+    Methods
+    -------
+    sample(batch_size=1, **kwargs)
+        Returns a specified number of samples from the model.
+
+    sample_(batch_size=1, preprocess_func=None)
+        Returns samples and their log probabilities, with an optional
+        preprocessing function.
+
+    sample__(batch_size=1, **kwargs)
+        Similar to `sample_`, but also returns the log probability of the
+        target distribution.
+
+    log_prob(y)
+        Computes the log probability of given samples.
     """
 
     def __init__(self, model):
@@ -82,38 +118,87 @@ class Posterior:
 
     @torch.no_grad()
     def sample(self, batch_size=1, **kwargs):
+        """
+        Draws samples from the model.
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            Number of samples to draw, default is 1.
+
+        Returns
+        -------
+        Tensor
+            Generated samples.
+        """
         return self.sample_(batch_size=batch_size, **kwargs)[0]
 
     @torch.no_grad()
     def sample_(self, batch_size=1, preprocess_func=None):
         """
-        Return `batch_size` samples along with `log(q)` and `log(p)`.
+        Draws samples and their log probabilities from the model.
 
         Parameters
         ----------
-        batch_size: int
-            The size of the samples
+        batch_size : int, optional
+            Number of samples to draw, default is 1.
 
-        preprocess_func: None or a function
-            Introduced to preprocess the prior sample if needed
+        preprocess_func : function or None, optional
+            A function to adjust the prior samples if needed. It should take
+            samples and log probabilities as input and return modified values.
+
+        Returns
+        -------
+        tuple
+            - `y`: Generated samples.
+            - `logq`: Log probabilities of the samples.
         """
         x, logr = self._model.prior.sample_(batch_size)
+
         if preprocess_func is not None:
             x, logr = preprocess_func(x, logr)
+
         y, logj = self._model.net_(x)
         logq = logr - logj
         return y, logq
 
     @torch.no_grad()
     def sample__(self, batch_size=1, **kwargs):
+        """
+        Similar to `sample_`, but also returns the log probability of the
+        target distribution from `model.action`.
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            Number of samples to draw, default is 1.
+
+        Returns
+        -------
+        tuple
+            - `y`: Generated samples.
+            - `logq`: Log probabilities of the samples.
+            - `logp`: Log probabilities from the target distribution.
+        """
         y, logq = self.sample_(batch_size=batch_size, **kwargs)
-        logp = -self._model.action(y)  # logp is log(p * z)
+        logp = -self._model.action(y)  # logp is log(p_{non-normalized})
         return y, logq, logp
 
-    # @torch.no_grad()
-    # The `no_grad` is removed for use with `path_gradient_autodiff`
+    @torch.no_grad()
     def log_prob(self, y):
-        """Returns log probability of the samples."""
+        """
+        Computes the log probability of the provided samples.
+
+        Parameters
+        ----------
+        y : torch.Tensor
+            Samples for which to calculate the log probability.
+
+        Returns
+        -------
+        Tensor
+            Log probabilities of the samples.
+        """
         x, minus_logj = self._model.net_.reverse(y)
         logr = self._model.prior.log_prob(x)
         logq = logr + minus_logj
