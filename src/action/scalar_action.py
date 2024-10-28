@@ -53,9 +53,11 @@ class ScalarPhi4Action:
         Computes the action density with respect to the input field variables.
         The returned action density is symmetric and has a positive kinetic term.
 
-    score(var: Tensor) -> Tensor
-        Computes the gradient of the log-likelihood, which is the negative of
-        the action, evaluated with respect to the input field variables.
+    force(var: Tensor) -> Tensor
+        Computes the gradient of the logarithm of a probability density
+        function, which is the negative of the action, evaluated with respect
+        to the input field variables. There is alias for this mathod, `score`,
+        which is appropriate for diffusion models.
 
     potential(var: Tensor) -> Tensor
         Computes the potential energy for the input field variables based on
@@ -116,6 +118,8 @@ class ScalarPhi4Action:
 
         action_density = w_2d * var**2 + w_4 * var**4
 
+        dim = tuple(range(1, 1 + ndim))
+
         for mu in dim:
             if w_0 == 0:
                 break
@@ -124,9 +128,10 @@ class ScalarPhi4Action:
 
         return action_density
 
-    def score(self, var: Tensor):
-        """Computes the gradient of the log-likelihood, which is the negative
-        of the action, evaluated with respect to the input field variables.
+    def force(self, var: Tensor):
+        """Computes the gradient of the logarithm of a probability density
+        function, which is the negative of the action, evaluated with respect
+        to the input field variables.
         """
         ndim = var.ndim - 1  # 0 axis -> batch axis
 
@@ -134,15 +139,17 @@ class ScalarPhi4Action:
         w_2 = 0.5 * self.m_sq + self.kappa * ndim
         w_4 = self.lambd
 
-        score = -(2 * w_2) * var**2 - (4 * w_4) * var**3
+        force = -(2 * w_2) * var - (4 * w_4) * var**3
+
+        dim = tuple(range(1, 1 + ndim))
 
         for mu in dim:
             if w_0 == 0:
                 break
-            score = w_0 * torch.roll(var, -1, mu)
-            score = w_0 * torch.roll(var, +1, mu)
+            force += w_0 * torch.roll(var, -1, mu)
+            force += w_0 * torch.roll(var, +1, mu)
 
-        return score
+        return force
 
     def potential(self, var: Tensor):
         """Computes the potential energy for the input field variables based on
@@ -155,3 +162,5 @@ class ScalarPhi4Action:
         as the negative of the action.
         """
         return -self.action(var) - action_logz
+
+    score = force  # an alias appropriate for diffusion models.
