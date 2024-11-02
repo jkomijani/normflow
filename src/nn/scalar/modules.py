@@ -36,16 +36,28 @@ class Abs(torch.nn.Module):
         return torch.abs(x)
 
 
-ACTIVATIONS = torch.nn.ModuleDict(
-                    [['tanh', torch.nn.Tanh()],
-                     ['relu', torch.nn.ReLU()],
-                     ['leaky_relu', torch.nn.LeakyReLU()],
-                     ['softplus', torch.nn.Softplus()],
-                     ['avg_neighbor_pool', AvgNeighborPool()],
-                     ['abs', Abs()],
-                     ['none', torch.nn.Identity()]
-                    ]
-              )
+activations_dict = {
+        'tanh': torch.nn.Tanh,
+        'relu': torch.nn.ReLU,
+        'silu': torch.nn.SiLU,
+        'leaky_relu': torch.nn.LeakyReLU,
+        'softplus': torch.nn.Softplus,
+        'avg_neighbor_pool': AvgNeighborPool,
+        'abs': Abs,
+        'none': torch.nn.Identity
+        }
+
+
+def get_activation(act):
+
+    if act is None:
+        return torch.nn.Identity()
+
+    elif isinstance(act, str):
+        return activations_dict[act]()
+
+    else:
+        return act
 
 
 class PlusBias(torch.nn.Module):
@@ -134,12 +146,12 @@ class ConvAct(torch.nn.Sequential):
         conv_kwargs = dict(padding='same', padding_mode='circular')
         conv_kwargs.update(extra_kwargs)
 
-        nets = [] if pre_act is None else [ACTIVATIONS[pre_act]]
+        nets = [] if pre_act is None else [get_activation(pre_act)]
 
         for i, act in enumerate(acts):
             nets.append(Conv(sizes[i], sizes[i+1], kernel_size, **conv_kwargs))
             if act is not None:
-                nets.append(ACTIVATIONS[act])
+                nets.append(get_activation(act))
 
         super().__init__(*nets)
 
@@ -252,12 +264,12 @@ class LinearAct(torch.nn.Sequential):
         sizes = [in_features, *hidden_sizes, out_features]
         assert len(acts) == len(hidden_sizes) + 1
 
-        nets = [] if pre_act is None else [ACTIVATIONS[pre_act]]
+        nets = [] if pre_act is None else [get_activation(pre_act)]
 
         for i, act in enumerate(acts):
             nets.append(Linear(sizes[i], sizes[i+1], **linear_kwargs))
             if act is not None:
-                nets.append(ACTIVATIONS[act])
+                nets.append(get_activation(act))
 
         if final_bias:
             nets.append(PlusBias(out_features))

@@ -197,7 +197,8 @@ class ModuleList_(torch.nn.ModuleList, Module_):
     def set_weights_blob(self, blob, map_location=torch.device('cpu')):
         weights = torch.load(
                 io.BytesIO(base64.b64decode(blob.strip())),
-                map_location=map_location
+                map_location=map_location,
+                weights_only=True
                 )
         self.load_state_dict(weights)
 
