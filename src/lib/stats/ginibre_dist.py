@@ -11,7 +11,7 @@ import torch
 class GinibreCMatrixDist:
     """
     For generating matrices from the Ginibre ensemble, which is the ensemble of
-    square, complex-values matrices with i.i.d. normal entries.
+    square, complex-valued matrices with i.i.d. normal entries.
 
     For the definition see `[Mezzadri]`_, which takes advantage of the Ginibre
     random matrices to generate unitary matrices.
