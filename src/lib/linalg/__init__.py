@@ -1,16 +1,24 @@
-# Copyright (c) 2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
-"""This module has extensions to the linalg packages in torch or numpy."""
+"""This module has extensions to the linalg packages in torch."""
 
 
 import torch
 
 
 try:
-    from torch_linalg_ext import svd, eigh, eigu, inverse_eign
+    from torch_linalg_ext import svd
 except:
-    from torch.linalg import svd, eigh, eig as eigu
-    inverse_eign = lambda u, v: v @ (u.unsqueeze(-1) * v.adjoint())
+    from torch.linalg import svd
+
+
+from .eig_decomposition_ import eigh
+from .eig_decomposition_ import eigu
+from .eig_decomposition_ import inverse_eign
+
+from .eig_decomposition_ import eigh_
+from .eig_decomposition_ import eigu_
+from .eig_decomposition_ import inverse_eign_
 
 
 from .qr_decomposition import haar_qr, haar_sqr
