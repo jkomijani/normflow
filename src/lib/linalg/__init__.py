@@ -7,10 +7,10 @@ import torch
 
 
 try:
-    from torch_linalg_ext import svd, eigh, eigu, inverse_eig
+    from torch_linalg_ext import svd, eigh, eigu, inverse_eign
 except:
     from torch.linalg import svd, eigh, eig as eigu
-    inverse_eig = lambda u, v: v @ (u.unsqueeze(-1) * v.adjoint())
+    inverse_eign = lambda u, v: v @ (u.unsqueeze(-1) * v.adjoint())
 
 
 from .qr_decomposition import haar_qr, haar_sqr

@@ -6,7 +6,7 @@ from torch_linalg_ext import eyes_like
 from torch_linalg_ext import kronecker_product
 
 from torch_linalg_ext.functions import matrix_exp1jh_and_jacobian
-from torch_linalg_ext.functions import inverse_eig_and_jacobian
+from torch_linalg_ext.functions import inverse_eign_and_jacobian
 from torch_linalg_ext.functions import commutator_and_jacobian
 
 
@@ -102,7 +102,7 @@ def modal2antihermitian2unitary(omega, *, lambda_, sigma, tau=1, mode='Gamma'):
 
     Remark: `tau` must be a number or scalar with respect to the last two axes.
     """
-    matrix, jac1 = inverse_eig_and_jacobian(lambda_, omega, mode=mode)
+    matrix, jac1 = inverse_eign_and_jacobian(lambda_, omega, mode=mode)
     matrix, jac2 = commutator_and_jacobian(matrix, sigma)
     matrix, jac3 = matrix_exp1jh_and_jacobian((1j * tau) * matrix)
     jac = (1j * tau) * (jac3 @ jac2 @ jac1)

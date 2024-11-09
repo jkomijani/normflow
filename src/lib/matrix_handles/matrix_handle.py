@@ -13,7 +13,7 @@ import numpy as np
 
 from .ordering import ZeroSumOrder, ModalOrder
 from ..linalg import eigu  # eig for unitray matrices
-from ..linalg import inverse_eig
+from ..linalg import inverse_eign
 
 
 pi = np.pi
@@ -62,7 +62,7 @@ class UnMatrixParametrizer:
         eigvals = torch.exp(1j * phase)
         eigvecs = self.eigvecs
         eig_red = eigvals * torch.exp(-1j * self.phase) if reduce_ else eigvals
-        matrix = inverse_eig(eig_red, eigvecs)
+        matrix = inverse_eign(eig_red, eigvecs)
         # Jacobian equals the volume of conjugacy class
         logJ = sum_density(self.calc_log_conjugacy_vol(eigvals))
 
