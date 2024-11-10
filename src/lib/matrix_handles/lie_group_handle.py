@@ -10,18 +10,16 @@ import numpy as np
 
 from abc import abstractmethod, ABC
 
-from ..scalar.modules_ import Tanh_
-
-from ...lib.linalg import eigh_
-from ...lib.linalg import eigu_
-from ...lib.linalg import inverse_eig
-
-from typing import Tuple
+from .ordering import ZeroSumOrder
+from ..linalg import eigh_
+from ..linalg import eigu_
+from ..linalg import inverse_eign_
 
 
 # =============================================================================
 class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
-    r"""Maps coefficients of unitary group generators to group elements as
+    r"""
+    Maps coefficients of unitary group generators to group elements as
 
     .. math::
 
@@ -31,26 +29,22 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
 
     In addition to the group-valued matrix, this class calculates the logarithm
     of the Jacobian of the transformation.
-
-    Using :math:`H = \sum_a \theta_a T_a`, we have
-
-    .. math::
-        J = \frac{\Delta_H}{\Delta_U}
-
-    where :math:`\Delta_H, \Delta_U` are the conjugacy volumes corresponding
-    to :math:`H, U`, respectively, as
-
-    .. math::
-        \Delta_H = \prod_{k < l} |\lambda_k - \lambda_l|^2  \\
-        \Delta_U = \prod_{k < l} |e^{i\lambda_k} - e^{i\lambda_l}|^2
     """
     
-    def __init__(self, coordinate_representation: bool = True):
+    def __init__(self,
+            coordinate_representation: bool = True,
+            makesure_invertible: bool = True
+            ):
         super().__init__()
         self.coordinate_representation = coordinate_representation
-    
+        self.makesure_invertible = makesure_invertible
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
     def forward(self, matrix, log0 = 0):
-        """Computes the unitary group matrix and log-Jacobian from the input
+        """
+        Computes the unitary group matrix and log-Jacobian from the input
         matrix.
         
         Parameters:
@@ -69,21 +63,24 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             - The logarithm of the Jacobian of the transformation.
         """
         
-        # Transform coefficients to matrix if coordinate representation is True
+        # 0) Transform coefficients to matrix if in coordinate representation
         if self.coordinate_representation:
             matrix = self.get_matrix_representation(matrix)
         
         # 1) Eigen decomposition using `eigh_` for Hermitian matrices
         (eigvals, eigvecs), logj1 = eigh_(matrix)
         
-        # 2) Map eigenvalues to the principal range
-        eigvals, logj2 = self.map2principal_.forward(eigvals)
+        # 2) Map eigenvalues to the principal cell for invertibility
+        if self.makesure_invertible:
+            eigvals, logj2 = self.map2principal_forward(eigvals)
+        else:
+            logj2 = 0
         
         # 3) Exponentiate eigenvalues
         eigvals = torch.exp(1j * eigvals)
         
         # 4) Reconstruct matrix from eigendecomposition
-        matrix, logj3 = self.inverse_eign_(eigvals, eigvecs)
+        matrix, logj3 = inverse_eign_(eigvals, eigvecs)
         
         # Return the transformed matrix and total Jacobian log
         return matrix, logj3 + logj2 + logj1 + log0
@@ -98,19 +95,25 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
         eigvals = torch.angle(eigvals)
 
         # 2) Map eigenvalues from the principal range
-        eigvals, logj2 = self.map2principal_.forward(eigvals)
+        if self.makesure_invertible:
+            eigvals, logj2 = self.map2principal_reverse(eigvals)
+        else:
+            logj2 = 0
         
         # 1) Reconstruct matrix from eigendecomposition
-        matrix, logj3 = self.inverse_eign_(eigvals, eigvecs)
+        matrix, logj3 = inverse_eign_(eigvals, eigvecs)
 
+        # 0) Extrac coefficients from matrix if in coordinate representation
         if self.coordinate_representation:
             matrix = self.extract_generators_coeffs(matrix)  # coefficients
 
+        # Return the transformed matrix and total Jacobian log
         return matrix, logj3 + logj2 + logj1 + log0
 
-    # Stub for the get_matrix_representation method
+    @abstractmethod
     def get_matrix_representation(self, coeffs):
-        """Convert coefficients to an algebra-valued matrix.
+        """
+        Convert coefficients to an algebra-valued matrix.
         
         Parameters:
         -----------
@@ -124,30 +127,61 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
         pass
     
     @abstractmethod
-    def extract_generators_coeffs(matrix):
+    def extract_generators_coeffs(self, matrix):
+        """
+        Expand matrix in basis of the Lie algebra generators.
+        
+        Parameters:
+        -----------
+        matrix : torch.Tensor
+            Algebra-valued matrix.
+        Returns:
+        --------
+            torch.Tensor: Coefficients of the Lie algebra generators.
+        """
+        # Implement the actual transformation logic here
         pass
 
-    # Stub for mapping to the principal range with Jacobian log
-    def map2principal_(self, eigvals) -> Tuple[torch.Tensor, float]:
-        """Maps eigenvalues to principal values with log-Jacobian.
-        Args:
-            eigvals (torch.Tensor): Eigenvalues of the matrix.
-        Returns:
-            Tuple: Mapped eigenvalues and log-Jacobian.
-        """
-        # Implement mapping logic here
-        pass
+    @staticmethod
+    def map2principal_forward(phase):
+        """Maps phase to the principal range with log-Jacobian."""
+        zeta, logj = tanh_(phase / np.pi)
+        return np.pi * zeta, logj
+    
+    @staticmethod
+    def map2principal_reverse(phase):
+        """Reverse mapping of phase to principal range with log-Jacobian."""
+        zeta, logj = atanh_(phase / np.pi)
+        return np.pi * zeta, logj
     
 
-class Map2Principal_(Tanh_):
+def tanh_(x):
+    """
+    Applies a hyperbolic tangent transformation to the input `x` and returns
+    both the transformed output and the log-Jacobian of transformation.
+    """
+    # Apply the tanh transformation
+    transformed_x = torch.tanh(x)
 
-    def forward(self, phase):
-        zeta, logj = super().forward(phase / np.pi)
-        return np.pi * zeta, logj
+    # Compute log-Jacobian (summed over non-batched axes)
+    logj = -2 * sum_density(torch.log(torch.cosh(x)))
 
-    def reverse(self, phase):
-        zeta, logj = super().reverse(phase / np.pi)
-        return np.pi * zeta, logj
+    return transformed_x, logj
+
+
+def atanh_(x):
+    """
+    Applies a hyperbolic arc-tangent transformation to the input `x` and
+    returns both the transformed output and the log-Jacobian of transformation.
+    """
+
+    # Apply the arc-tanh transformation
+    transformed_x = torch.atanh(x)
+
+    # Compute log-Jacobian (summed over non-batched axes)
+    logj = 2 * sum_density(torch.log(torch.cosh(transformed_x)))
+
+    return transformed_x, logj
 
 
 # =============================================================================
@@ -155,7 +189,18 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
 
     @staticmethod
     def get_matrix_representation(coeffs):
-
+        """
+        Convert coefficients to an algebra-valued matrix.
+        
+        Parameters:
+        -----------
+        coeffs : torch.Tensor
+            Coefficients of the Lie algebra generators with three components on
+            the outermost axis.
+        Returns:
+        --------
+            torch.Tensor: Algebra-valued `2 x 2` matrix on the outermost axes.
+        """
         dtype = (0j + coeffs.ravel()[0]).dtype
         matrix = torch.zeros(
                 (*coeffs.shape[:-1], 2, 2), device=coeffs.device, dtype=dtype
@@ -170,7 +215,17 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
 
     @staticmethod
     def extract_generators_coeffs(matrix):
-        """It is assumed ``matrix`` is a set of 2x2 Hermitian matrices."""
+        """
+        Expand matrix in basis of the Lie algebra generators.
+        
+        Parameters:
+        -----------
+        matrix : torch.Tensor
+            Algebra-valued `2 x 2` matrix on the outermost axes.
+        Returns:
+        --------
+            torch.Tensor: Coefficients of the Lie algebra generators.
+        """
         dtype = matrix.real.dtype
         coeffs = torch.zeros(
                 (*matrix.shape[:-2], 3), device=matrix.device, dtype=dtype
@@ -183,15 +238,17 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
         return coeffs
 
     @staticmethod
-    def map2principal_(zero_sum_sorted_phase):
-        zeta, logj = Tanh_().forward(zero_sum_sorted_phase / np.pi)
-        # logj is double counted bc/ of (-theta, theta); -> divide logj by 2
+    def map2principal_forward(zero_sum_sorted_phase):
+        """Maps phase to the principal range with log-Jacobian."""
+        zeta, logj = tanh_(zero_sum_sorted_phase / np.pi)
+        # logj is double-counted bc/ of (-theta, theta); -> divide logj by 2
         return np.pi * zeta, logj / 2
 
     @staticmethod
-    def invert_map2principal_(zero_sum_phase):
-        zeta, logj = ArcTanh_().forward(zero_sum_phase / np.pi)
-        # logj is double counted bc/ of (-theta, theta); -> divide logj by 2
+    def map2principal_reverse(zero_sum_phase):
+        """Reverse mapping of phase to principal range with log-Jacobian."""
+        zeta, logj = atanh_(zero_sum_phase / np.pi)
+        # logj is double-counted bc/ of (-theta, theta); -> divide logj by 2
         return np.pi * zeta, logj / 2
 
 
@@ -200,7 +257,18 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
 
     @staticmethod
     def get_matrix_representation(coeffs):
-
+        """
+        Convert coefficients to an algebra-valued matrix.
+        
+        Parameters:
+        -----------
+        coeffs : torch.Tensor
+            Coefficients of the Lie algebra generators with eight components on
+            the outermost axis.
+        Returns:
+        --------
+            torch.Tensor: Algebra-valued `3 x 3` matrix on the outermost axes.
+        """
         dtype = (0j + coeffs.ravel()[0]).dtype
         matrix = torch.zeros(
                 (*coeffs.shape[:-1], 3, 3), device=coeffs.device, dtype=dtype
@@ -222,7 +290,17 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
     
     @staticmethod
     def extract_generators_coeffs(matrix):
-        """It is assumed ``matrix`` is a set of 3x3 Hermitian matrices."""
+        """
+        Expand matrix in basis of the Lie algebra generators.
+        
+        Parameters:
+        -----------
+        matrix : torch.Tensor
+            Algebra-valued `3 x 3` matrix on the outermost axes.
+        Returns:
+        --------
+            torch.Tensor: Coefficients of the Lie algebra generators.
+        """
         dtype = matrix.real.dtype
         coeffs = torch.zeros(
                 (*matrix.shape[:-2], 8), device=matrix.device, dtype=dtype
@@ -241,26 +319,60 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
 
         return coeffs
 
-    def map2principal_(self, zero_sum_sorted_phase):
+    def map2principal_forward(self, zero_sum_sorted_phase):
+        """
+        Maps the input phase to the principal range.
+
+        Parameters:
+        -----------
+        zero_sum_sorted_phase : torch.Tensor
+            A tensor of sorted phases where the phases sum to zero.
+
+        Returns:
+        --------
+        tuple:
+            - zero_sum_sorted_phase (torch.Tensor):
+                The transformed phase in the principal range.
+            - log_jacobian (torch.Tensor):
+                Sum of log-Jacobians from each transformation step.
+        """
+
+        # Step 1: Transform input phase to parameters `(w, rho)`
         (w, rho), logj1 = self.sortedphase2param_(zero_sum_sorted_phase)
-        w, logj2 = Tanh_().forward(w)
+
+        # Step 2: Apply tanh transformation to `w`
+        w, logj2 = tanh_(w)
+
+        # Step 3: Map `(w, rho)` back to sorted phase
         zero_sum_sorted_phase, logj3 = self.param2sortedphase_(w, rho)
-        # print("F", logj1, logj2, logj3)
+
         return zero_sum_sorted_phase, logj1 + logj2 + logj3
 
-    def invert_map2principal_(self, phase):
+    def map2principal_reverse(self, phase):
+        """Reverse mapping of phase to principal range with log-Jacobian."""
+
+        # Preconditioning: sort the phase and make the sum zero.
         order = ZeroSumOrder(phase)  # see order.(sorted_val & sorted_ind)
-        zero_sum_sorted_phase = order.revert(order.sorted_val)
-        (w, rho), logj1 = self.sortedphase2param_(zero_sum_sorted_phase)
-        w, logj2 = ArcTanh_().forward(w)
-        zero_sum_sorted_phase, logj3 = self.param2sortedphase_(w, rho)
+        zero_sum_sorted_phase = order.sorted_val
+
+        # Reverse step 3: Transform input phase to parameters `(w, rho)`
+        (w, rho), logj3 = self.sortedphase2param_(zero_sum_sorted_phase)
+
+        # Reverse Step 2: Apply atanh transformation to `w`
+        w, logj2 = atanh_(w)
+
+        # Reverse step 1: Transform `(w, rho)` back to sorted phase.
+        zero_sum_sorted_phase, logj1 = self.param2sortedphase_(w, rho)
+
+        # Undo Preconditioning: sort the phase and make the sum zero.
         phase = order.revert(zero_sum_sorted_phase)
-        # print("R", logj1, logj2, logj3)
+
         return phase, logj1 + logj2 + logj3
 
     @staticmethod
     def sortedphase2param_(zero_sum_sorted_phase):
-        r"""Return `(w, rho)`, where `w` would be "ideally" between 0 and 1.
+        r"""
+        Return `(w, rho)`, where `w` would be "ideally" between 0 and 1.
 
         .. math::
 
@@ -290,45 +402,3 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
 # =============================================================================
 def sum_density(x):
     return torch.sum(x, dim=list(range(1, x.dim())))
-
-
-def calc_log_conjugacy_vol(eigvals):
-    """Return log of conjugacy volume up to an additive constant."""
-    
-    sumlogabs2 = lambda x: 2 * torch.sum(torch.log(torch.abs(x)), dim=-1)
-    
-    log_vol = torch.zeros(eigvals.shape[:-1], device=eigvals.device)
-    
-    for k in range(eigvals.shape[-1] - 1):
-        log_vol += sumlogabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
-    
-    return log_vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
-
-
-def calc_conjugacy_vol(eigvals):
-    """Return conjugacy volume up to a multiplacative constant."""
-    
-    prodabs2 = lambda x: torch.prod(torch.abs(x)**2, dim=-1)
-    
-    vol = torch.ones(eigvals.shape[:-1], device=eigvals.device)
-    
-    for k in range(eigvals.shape[-1] - 1):
-        vol *= prodabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
-    
-    return vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
-
-
-def calc_log_alg2grp_ratio_conjugacy_vol(eigvals):
-    """Return log of ratio of conjugacy volumes of mapping a matrix from
-    algebra space to group space.
-    """
-
-    sumlogabs2 = lambda x: 2 * torch.sum(torch.log(torch.abs(x)), dim=-1)
-
-    log_vol = torch.zeros(eigvals.shape[:-1], device=eigvals.device)
-
-    for k in range(eigvals.shape[-1] - 1):
-        diff = (eigvals[..., k:k+1] - eigvals[..., k+1:]) / (2 * np.pi)
-        log_vol += sumlogabs2(torch.special.sinc(diff))
-
-    return log_vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
