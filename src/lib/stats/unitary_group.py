@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """
 This module has classes to generate random unitary and special unitary matrices.
@@ -39,10 +39,11 @@ class UnGroup(GinibreCMatrixDist):
         :arXiv:`math-ph/0609050`.
     """
 
-    drop_constant_log_prob = True
+    def __init__(self, n, shape=(1,), drop_constant_log_prob=False):
 
-    def __init__(self, *, n, shape=(1,)):
         super().__init__(n=n, shape=shape)
+
+        self.drop_constant_log_prob = drop_constant_log_prob
 
         self.log_group_vol = self.calc_log_group_volume(n)
         self.log_tot_vol = self.log_group_vol + log(np.prod(shape))

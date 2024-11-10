@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2024 Javad Komijani
 
 """This module is for introducing unitary priors."""
 
@@ -10,9 +10,18 @@ from ..lib.stats import UnGroup, SUnGroup, U1Group
 class UnPrior(Prior):
     """Generate random unitary matrices, i.e. random U(n)."""
 
-    def __init__(self, *, n, shape=(1,), **kwargs):
-        dist = UnGroup(n=n, shape=shape)
-        super().__init__(dist, **kwargs)
+    def __init__(self,
+            n: int,
+            shape = (1,),
+            drop_constant_log_prob = False,
+            **super_kwargs
+            ):
+
+        kws = dict(shape=shape, drop_constant_log_prob=drop_constant_log_prob)
+        dist = UnGroup(n, **kws)
+
+        super().__init__(dist, **super_kwargs)
+
         self.shape = shape
 
     def to(self, *args, **kwargs):
@@ -34,9 +43,18 @@ class UnPrior(Prior):
 class SUnPrior(Prior):
     """Generate random special unitary matrices, i.e. random SU(n)."""
 
-    def __init__(self, *, n, shape=(1,), **kwargs):
-        dist = SUnGroup(n=n, shape=shape)
-        super().__init__(dist, **kwargs)
+    def __init__(self,
+            n: int,
+            shape = (1,),
+            drop_constant_log_prob = False,
+            **super_kwargs
+            ):
+
+        kws = dict(shape=shape, drop_constant_log_prob=drop_constant_log_prob)
+        dist = SUnGroup(n, **kws)
+
+        super().__init__(dist, **super_kwargs)
+
         self.shape = shape
 
     def to(self, *args, **kwargs):
