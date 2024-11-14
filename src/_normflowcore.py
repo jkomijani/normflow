@@ -80,6 +80,37 @@ class Model:
         self.blocked_mcmc = BlockedMCMCSampler(self)
         self.device_handler = ModelDeviceHandler(self)
 
+    def state_dict(self):
+
+        return {'net_state_dict': self.net_.state_dict(),
+                'prior_state_dict': {},  # self.prior.state_dict(),
+                'action_state_dict': {},  # self.action.state_dict(),
+                'train_state_dict': self.train.state_dict()
+                }
+
+    def save_checkpoint(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load_checkpoint(self,
+            path,
+            parameters_only = True,
+            map_location = torch.device('cpu')
+            ):
+        # When you call torch.load() on a file which contains GPU tensors,
+        # those tensors will be loaded to GPU by default. You can call
+        # torch.load(.., map_location='cpu') and then load_state_dict() to
+        # avoid GPU RAM surge when loading a model checkpoint.
+
+        state = torch.load(path, map_location=map_location, weights_only=True)
+
+        self.net_.load_state_dict(state['net_state_dict'])
+
+        if parameters_only == False:
+
+            self.prior.load_state_dict(state['prior_state_dict'])
+            self.action.load_state_dict(state['action_state_dict'])
+            self.train.load_state_dict(state['train_state_dict'])
+
 
 # =============================================================================
 class Posterior:
@@ -214,7 +245,9 @@ class Fitter:
     def __init__(self, model: Model):
         self._model = model
 
-        self.train_history = dict(loss=[None], ess=[None], logp=[None])
+        self.train_history = dict(
+                epoch=0, loss=[None], ess=[None], logp=[None]
+                )
 
         self.hyperparam = dict(lr=0.001, weight_decay=0.01)
 
@@ -299,11 +332,11 @@ class Fitter:
             Size of samples used at each epoch
         """
 
-        initial_epoch = len(self.train_history['loss'])
-        if initial_epoch == 1:
+        last_epoch = self.train_history['epoch']
+        if last_epoch == 0:
             if self._model.device_handler.rank == 0:
                 print(f">>> Checking the current status of the model <<<")
-            self._checkpoint(0, None, None, batch_size)
+            self._checkpoint(last_epoch, None, None, batch_size)
 
         self.train_history['ess'].extend([None] * n_epochs)
         self.train_history['loss'].extend([None] * n_epochs)
@@ -315,7 +348,7 @@ class Fitter:
             print(f">>> Training started for {n_epochs} epochs <<<")
 
         t_1 = time.time()
-        for epoch in range(initial_epoch, initial_epoch + n_epochs):
+        for epoch in range(last_epoch + 1, last_epoch + 1 + n_epochs):
             loss, logq, logp = self.step(batch_size)
             self._checkpoint(epoch, logq, logp)
             if self.scheduler is not None:
@@ -389,6 +422,7 @@ class Fitter:
                 str2 = "log(p): {0}".format(fmt_val_err(*logp, err_digits=2))
                 print(str1 + str2)
 
+            self.train_history['epoch'] = epoch
             self.train_history['ess'][epoch] = ess
             self.train_history['loss'][epoch] = loss
             self.train_history['logp'][epoch] = logp
@@ -438,7 +472,36 @@ class Fitter:
                 - torch.logsumexp(-2*logqp, dim=0)
         return - log_ess + np.log(len(logqp))  # normalized
 
+    def state_dict(self):
 
+        checkpoint = {
+                # 'optimizer_state_dict': self.optimizer.state_dict(),
+                # 'scheduler_state_dict': self.scheduler.state_dict(),
+                # 'alpha_state_dict': self.alpha_scheduler.state_dict(),
+                'epoch': self.train_history['epoch'],
+                'loss': self.train_history['loss'],
+                'ess': self.train_history['ess'],
+                'logp': self.train_history['logp']
+                }
+
+        return checkpoint
+
+    def load_state_dict(self, checkpoint):
+
+        # model should be loaded to cpu and then moved to GPUs if needed
+
+        assert False, "OOPS: this is not implemeted yet! Try Later!"
+
+        # self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        # self.alpha_scheduler.load_state_dict(checkpoint['alpha_state_dict'])
+        self.train_history['epoch'] = checkpoint['epoch']
+        self.train_history['loss'] = checkpoint['loss']
+        self.train_history['ess'] = checkpoint['ess']
+        self.train_history['logp'] = checkpoint['logp']
+
+
+# =============================================================================
 class AlphaScheduler:
     """Introduces a parameter and a scheduler to change it."""
 
@@ -466,5 +529,5 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
 
     mean = lambda z: z.abs().mean().item()
 
-    print("reverse method is OK if following values vanish (up to round off):")
-    print(f"{mean(x - x_hat):g} & {mean(1 + minus_logj / logj):g}")
+    print("reverse mode is OK if following values vanish (up to round off):")
+    print(f"{mean(x - x_hat):g} & {mean(torch.exp(logj + minus_logj) - 1):g}")
