@@ -10,4 +10,7 @@ from .euler_handle import SU2MatrixEulerParametrizer
 from .lie_group_handle import SU2Algebra2Group_
 from .lie_group_handle import SU3Algebra2Group_
 
-from .flow_handle import UnitaryFlow_
+try:
+    from .flow_handle import UnitaryFlow_
+except:
+    pass
