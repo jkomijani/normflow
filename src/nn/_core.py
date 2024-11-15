@@ -127,6 +127,27 @@ class Module_(torch.nn.Module, ABC):
         for param in self.parameters():
             torch.nn.init.zeros_(param)
 
+    def get_weights_blob(self):
+        serialized_model = io.BytesIO()
+        torch.save(self.state_dict(), serialized_model)
+        return base64.b64encode(serialized_model.getbuffer()).decode('utf-8')
+
+    def set_weights_blob(self, blob, map_location=torch.device('cpu')):
+        weights = torch.load(
+                io.BytesIO(base64.b64decode(blob.strip())),
+                map_location=map_location,
+                weights_only=True
+                )
+        self.load_state_dict(weights)
+
+    def freeze_parameters(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze_parameters(self):
+        for param in self.parameters():
+            param.requires_grad = True
+
 
 # =============================================================================
 class ModuleList_(torch.nn.ModuleList, Module_):
@@ -188,31 +209,6 @@ class ModuleList_(torch.nn.ModuleList, Module_):
 
     def transfer(self, **kwargs):
         return self.__class__([net_.transfer(**kwargs) for net_ in self])
-
-    def get_weights_blob(self):
-        serialized_model = io.BytesIO()
-        torch.save(self.state_dict(), serialized_model)
-        return base64.b64encode(serialized_model.getbuffer()).decode('utf-8')
-
-    def set_weights_blob(self, blob, map_location=torch.device('cpu')):
-        weights = torch.load(
-                io.BytesIO(base64.b64decode(blob.strip())),
-                map_location=map_location,
-                weights_only=True
-                )
-        self.load_state_dict(weights)
-
-    def freeze_parameters(self):
-        for param in self.parameters():
-            param.requires_grad = False
-
-    def unfreeze_parameters(self):
-        for param in self.parameters():
-            param.requires_grad = True
-
-    @property
-    def npar(self):
-        return sum([np.prod(p.shape) for p in super().parameters()])
 
     def to(self, *args, **kwargs):
         for net_ in self:
