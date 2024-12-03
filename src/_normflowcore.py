@@ -42,6 +42,10 @@ class Model:
         Defines the model's action, which specified the target distribution
         during training.
 
+    load_checkpoint_path : str or None, optional
+        If a string is provided, it is passed to the `load_checkpoint` method
+        for loading a checkpoint.
+
     Attributes
     ----------
     fit : Fitter
@@ -65,7 +69,7 @@ class Model:
         seamless operation across hardware setups.
     """
 
-    def __init__(self, *, prior, net_, action):
+    def __init__(self, *, prior, net_, action, load_checkpoint_path=None):
 
         self.net_ = net_
         self.prior = prior
@@ -80,6 +84,9 @@ class Model:
         self.blocked_mcmc = BlockedMCMCSampler(self)
         self.device_handler = ModelDeviceHandler(self)
 
+        if load_checkpoint_path is not None:
+            self.load_checkpoint(load_checkpoint_path)
+
     def state_dict(self):
 
         return {'net_state_dict': self.net_.state_dict(),
@@ -91,22 +98,55 @@ class Model:
     def save_checkpoint(self, path):
         torch.save(self.state_dict(), path)
 
-    def load_checkpoint(self,
-            path,
-            parameters_only = True,
+    def load_checkpoint(
+            self,
+            path: str,
+            parameters_only: bool = True,
             map_location = torch.device('cpu')
-            ):
-        # When you call torch.load() on a file which contains GPU tensors,
-        # those tensors will be loaded to GPU by default. You can call
-        # torch.load(.., map_location='cpu') and then load_state_dict() to
-        # avoid GPU RAM surge when loading a model checkpoint.
+        ):
+        """
+        Load a model checkpoint into the current instance.
 
+        This method restores the model's state from a checkpoint file. It
+        supports loading only the parameters of the network or both parameters
+        and additional states (e.g., optimizer or training-related states)
+        depending on the `parameters_only` flag.
+
+        Parameters
+        ----------
+        path : str
+            Path to the checkpoint file to load. The checkpoint should be saved
+            in a format compatible with PyTorch's `torch.save()` and contain
+            specific state dictionaries (e.g., 'net_state_dict').
+
+        parameters_only : bool, optional
+            If `True`, only the model's parameters (network weights) are
+            loaded. If `False`, additional states such as prior, action, and
+            training states are also restored. Defaults to `True`.
+
+        map_location : torch.device, optional
+            Specifies how to map storage locations when loading the checkpoint.
+            Defaults to `torch.device('cpu')`.
+
+        Raises:
+            FileNotFoundError:
+                If the file specified by `path` does not exist.
+            KeyError:
+                If the checkpoint file does not contain the required state
+                keys.
+
+        Notes:
+            - When `torch.load()` is called on a file containing GPU tensors,
+              those tensors are loaded directly to the GPU by default. To
+              avoid a surge in GPU memory usage, use the `map_location`
+              argument to load tensors onto the CPU first, especially when
+              working with large models or limited GPU memory.
+        """
         state = torch.load(path, map_location=map_location, weights_only=True)
 
         self.net_.load_state_dict(state['net_state_dict'])
 
         if parameters_only == False:
-
             self.prior.load_state_dict(state['prior_state_dict'])
             self.action.load_state_dict(state['action_state_dict'])
             self.train.load_state_dict(state['train_state_dict'])
