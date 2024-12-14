@@ -9,7 +9,7 @@ along with support for MCMC sampling and device management.
 
 import torch
 import time
-
+import logging
 import numpy as np
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
@@ -48,9 +48,12 @@ class Model:
 
     Attributes
     ----------
-    fit : Fitter
-        An instance of the Fitter class, responsible for training the model.
-        `fit` is aliased to `train` for flexibility in usage.
+    trainer : Trainer
+        An instance of the Trainer class, responsible for training the model.
+        For training one can call `trainer`. Note that `trainer.__call__` is
+        aliased to `train` as well as to `fit` for flexibility in usage.
+        Moreover, `trainer.execute_ddp_training` is a method that cab be used
+        for parallel training, which is also aliased to `execute_ddp_training`.
 
     posterior : Posterior
         An instance of the Posterior class, which manages posterior inference
@@ -71,17 +74,23 @@ class Model:
 
     def __init__(self, *, prior, net_, action, load_checkpoint_path=None):
 
+        # Main components of the model
         self.net_ = net_
         self.prior = prior
         self.action = action
 
-        # Components for training, sampling, and device handling
-        self.fit = Fitter(self)
-        self.train = self.fit  # Alias for `fit`
+        # Components for training
+        self.trainer = Trainer(self)
+        self.train = self.trainer.__call__
+        self.fit = self.trainer.__call__  # Alias for `train`
+        self.execute_ddp_training = self.trainer.execute_ddp_training
 
+        # Components for sampling
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
         self.blocked_mcmc = BlockedMCMCSampler(self)
+
+        # Components for device handling and loading saved models
         self.device_handler = ModelDeviceHandler(self)
 
         if load_checkpoint_path is not None:
@@ -277,24 +286,25 @@ class Posterior:
 
 
 # =============================================================================
-class Fitter:
+class Trainer:
     """A class for training a given model."""
 
     path_gradient_autodiff = True
 
     def __init__(self, model: Model):
+
         self._model = model
 
+        # Initialize training history tracking
         self.train_history = dict(
                 epoch=0, loss=[None], ess=[None], logp=[None]
                 )
 
+        # Default hyperparameters
         self.hyperparam = dict(lr=0.001, weight_decay=0.01)
 
-        self.checkpoint_dict = dict(
-            print_stride=10,
-            print_batch_size=None
-            )
+        # Checkpoint configuration
+        self.checkpoint_dict = dict(print_stride=10, print_batch_size=None)
 
     def __call__(self,
             n_epochs=1000,
@@ -338,11 +348,14 @@ class Fitter:
         checkpoint_dict : dict, optional
             Can be set to control printing the status of the training.
         """
+        # Update hyperparameters and checkpoint settings if provided
         self.hyperparam.update(hyperparam)
         self.checkpoint_dict.update(checkpoint_dict)
 
-        self.loss_fn = Fitter.calc_kl_mean if loss_fn is None else loss_fn
+        # Loss function setup
+        self.loss_fn = Trainer.calc_kl_mean if loss_fn is None else loss_fn
 
+        # Optimizer and scheduler setup
         net_ = self._model.net_
         if '_groups' in net_.__dict__.keys():
             parameters = net_.grouped_parameters()
@@ -357,8 +370,45 @@ class Fitter:
 
         self.alpha_scheduler = AlphaScheduler(alpha_tmax)
 
+        # Execut training if n_epochs > 0
         if n_epochs > 0:
             self._train(n_epochs, batch_size)
+
+    def execute_ddp_training(self, seeds_list=None, **train_kwargs):
+        """
+        Execute distributed training using Distributed Data Parallel (DDP).
+
+        Here are the steps:
+        1. Initialize the process group for distributed communication.
+        2. Set random seeds for reproducibility.
+        3. Wrap the model with DDP for multi-GPU training.
+        4. Execute the training routine.
+        5. Synchronize all processes.
+        6. Destroy the process group to free resources.
+
+        Args:
+            seeds_list (list, optional): A list of seeds for ensuring
+                reproducibility across processes.
+            **train_kwargs: Additional keyword arguments to be passed to the
+                training routine.
+        """
+        # Initialize distributed backend
+        self._model.device_handler.init_process_group(backend="nccl")
+        self._model.device_handler.set_seed(seeds_list)
+        self._model.device_handler.ddp_wrapper()
+
+        # Log initialization
+        logging.info("Process group initialized & model wrapped with DDP.")
+
+        # Execute training
+        self.__call__(**train_kwargs)
+
+        # Synchronize processes after training
+        torch.distributed.barrier()
+
+        # Ensure cleanup of the process group
+        self._model.device_handler.destroy_process_group()
+        logging.info("Process group destroyed.")
 
     def _train(self, n_epochs, batch_size):
         """Train the model.
@@ -424,11 +474,6 @@ class Fitter:
         self.optimizer.step()
 
         return loss, logq, logp
-
-    def print_trian_history(self, keys=['loss', 'ess', 'logp']):
-        for key, value in self.train_history.items():
-            print(key)
-            print(value)
 
     @torch.no_grad()
     def _checkpoint(self, epoch, logq, logp, batch_size=None):

@@ -1,14 +1,8 @@
-# Copyright (c) 2023 Javad Komijani, Elias Nyholm
+# Copyright (c) 2023-2024 Javad Komijani, Elias Nyholm
 
 import torch
-import numpy as np
-import os
-import warnings
 
-from functools import partial
-# from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
-from torch.multiprocessing.spawn import ProcessException
+import torch.distributed as dist
 
 
 # =============================================================================
@@ -25,134 +19,116 @@ class DDP(torch.nn.parallel.DistributedDataParallel):
 
 # =============================================================================
 class ModelDeviceHandler:
+    """
+    A handler for managing device and distributed training setup in multi-GPU
+    environments.
+
+    This class helps manage distributed training by initializing and destroying
+    the process group, setting seeds for reproducibility across processes, and
+    moving model components to the appropriate device.
+    """
 
     def __init__(self, model):
+        """
+        Initializes the ModelDeviceHandler instance.
 
+        Args:
+            model: The model that will be trained on multiple GPUs.
+        """
         self._model = model
-        self.nranks = 1
-        self.rank = 0
+        self.world_size = 1
+        self.rank = 0  # The global rank of the current process
+        self.local_rank = 0  # The rank within the local node (GPU)
+
+    def init_process_group(self, backend="nccl", init_method="env://"):
+        """
+        Initializes the distributed process group for multi-GPU training.
+
+        Args:
+            backend (str): The backend for communication (e.g. 'nccl' for GPU).
+            init_method (str): The initialization method (e.g. 'env://' for
+                                environment variable-based setup).
+
+        Sets the world size, rank, and local rank of the current process.
+        """
+
+        assert torch.cuda.is_available()
+
+        # Initialize distributed backend
+        dist.init_process_group(backend=backend, init_method=init_method)
+
+        self.world_size = dist.get_world_size()
+
+        gpus_per_node = torch.cuda.device_count()
+
+        self.rank = dist.get_rank()
+        self.local_rank = dist.get_rank() % gpus_per_node
+
+    def destroy_process_group(self):
+        """
+        Destroys the distributed process group and cleans up the resources.
+
+        After calling this, no further distributed operations can be performed
+        until re-initialization.
+        """
+        dist.destroy_process_group()
+
+    def set_seed(self, seeds_list=None):
+        """
+        Sets the random seed for reproducibility across distributed processes.
+
+        Each process will use a different seed based on its rank to ensure
+        independent randomness.
+
+        Args:
+            seeds_list (list, optional): A list of seeds, one for each process.
+                                          If None, no seed is set.
+        """
+        if seeds_list is not None:
+            seed = seeds_list[self.rank]
+            torch.manual_seed(seed)
 
     def to(self, *args, **kwargs):
+        """
+        Moves model components (e.g., net_ and prior) to the specified device.
+
+        Args:
+            *args: Positional arguments for the `.to()` method
+                   (usually the device like 'cuda' or 'cpu').
+            **kwargs: Keyword arguments for additional configuration
+                   (e.g., dtype).
+
+        Moves both the network and prior parts of the model to the given device.
+        """
         self._model.net_.to(*args, **kwargs)
         self._model.prior.to(*args, **kwargs)
 
-    def ddp_wrapper(self, rank, nranks):
+    def ddp_wrapper(self):
+        """
+        Wraps the model in DistributedDataParallel (DDP) and moves it to the
+        device (GPU) specified with the local rank.
+
+        This method moves both the `net_` and `prior` parts of the model to the
+        specified GPU and wraps `net_` with DDP to enable multi-GPU training.
+        """
+
+        device = torch.device(f"cuda:{self.local_rank}")
 
         # First, move the model (prior and net_) to the specific GPU
-        self._model.prior.to(device=rank, dtype=None, non_blocking=False)
-        self._model.net_.to(device=rank, dtype=None, non_blocking=False)
+        self._model.prior.to(device=device, dtype=None, non_blocking=False)
+        self._model.net_.to(device=device, dtype=None, non_blocking=False)
 
         # Second, wrap the net_ with DDP class
-        self._model.net_ = DDP(self._model.net_, device_ids=[rank])
-
-        self.nranks = nranks
-        self.rank = rank
-
-    def spawnprocesses(self, fn, nranks,
-            master_port=12354, seeds_torch=None, *args, **kwargs
-            ):
-        """
-        fn : function
-            function to be run in each spawned process. The first argument of fn
-            should be 'model' [normflow.Model], i.e. the 'self._model' of this method.
-        nranks : int
-            number of processes to spawn.
-        master_port : int
-            open port for communication between processes. Needs to be set manually if
-            mutlitple distributed models are trained concurrently on the same machine.
-        *args : optional
-            will be passed on to fn
-        **kargs : optional
-            will be passed on to fn
-        """
-
-        seeds_torch = prepare_seeds(nranks, seeds_torch)
-
-        wrapped_fn = DistributedFunc(fn)
-        try:
-            torch.multiprocessing.spawn(
-                partial(wrapped_fn, **kwargs),
-                # rank is explicitely passed by spawn as the first argument
-                args=(nranks, master_port, seeds_torch, self._model) + tuple(args),
-                nprocs=nranks,
-                join=True
+        self._model.net_ = DDP(
+                self._model.net_, device_ids=[device], output_device=device
                 )
-        except ProcessException as e:
-            warnings.warn("Distribution training could not be spawned." \
-                    + " If default master port is already in use," \
-                    + " try setting a different port with the --port option."
-                    )
-            raise e
 
     def all_gather_into_tensor(self, x):
-        if self.nranks == 1:
+        if self.world_size == 1:
             return x
         else:
             out_shape = list(x.shape)
-            out_shape[0] *= self.nranks
+            out_shape[0] *= self.world_size
             out = torch.zeros(*out_shape, dtype=x.dtype, device=x.device)
             torch.distributed.all_gather_into_tensor(out, x)
             return out
-
-
-class DistributedFunc:
-
-    def __init__(self, fn):
-        self.fn = fn
-
-    def __call__(self, rank, nranks, master_port, seeds_torch, model,
-            *args, **kwargs
-            ):
-
-        setup_process_group(rank, nranks, master_port=master_port)
-
-        model.device_handler.ddp_wrapper(rank, nranks)
-
-        torch.manual_seed(seeds_torch[rank])
-
-        out = self.fn(model, *args, **kwargs)  # call function
-
-        destroy_process_group()  # clean-up NCCL process
-
-        return out
-
-
-def setup_process_group(rank, world_size, master_addr='localhost', master_port=12354):
-    """Initialize NCCL backend for sharing gradients over devices.
-
-    Parameters
-    ----------
-    rank: int
-        Unique identifier of each process
-    world_size: int
-        Total number of processses
-    """
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = str(master_port)
-    init_process_group(backend="nccl", rank=rank, world_size=world_size)
-    # nccl: NVIDIA Collective Communications Library
-
-
-def prepare_seeds(nranks, seeds_torch):
-    """
-    seeds_torch : List[int] or None
-        List of seeds for torch random number generator. List should be of
-        length nranks.
-        If None, seeds will be randomly generated using torch.randint.
-    """
-
-    if seeds_torch is None:
-        seeds_torch = gen_seed(size=(nranks,))
-    else:
-        assert len(seeds_torch) == nranks, "Numbers of seeds != nranks"
-
-    return seeds_torch
-
-
-def gen_seed(size=None):
-    # if size is None returns a number otherwise a list
-    # at least for numpy seed cannot be larger that 2**32 - 1
-    if size is None:
-        return torch.randint(2**32 - 1, size=[1]).tolist()[0]
-    else:
-        return torch.randint(2**32 - 1, size=size).tolist()
