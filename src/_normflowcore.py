@@ -168,8 +168,7 @@ class Posterior:
 
     The `Posterior` class generates samples from a specified model without
     using an accept-reject step, making it suitable for tasks that require
-    quick, direct sampling. All methods in this class use `torch.no_grad()`
-    to prevent gradient computation.
+    quick, direct sampling.
 
     Parameters
     ----------
@@ -196,7 +195,6 @@ class Posterior:
     def __init__(self, model):
         self._model = model
 
-    @torch.no_grad()
     def sample(self, batch_size=1, **kwargs):
         """
         Draws samples from the model.
@@ -213,7 +211,6 @@ class Posterior:
         """
         return self.sample_(batch_size=batch_size, **kwargs)[0]
 
-    @torch.no_grad()
     def sample_(self, batch_size=1, preprocess_func=None):
         """
         Draws samples and their log probabilities from the model.
@@ -242,7 +239,6 @@ class Posterior:
         logq = logr - logj
         return y, logq
 
-    @torch.no_grad()
     def sample__(self, batch_size=1, **kwargs):
         """
         Similar to `sample_`, but also returns the log probability of the
@@ -264,7 +260,6 @@ class Posterior:
         logp = -self._model.action(y)  # logp is log(p_{non-normalized})
         return y, logq, logp
 
-    @torch.no_grad()
     def log_prob(self, y):
         """
         Computes the log probability of the provided samples.
