@@ -292,7 +292,7 @@ class Trainer:
 
         # Initialize training history tracking
         self.train_history = dict(
-                epoch=0, loss=[None], ess=[None], logp=[None]
+                epoch=0, loss=[None], ess=[None], logp=[None], logqp=[None]
                 )
 
         # Default hyperparameters
@@ -300,6 +300,9 @@ class Trainer:
 
         # Checkpoint configuration
         self.checkpoint_dict = dict(print_stride=10, print_batch_size=None)
+
+        # Default loss function
+        self.loss_fn = Trainer.calc_kl_mean
 
     def __call__(self,
             n_epochs=1000,
@@ -346,9 +349,12 @@ class Trainer:
         # Update hyperparameters and checkpoint settings if provided
         self.hyperparam.update(hyperparam)
         self.checkpoint_dict.update(checkpoint_dict)
+        if self.checkpoint_dict['print_batch_size'] is None:
+            self.checkpoint_dict['print_batch_size'] = batch_size
 
         # Loss function setup
-        self.loss_fn = Trainer.calc_kl_mean if loss_fn is None else loss_fn
+        if loss_fn is not None:
+            self.loss_fn = loss_fn
 
         # Optimizer and scheduler setup
         net_ = self._model.net_
@@ -421,11 +427,12 @@ class Trainer:
         if last_epoch == 0:
             if self._model.device_handler.rank == 0:
                 print(f">>> Checking the current status of the model <<<")
-            self._checkpoint(last_epoch, None, None, batch_size)
+            self._checkpoint(last_epoch, None, None)
 
         self.train_history['ess'].extend([None] * n_epochs)
         self.train_history['loss'].extend([None] * n_epochs)
         self.train_history['logp'].extend([None] * n_epochs)
+        self.train_history['logqp'].extend([None] * n_epochs)
 
         rank = self._model.device_handler.rank
 
@@ -489,43 +496,124 @@ class Trainer:
         return loss, logq, logp
 
     @torch.no_grad()
-    def _checkpoint(self, epoch, logq, logp, batch_size=None):
+    def _checkpoint(self, epoch, logq, logp):
+        """
+        Computes training metrics and updates the training history during model
+        training. This method logs metrics every `print_stride` epochs. Only
+        the process with rank 0 logs and stores the metrics.
 
-        rank = self._model.device_handler.rank
+        Parameters:
+        ----------
+        epoch : int
+            The current epoch in the training loop.
 
-        stride = self.checkpoint_dict['print_stride']
+        logq : torch.Tensor
+            Log-probabilities under the model.
 
-        # Generate new samples if demanded!
-        if epoch % stride == 0:
+        logp : torch.Tensor
+            Log-probabilities under the target distribution.
+        """
 
-            bsize = self.checkpoint_dict['print_batch_size']
+        if epoch % self.checkpoint_dict['print_stride'] == 0:
+            # Compute metrics and log at the specified print stride
+            out = self.compute_metrics(
+                    logq=logq,
+                    logp=logp,
+                    epoch=epoch,
+                    batch_size=self.checkpoint_dict['print_batch_size']
+                    )
+        else:
+            # Only compute metrics
+            out = self.compute_metrics(logq=logq, logp=logp)
 
-            if (bsize is None) and (logq is not None):
-                pass  # use the input logq & logp
-            else:
-                # draw samples to calculate logq & logp
-                bsize_ = batch_size if (bsize is None) else bsize
-                _, logq, logp = self._model.posterior.sample__(bsize_)
-
-        logq = self._model.device_handler.all_gather_into_tensor(logq)
-        logp = self._model.device_handler.all_gather_into_tensor(logp)
-
-        if rank == 0:
-            ess = self.calc_ess(logq, logp).item()
-            loss = self.loss_fn(logq, logp).item()
-            logp = (logp.mean().item(), logp.std().item())
-
-            if epoch % stride == 0:
-                str1 = f"Epoch: {epoch} | loss: {loss:.4f} | ess: {ess:.4f} | "
-                str2 = "log(p): {0}".format(fmt_val_err(*logp, err_digits=2))
-                print(str1 + str2)
-
+        # Update the training history if on rank 0
+        if self._model.device_handler.rank == 0:
+            loss, ess, logqp, logp = out
             self.train_history['epoch'] = epoch
             self.train_history['ess'][epoch] = ess
             self.train_history['loss'][epoch] = loss
             self.train_history['logp'][epoch] = logp
+            self.train_history['logqp'][epoch] = logqp
+        else:
+            # out is None for non-zero ranks, and we do not update history.
+            pass
 
-        return
+    @torch.no_grad()
+    def compute_metrics(
+            self, batch_size=None, logq=None, logp=None, epoch=None
+        ):
+        """
+        Computes training metrics such as loss, effective sample size (ESS),
+        and log-probabilities. Optionally logs the metrics if `epoch` is
+        provided as an iteger.
+
+        This includes:
+            - Loss: Computed using the model's loss function.
+            - ESS (Effective Sample Size): Measures sample quality.
+            - log(q/p): Mean and standard deviation of the log-ratio of model
+              and target densities.
+            - log(p): Mean and standard deviation of log-probabilities under
+              the target distribution.
+
+        Parameters:
+        -----------
+        batch_size : int | None, optional
+            If `batch_size` is provided, both `logq` and `logp` are ignored,
+            and the method will sample `logq` and `logp` using the model.
+
+        logq : torch.Tensor | None, optional
+            Log-probabilities under the model. Ignored if `batch_size` is
+            provided.
+
+        logp : torch.Tensor | None, optional
+            Log-probabilities under the target distribution. Ignored if
+            `batch_size` is provided.
+
+        epoch : int | None, optional
+            If an integer, logs the metrics to the console for this epoch.
+            If `None`, no logging is performed.
+
+        Returns:
+        --------
+        tuple:
+            - loss (float): The training loss.
+            - ess (float): Effective sample size.
+            - logqp (tuple): Mean and standard deviation of log(q/p).
+            - logp (tuple): Mean and standard deviation of log(p).
+        """
+        # Sample logq and logp if batch_size is provided
+        if batch_size is not None:
+            _, logq, logp = self._model.posterior.sample__(batch_size)
+        else:
+            pass  # it is assumed that logq and logp are provided
+
+        # Gather logq and logp across devices for distributed setups
+        logq = self._model.device_handler.all_gather_into_tensor(logq)
+        logp = self._model.device_handler.all_gather_into_tensor(logp)
+
+        # Terminate if not on zero rank
+        if self._model.device_handler.rank > 0:
+            return
+
+        # Compute metrics
+        loss = self.loss_fn(logq, logp).item()  # Compute loss
+        ess = self.calc_ess(logq, logp).item()  # Compute effective sample size
+
+        # Compute the mean & std of log(q/p), which is called logqp, and log(p)
+        logqp = ((logq - logp).mean().item(), (logq - logp).std().item())
+        logp = (logp.mean().item(), logp.std().item())
+
+        # Log metrics if epoch is an integer
+        if isinstance(epoch, int):
+            log_message = (
+                f"Epoch: {epoch} | loss: {loss:.4f} | ess: {ess:.4f} | "
+                f"log(q/p): {fmt_val_err(*logqp, err_digits=2)} | "
+                f"log(p): {fmt_val_err(*logp, err_digits=2)}"
+            )
+            print(log_message)
+
+        # Return computed metrics
+        return loss, ess, logqp, logp
 
     @staticmethod
     def calc_kl_mean(logq, logp):
