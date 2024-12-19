@@ -451,26 +451,44 @@ class Trainer:
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
     def step(self, batch_size):
-        """Perform a train step with a batch of inputs of size `batch_size`."""
+        """
+        Perform a single training step with a batch of size `batch_size`.
+
+        Note that:
+        - The alpha scheduler controls the interpolation between the action
+          term and the prior during training.
+        - If `path_gradient_autodiff` is enabled, the forward pass uses the
+          `forward_with_path_gradient_ad` method of `Module_` to adjust
+          autmatic differentiation.
+
+        This method samples inputs from the prior distribution, computes
+        transformed outputs, evaluates loss based on log-probabilities, and
+        optimizes the model using backpropagation.
+        """
         model = self._model
+        prior = model.prior
         alpha = self.alpha_scheduler.alpha
 
-        x, logr = model.prior.sample_(batch_size)
-        y, logj = model.net_(x)
-        logp = - alpha * model.action(y)
-        logq = alpha * logr - logj
+        # Sample inputs from the prior
+        x, logr = prior.sample_(batch_size)
 
+        # Forward pass through the neural network
         if self.path_gradient_autodiff:
-            x, minus_logj = model.net_.reverse(y.detach())
-            logq_ydetached = minus_logj + alpha * model.prior.log_prob(x)
-            logq = logq - (logq_ydetached - logq_ydetached.detach())
+            y, logj, logr = \
+                    model.net_.forward_with_path_gradient_ad(x, prior.log_prob)
+        else:
+            y, logj = model.net_.forward(x)
 
+        # Compute log-probabilities
+        logp = - alpha * model.action(y) + (1 - alpha) * prior.log_prob(y)
+        logq = logr - logj
+
+        # Compute Loss
         loss = self.loss_fn(logq, logp)
 
+        # Backpropagation and optimization
         self.optimizer.zero_grad()  # clears old gradients from last steps
-
         loss.backward()
-
         self.optimizer.step()
 
         return loss, logq, logp
