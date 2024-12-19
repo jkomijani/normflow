@@ -104,11 +104,76 @@ class Module_(torch.nn.Module, ABC):
 
     @abstractmethod
     def forward(self, x, log0=0):
+        """
+        Perform the forward transformation.
+
+        Args:
+            x (Tensor): Input tensor to be transformed via the flow.
+            log0 (Tensor | float, optional): Initial value for the log Jacobian
+                from previous transformations. Defaults to 0.
+
+        Returns:
+            Tensor: Transformed output tensor.
+            Tensor: Updated log Jacobian of the transformation.
+        """
         pass
 
     @abstractmethod
     def reverse(self, x, log0=0):
+        """
+        Perform the reverse transformation.
+
+        Args:
+            x (Tensor): Input tensor to be transformed via the reverse flow.
+            log0 (Tensor | float, optional): Initial value for the log Jacobian
+                from previous transformations. Defaults to 0.
+
+        Returns:
+            Tensor: Transformed output tensor.
+            Tensor: Updated log Jacobian of the reverse transformation.
+        """
         pass
+
+    def forward_with_path_gradient_ad(self, x, log_prob_x):
+        """
+        Perform the forward transformation with path gradient adjustment.
+
+        This method applies the forward transformation of the normalizing flow
+        to the input tensor `x` and adjusts the gradient computation to enhance
+        numerical stability during backpropagation. The adjustment is based on
+        techniques proposed by Vaitl et al. in "Gradients should stay on Path:
+        Better Estimators of the Reverse- and Forward KL Divergence for
+        Normalizing Flows" (arXiv:2207.08219).
+
+        Args:
+            x (Tensor): Input tensor to be transformed via the flow.
+            log_prob_x (Callable): Function to compute the log probability of
+                a given tensor under the input distribution.
+
+        Returns:
+            Tensor: Transformed output tensor.
+            Tensor: Adjusted log-Jacobian of the transformation.
+            Tensor: Corrected log-probability of the input tensor `x` for
+            numerical stability adjustments.
+        """
+        # Apply the forward transformation to compute output and log Jacobian
+        y, logj = self.forward(x)
+
+        # Compute the reverse transformation on detached `y` to calculate
+        # the partial gradient w.r.t. only the parameters of the reverse path
+        x_r, logj_r = self.reverse(y.detach())
+        # Note that, ideally, `x_r = x` & `logj_r = -logj`
+
+        # Adjust the log-Jacobian gradient for numerical stability by removing
+        # parameter-related dercontributions from log Jacobian
+        logj = logj + (logj_r - logj_r.detach())
+
+        # Compute the log-probability of `x` with adjustment for stability
+        logq_x = log_prob_x(x) - (log_prob_x(x_r) - log_prob_x(x_r).detach())
+
+        # Return transformed output, adjusted log-Jacobian, and corrected
+        # log-prob of `x`
+        return y, logj, logq_x
 
     def transfer(self, **kwargs):
         return copy.deepcopy(self)
@@ -170,14 +235,41 @@ class ModuleList_(torch.nn.ModuleList, Module_):
         return self.forward(*args, **kwargs)
 
     def forward(self, x, log0=0):
+        """
+        Sequentially apply the forward transformations.
+
+        Args:
+            x (Tensor): Input to be transformed via the sequence of flows.
+            log0 (Tensor | float, optional): Initial value for the log Jacobian
+                from previous transformations. Defaults to 0.
+
+        Returns:
+            Tensor: Transformed output tensor after applying all flows.
+            Tensor: Cumulative log Jacobians across flows.
+        """
+        logj = log0
         for net_ in self:
-            x, log0 = net_.forward(x, log0=log0)
-        return x, log0
+            x, logj = net_.forward(x, log0=logj)
+        return x, logj
 
     def reverse(self, x, log0=0):
+        """
+        Sequentially apply the reverse transformations.
+
+        Args:
+            x (Tensor): Input to be transformed via the reverse sequence of
+                reversed flows.
+            log0 (Tensor | float, optional): Initial value for the log Jacobian
+                from previous transformations. Defaults to 0.
+
+        Returns:
+            Tensor: Transformed output tensor after applying all reverse flows.
+            Tensor: Cumulative log Jacobians across reverse flows.
+        """
+        logj = log0
         for net_ in list(self)[::-1]:  # list() is needed for child classes...
-            x, log0 = net_.reverse(x, log0=log0)
-        return x, log0
+            x, logj = net_.reverse(x, log0=logj)
+        return x, logj
 
     def grouped_parameters(self):
         if self._groups is None:
