@@ -40,14 +40,12 @@ class ModelDeviceHandler:
         self.rank = 0  # The global rank of the current process
         self.local_rank = 0  # The rank within the local node (GPU)
 
-    def init_process_group(self, backend="nccl", init_method="env://"):
+    def init_process_group(self, backend="nccl"):
         """
         Initializes the distributed process group for multi-GPU training.
 
         Args:
             backend (str): The backend for communication (e.g. 'nccl' for GPU).
-            init_method (str): The initialization method (e.g. 'env://' for
-                                environment variable-based setup).
 
         Sets the world size, rank, and local rank of the current process.
         """
@@ -55,7 +53,7 @@ class ModelDeviceHandler:
         assert torch.cuda.is_available()
 
         # Initialize distributed backend
-        dist.init_process_group(backend=backend, init_method=init_method)
+        dist.init_process_group(backend=backend)
 
         self.world_size = dist.get_world_size()
 
@@ -80,9 +78,10 @@ class ModelDeviceHandler:
         Each process will use a different seed based on its rank to ensure
         independent randomness.
 
-        Args:
-            seeds_list (list, optional): A list of seeds, one for each process.
-                                          If None, no seed is set.
+        Parameters:
+        -----------
+        seeds_list : list, optional
+            A list of seeds, one for each process. If None, no seed is set.
         """
         if seeds_list is not None:
             seed = seeds_list[self.rank]
@@ -97,8 +96,6 @@ class ModelDeviceHandler:
                    (usually the device like 'cuda' or 'cpu').
             **kwargs: Keyword arguments for additional configuration
                    (e.g., dtype).
-
-        Moves both the network and prior parts of the model to the given device.
         """
         self._model.net_.to(*args, **kwargs)
         self._model.prior.to(*args, **kwargs)
