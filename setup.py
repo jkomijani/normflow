@@ -60,6 +60,6 @@ setup(name='normflow',
       author='Javad Komijani',
       author_email='jkomijani@gmail.com',
       license='MIT',
-      install_requires=['numpy>=2.0.0', 'torch>=2.3.1'],
+      # install_requires=['numpy>=2.0.0', 'torch>=2.3.1'],
       zip_safe=False
       )
