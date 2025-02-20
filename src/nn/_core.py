@@ -140,10 +140,25 @@ class Module_(torch.nn.Module, ABC):
 
         This method applies the forward transformation of the normalizing flow
         to the input tensor `x` and adjusts the gradient computation to enhance
-        numerical stability during backpropagation. The adjustment is based on
-        techniques proposed by Vaitl et al. in "Gradients should stay on Path:
-        Better Estimators of the Reverse- and Forward KL Divergence for
-        Normalizing Flows" (arXiv:2207.08219).
+        statistical stability of minimization of KL divergence.
+        The adjustment is based on a technique proposed by Vaitl et al. in
+        "Gradients should stay on Path: Better Estimators of the Reverse- and
+        Forward KL Divergence for Normalizing Flows" [arXiv:2207.08219].
+
+        Without `path-gradient` automatic differentiation, we would return
+        `(y, logj, log_prob_x(x))`, where:
+
+        - y: The transformed variable after applying the mapping.
+        - logj: The logarithm of the Jacobian of the transformation.
+        - log_prob_x(x): The log probability of the input `x`.
+
+        In minimization of KL divergence, we take the total derivative of the
+        loss function with respect to the parameters. The total derivative can
+        be expanded as the partial derivative with respect to the parameters
+        and `y`. It turns out that the contribution of the partial derivative
+        to the gradient vanishes statistically. Therefore, it is numerically
+        preferable to remove these terms. The trick is to apply an additional
+        reverse flow, as explained in [arXiv:2207.08219].
 
         Args:
             x (Tensor): Input tensor to be transformed via the flow.
@@ -154,7 +169,7 @@ class Module_(torch.nn.Module, ABC):
             Tensor: Transformed output tensor.
             Tensor: Adjusted log-Jacobian of the transformation.
             Tensor: Corrected log-probability of the input tensor `x` for
-            numerical stability adjustments.
+            statistical stability adjustments.
         """
         # Apply the forward transformation to compute output and log Jacobian
         y, logj = self.forward(x)
@@ -164,9 +179,11 @@ class Module_(torch.nn.Module, ABC):
         x_r, logj_r = self.reverse(y.detach())
         # Note that, ideally, `x_r = x` & `logj_r = -logj`
 
-        # Adjust the log-Jacobian gradient for numerical stability by removing
-        # parameter-related dercontributions from log Jacobian
+        # Adjust the log-Jacobian for statistical stability by removing the
+        # parameter-related contributions to the gradient log-Jacobian
         logj = logj + (logj_r - logj_r.detach())
+        # Note that, (logj_r - logj_r.detach()) is zeor, but its gradeint is
+        # the the partial derivative of logj w.r.t. the parameters
 
         # Compute the log-probability of `x` with adjustment for stability
         logq_x = log_prob_x(x) - (log_prob_x(x_r) - log_prob_x(x_r).detach())
