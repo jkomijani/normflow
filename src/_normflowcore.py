@@ -381,22 +381,16 @@ class Trainer:
 
         Here are the steps:
         1. Initialize the process group for distributed communication.
-        2. Set random seeds for reproducibility.
-        3. Wrap the model with DDP for multi-GPU training.
+        2. Wrap the model with DDP for multi-GPU training.
+        3. Set random seeds for reproducibility.
         4. Execute the training routine.
         5. Synchronize all processes.
         6. Destroy the process group to free resources.
-
-        Args:
-            seeds_list (list, optional): A list of seeds for ensuring
-                reproducibility across processes.
-            **train_kwargs: Additional keyword arguments to be passed to the
-                training routine.
         """
         # Initialize distributed backend
         self._model.device_handler.init_process_group(backend="nccl")
-        self._model.device_handler.set_seed(seeds_list)
         self._model.device_handler.ddp_wrapper()
+        self._model.device_handler.set_seed(seeds_list)
 
         # Log initialization
         logging.info("Process group initialized & model wrapped with DDP.")
@@ -452,7 +446,7 @@ class Trainer:
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
-    def step(self, batch_size):
+    def step(self, batch_size, debug=False):
         """
         Perform a single training step with a batch of size `batch_size`.
 
@@ -492,6 +486,16 @@ class Trainer:
         self.optimizer.zero_grad()  # clears old gradients from last steps
         loss.backward()
         self.optimizer.step()
+
+        if debug:
+            param = list(model.net_.parameters())[-1]
+            print(
+                (f"rank = {self._model.device_handler.rank} | "
+                 f"loss = {loss.item():.4f} | "
+                 f"param = {param.ravel()[0].item():.14e} | "
+                 f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
+                )
+            )
 
         return loss, logq, logp
 
