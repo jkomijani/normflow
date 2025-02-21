@@ -7,9 +7,9 @@ networks, and actions. It provides utilities for training and sampling,
 along with support for MCMC sampling and device management.
 """
 
-import torch
 import time
 import logging
+import torch
 import numpy as np
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
@@ -97,22 +97,25 @@ class Model:
             self.load_checkpoint(load_checkpoint_path)
 
     def state_dict(self):
+        """Returns a dictionary containing the state of the model."""
 
-        return {'net_state_dict': self.net_.state_dict(),
-                'prior_state_dict': {},  # self.prior.state_dict(),
-                'action_state_dict': {},  # self.action.state_dict(),
-                'train_state_dict': self.train.state_dict()
-                }
+        return {
+            'net_state_dict': self.net_.state_dict(),
+            'prior_state_dict': {},  # self.prior.state_dict(),
+            'action_state_dict': {},  # self.action.state_dict(),
+            'train_state_dict': self.trainer.state_dict()
+        }
 
     def save_checkpoint(self, path):
+        """Saves the state of the model in the given path (file)."""
         torch.save(self.state_dict(), path)
 
     def load_checkpoint(
-            self,
-            path: str,
-            parameters_only: bool = True,
-            map_location = torch.device('cpu')
-        ):
+        self,
+        path: str,
+        parameters_only: bool = True,
+        map_location=torch.device('cpu')
+    ):
         """
         Load a model checkpoint into the current instance.
 
@@ -155,10 +158,10 @@ class Model:
 
         self.net_.load_state_dict(state['net_state_dict'])
 
-        if parameters_only == False:
+        if not parameters_only:
             self.prior.load_state_dict(state['prior_state_dict'])
             self.action.load_state_dict(state['action_state_dict'])
-            self.train.load_state_dict(state['train_state_dict'])
+            self.trainer.load_state_dict(state['train_state_dict'])
 
 
 # =============================================================================
@@ -286,35 +289,39 @@ class Trainer:
 
     path_gradient_autodiff = True
 
+    optimizer_class = torch.optim.AdamW
+    optimizer = None
+    scheduler = None
+    alpha_scheduler = None
+
     def __init__(self, model: Model):
 
         self._model = model
 
         # Initialize training history tracking
-        self.train_history = dict(
-                epoch=0, loss=[None], ess=[None], logp=[None], logqp=[None]
-                )
+        self.train_history = \
+            {'epoch': 0, 'loss': [], 'ess': [], 'logp': [], 'logqp': []}
 
         # Default hyperparameters
-        self.hyperparam = dict(lr=0.001, weight_decay=0.01)
+        self.hyperparam = {'lr': 0.001, 'weight_decay': 0.01}
 
         # Checkpoint configuration
-        self.checkpoint_dict = dict(print_stride=10, print_batch_size=None)
+        self.checkpoint_dict = {'print_every': None, 'print_bsize': None}
 
         # Default loss function
         self.loss_fn = Trainer.calc_kl_mean
 
-    def __call__(self,
-            n_epochs=1000,
-            batch_size=64,
-            optimizer_class=torch.optim.AdamW,
-            scheduler=None,
-            loss_fn=None,
-            alpha_tmax=None,
-            hyperparam={},
-            checkpoint_dict={}
-            ):
-
+    def __call__(
+        self,
+        n_epochs: int = 1000,
+        batch_size: int = 64,
+        optimizer_class=None,
+        scheduler=None,
+        loss_fn=None,
+        alpha_tmax=None,
+        hyperparam=None,
+        checkpoint_dict=None
+    ):
         """Fit the model; i.e. train the model.
 
         Parameters
@@ -346,15 +353,18 @@ class Trainer:
         checkpoint_dict : dict, optional
             Can be set to control printing the status of the training.
         """
-        # Update hyperparameters and checkpoint settings if provided
-        self.hyperparam.update(hyperparam)
-        self.checkpoint_dict.update(checkpoint_dict)
-        if self.checkpoint_dict['print_batch_size'] is None:
-            self.checkpoint_dict['print_batch_size'] = batch_size
+        # Update the attributes of the instance
+        if hyperparam is not None:
+            self.hyperparam.update(hyperparam)
 
-        # Loss function setup
+        if checkpoint_dict is not None:
+            self.checkpoint_dict.update(checkpoint_dict)
+
         if loss_fn is not None:
             self.loss_fn = loss_fn
+
+        if optimizer_class is not None:
+            self.optimizer_class = optimizer_class
 
         # Optimizer and scheduler setup
         net_ = self._model.net_
@@ -362,14 +372,14 @@ class Trainer:
             parameters = net_.grouped_parameters()
         else:
             parameters = net_.parameters()
-        self.optimizer = optimizer_class(parameters, **self.hyperparam)
 
-        if scheduler is None:
-            self.scheduler = None
-        else:
+        self.optimizer = self.optimizer_class(parameters, **self.hyperparam)
+
+        if scheduler is not None:
             self.scheduler = scheduler(self.optimizer)
 
-        self.alpha_scheduler = AlphaScheduler(alpha_tmax)
+        if alpha_tmax is not None:
+            self.alpha_scheduler = AlphaScheduler(alpha_tmax)
 
         # Execut training if n_epochs > 0
         if n_epochs > 0:
@@ -396,7 +406,7 @@ class Trainer:
         logging.info("Process group initialized & model wrapped with DDP.")
 
         # Execute training
-        self.__call__(**train_kwargs)
+        self(**train_kwargs)  # see self.__call__
 
         # Synchronize processes after training
         torch.distributed.barrier()
@@ -417,12 +427,6 @@ class Trainer:
             Size of samples used at each epoch
         """
 
-        last_epoch = self.train_history['epoch']
-        if last_epoch == 0:
-            if self._model.device_handler.rank == 0:
-                print(f">>> Checking the current status of the model <<<")
-            self._checkpoint(last_epoch, None, None)
-
         self.train_history['ess'].extend([None] * n_epochs)
         self.train_history['loss'].extend([None] * n_epochs)
         self.train_history['logp'].extend([None] * n_epochs)
@@ -430,19 +434,31 @@ class Trainer:
 
         rank = self._model.device_handler.rank
 
-        if rank == 0:
+        last_epoch = self.train_history['epoch']
+        report_progress = self.checkpoint_dict['print_every'] is not None
+
+        if last_epoch == 0:
+            self._checkpoint(last_epoch, None, None)
+
+        if rank == 0 and report_progress:
             print(f">>> Training started for {n_epochs} epochs <<<")
 
         t_1 = time.time()
+
         for epoch in range(last_epoch + 1, last_epoch + 1 + n_epochs):
+
             loss, logq, logp = self.step(batch_size)
             self._checkpoint(epoch, logq, logp)
+
             if self.scheduler is not None:
                 self.scheduler.step()
-            self.alpha_scheduler.step()
+
+            if self.alpha_scheduler is not None:
+                self.alpha_scheduler.step()
+
         t_2 = time.time()
 
-        if rank == 0:
+        if rank == 0 and report_progress:
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
@@ -463,7 +479,6 @@ class Trainer:
         """
         model = self._model
         prior = model.prior
-        alpha = self.alpha_scheduler.alpha
 
         # Sample inputs from the prior
         x, logr = prior.sample_(batch_size)
@@ -471,12 +486,16 @@ class Trainer:
         # Forward pass through the neural network
         if self.path_gradient_autodiff:
             y, logj, logr = \
-                    model.net_.forward_with_path_gradient_ad(x, prior.log_prob)
+                model.net_.forward_with_path_gradient_ad(x, prior.log_prob)
         else:
             y, logj = model.net_.forward(x)
 
         # Compute log-probabilities
-        logp = - alpha * model.action(y) + (1 - alpha) * prior.log_prob(y)
+        if self.alpha_scheduler is None:
+            logp = - model.action(y)
+        else:
+            alpha = self.alpha_scheduler.alpha
+            logp = - alpha * model.action(y) + (1 - alpha) * prior.log_prob(y)
         logq = logr - logj
 
         # Compute Loss
@@ -489,13 +508,12 @@ class Trainer:
 
         if debug:
             param = list(model.net_.parameters())[-1]
-            print(
-                (f"rank = {self._model.device_handler.rank} | "
-                 f"loss = {loss.item():.4f} | "
-                 f"param = {param.ravel()[0].item():.14e} | "
-                 f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
-                )
-            )
+            print((
+                f"rank = {self._model.device_handler.rank} | "
+                f"loss = {loss.item():.4f} | "
+                f"param = {param.ravel()[0].item():.14e} | "
+                f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
+            ))
 
         return loss, logq, logp
 
@@ -503,7 +521,7 @@ class Trainer:
     def _checkpoint(self, epoch, logq, logp):
         """
         Computes training metrics and updates the training history during model
-        training. This method logs metrics every `print_stride` epochs. Only
+        training. This method logs metrics every `print_every` epochs. Only
         the process with rank 0 logs and stores the metrics.
 
         Parameters:
@@ -518,34 +536,40 @@ class Trainer:
             Log-probabilities under the target distribution.
         """
 
-        if epoch % self.checkpoint_dict['print_stride'] == 0:
+        every = self.checkpoint_dict['print_every']
+        bsize = self.checkpoint_dict['print_bsize']
+
+        if every is not None and epoch % every == 0:
             # Compute metrics and log at the specified print stride
             out = self.compute_metrics(
-                    logq=logq,
-                    logp=logp,
-                    epoch=epoch,
-                    batch_size=self.checkpoint_dict['print_batch_size']
-                    )
+                logq=logq,
+                logp=logp,
+                epoch=epoch,  # the metrics will be printed for integer epoch
+                batch_size=bsize  # generates new samples if bsize is not None
+            )
         else:
-            # Only compute metrics
+            # Otherwise, only compute metrics
             out = self.compute_metrics(logq=logq, logp=logp)
+
+        if epoch == 0:
+            return
 
         # Update the training history if on rank 0
         if self._model.device_handler.rank == 0:
             loss, ess, logqp, logp = out
             self.train_history['epoch'] = epoch
-            self.train_history['ess'][epoch] = ess
-            self.train_history['loss'][epoch] = loss
-            self.train_history['logp'][epoch] = logp
-            self.train_history['logqp'][epoch] = logqp
+            self.train_history['ess'][epoch - 1] = ess
+            self.train_history['loss'][epoch - 1] = loss
+            self.train_history['logp'][epoch - 1] = logp
+            self.train_history['logqp'][epoch - 1] = logqp
         else:
             # out is None for non-zero ranks, and we do not update history.
             pass
 
     @torch.no_grad()
     def compute_metrics(
-            self, batch_size=None, logq=None, logp=None, epoch=None
-        ):
+        self, batch_size=None, logq=None, logp=None, epoch=None
+    ):
         """
         Computes training metrics such as loss, effective sample size (ESS),
         and log-probabilities. Optionally logs the metrics if `epoch` is
@@ -585,11 +609,12 @@ class Trainer:
             - logqp (tuple): Mean and standard deviation of log(q/p).
             - logp (tuple): Mean and standard deviation of log(p).
         """
-        # Sample logq and logp if batch_size is provided
+        # Sample logq and logp if `batch_size` is provided
         if batch_size is not None:
             _, logq, logp = self._model.posterior.sample__(batch_size)
-        else:
-            pass  # it is assumed that logq and logp are provided
+
+        elif (logq is None or logp is None):
+            return None
 
         # Gather logq and logp across devices for distributed setups
         logq = self._model.device_handler.all_gather_into_tensor(logq)
@@ -597,7 +622,7 @@ class Trainer:
 
         # Terminate if not on zero rank
         if self._model.device_handler.rank > 0:
-            return
+            return None
 
         # Compute metrics
         loss = self.loss_fn(logq, logp).item()  # Compute loss
@@ -626,14 +651,17 @@ class Trainer:
 
     @staticmethod
     def calc_kl_var(logq, logp):
+        """Return the variance of logq and logp difference."""
         return (logq - logp).var()
 
     @staticmethod
     def calc_corrcoef(logq, logp):
+        """Return coreelation between logq and logp."""
         return torch.corrcoef(torch.stack([logq, logp]))[0, 1]
 
     @staticmethod
     def calc_direct_kl_mean(logq, logp):
+        """Return direct KL divergence estimated from logq and logp."""
         logpq = logp - logq
         logz = torch.logsumexp(logpq, dim=0) - np.log(logp.shape[0])
         logpq = logpq - logz  # p is now normalized
@@ -642,6 +670,7 @@ class Trainer:
 
     @staticmethod
     def calc_minus_logz(logq, logp):
+        """Return minus log of :math:`Z` estimated from logq and logp."""
         logz = torch.logsumexp(logp - logq, dim=0) - np.log(logp.shape[0])
         return -logz
 
@@ -650,7 +679,7 @@ class Trainer:
         """Rerturn effective sample size (ESS)."""
         logqp = logq - logp
         log_ess = 2*torch.logsumexp(-logqp, dim=0) \
-                - torch.logsumexp(-2*logqp, dim=0)
+            - torch.logsumexp(-2*logqp, dim=0)
         ess = torch.exp(log_ess) / len(logqp)  # normalized
         return ess
 
@@ -659,24 +688,31 @@ class Trainer:
         """Return logarith of inverse of effective sample size."""
         logqp = logq - logp
         log_ess = 2*torch.logsumexp(-logqp, dim=0) \
-                - torch.logsumexp(-2*logqp, dim=0)
+            - torch.logsumexp(-2*logqp, dim=0)
         return - log_ess + np.log(len(logqp))  # normalized
 
-    def state_dict(self):
-
+    def state_dict(self) -> dict:
+        """
+        Returns a dictionary containing the state of the training process.
+        """
         checkpoint = {
-                # 'optimizer_state_dict': self.optimizer.state_dict(),
-                # 'scheduler_state_dict': self.scheduler.state_dict(),
-                # 'alpha_state_dict': self.alpha_scheduler.state_dict(),
-                'epoch': self.train_history['epoch'],
-                'loss': self.train_history['loss'],
-                'ess': self.train_history['ess'],
-                'logp': self.train_history['logp']
-                }
+            # 'optimizer_state_dict': self.optimizer.state_dict(),
+            # 'scheduler_state_dict': self.scheduler.state_dict(),
+            # 'alpha_state_dict': self.alpha_scheduler.state_dict(),
+            'epoch': self.train_history['epoch'],
+            'loss': self.train_history['loss'],
+            'ess': self.train_history['ess'],
+            'logp': self.train_history['logp']
+        }
 
         return checkpoint
 
-    def load_state_dict(self, checkpoint):
+    def load_state_dict(self, checkpoint: dict):
+        """Loads the training state from a checkpoint dictionary.
+
+        AssertionError:
+            Always raised, as the method is not yet implemented.
+        """
 
         # model should be loaded to cpu and then moved to GPUs if needed
 
@@ -693,16 +729,27 @@ class Trainer:
 
 # =============================================================================
 class AlphaScheduler:
-    """Introduces a parameter and a scheduler to change it."""
+    """
+    A class that introduces a parameter `alpha` and a scheduler to increment
+    its value over time. The value of `alpha` starts at 0 and increases
+    gradually towards 1 based on a given maximum number of steps (`t_max`).
+    The value of `alpha` is updated in each step, and it never exceeds 1.
+    """
 
-    def __init__(self, t_max=None):
-
-        self.alpha = 1 if t_max is None else 0
+    def __init__(self, t_max: int):
+        """
+        Initializes the AlphaScheduler with a maximum number of steps (`t_max`)
+        over which `alpha` increases from 0 to 1.
+        """
+        self.alpha = 0
         self.t_max = t_max
 
     def step(self):
-        if not (self.t_max is None):
-            self.alpha = min(1, self.alpha + 1 / self.t_max)
+        """
+        Increments the value of `alpha` by `1 / t_max`. The value of `alpha` is
+        clamped to a maximum of 1.
+        """
+        self.alpha = min(1, self.alpha + 1 / self.t_max)
 
 
 # =============================================================================
@@ -717,7 +764,8 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
     y, logj = net_(x)
     x_hat, minus_logj = net_.reverse(y)
 
-    mean = lambda z: z.abs().mean().item()
+    def mean(z):
+        return z.abs().mean().item()
 
     print("reverse mode is OK if following values vanish (up to round off):")
     print(f"{mean(x - x_hat):g} & {mean(torch.exp(logj + minus_logj) - 1):g}")
