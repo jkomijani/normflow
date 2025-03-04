@@ -303,7 +303,7 @@ class Trainer:
             {'epoch': 0, 'loss': [], 'ess': [], 'logp': [], 'logqp': []}
 
         # Default hyperparameters
-        self.hyperparam = {'lr': 0.001, 'weight_decay': 0.01}
+        self.hyperparam = {'fused': False}
 
         # Checkpoint configuration
         self.checkpoint_dict = {'print_every': None, 'print_bsize': None}
@@ -313,7 +313,7 @@ class Trainer:
 
     def __call__(
         self,
-        n_epochs: int = 1000,
+        n_epochs: int = 100,
         batch_size: int = 64,
         optimizer_class=None,
         scheduler=None,
@@ -484,19 +484,20 @@ class Trainer:
         x, logr = prior.sample_(batch_size)
 
         # Forward pass through the neural network
-        if self.path_gradient_autodiff:
-            y, logj, logr = \
-                model.net_.forward_with_path_gradient_ad(x, prior.log_prob)
-        else:
-            y, logj = model.net_.forward(x)
+        y, logj = model.net_.forward(x)
 
-        # Compute log-probabilities
+        # Compute the log-probability of the transformed data `y`
+        logq = logr - logj
+
+        if self.path_gradient_autodiff:
+            logq += adjustment_for_path_gradient_autodiff(y, model.net_, prior)
+
+        # Compute target log-probability
         if self.alpha_scheduler is None:
             logp = - model.action(y)
         else:
             alpha = self.alpha_scheduler.alpha
             logp = - alpha * model.action(y) + (1 - alpha) * prior.log_prob(y)
-        logq = logr - logj
 
         # Compute Loss
         loss = self.loss_fn(logq, logp)
@@ -725,6 +726,49 @@ class Trainer:
         self.train_history['loss'] = checkpoint['loss']
         self.train_history['ess'] = checkpoint['ess']
         self.train_history['logp'] = checkpoint['logp']
+
+
+# =============================================================================
+def adjustment_for_path_gradient_autodiff(y, net_, prior):
+    """
+    Compute the path gradient adjustment for statistical stability.
+
+    In KL divergence minimization, the total derivative of the loss decomposes
+    into a partial derivative with respect to parameters and the transformed
+    variable `y`. The partial derivative contribution statistically vanishes,
+    making it preferable to remove these terms using a reverse flow correction.
+    The technique follows Vaitl et al., "Gradients should stay on Path: Better
+    Estimators of the Reverse- and Forward KL Divergence for Normalizing Flows"
+    [arXiv:2207.08219].
+
+    Args:
+        y (Tensor): Transformed variable obtained from the normalizing flow.
+        net_ (Module): For applying the reverse flow on `y` to obtain `x`.
+        prior: For computing the log probability of the `x`.
+
+    Returns:
+        Tensor: Adjustment to `logq` of `y`.
+    """
+    # Note that `y` is obtained through the forward transformation:
+    # `y, logj = net_.forward(x)`
+
+    # Compute the reverse transformation on detached `y` to calculate
+    # the partial gradient w.r.t. only the parameters of the reverse path
+    x, minus_logj = net_.reverse(y.detach())
+    # Note that, basically, `minus_logj = -logj`
+
+    # Adjust the log-Jacobian for statistical stability by removing the
+    # parameter-related contributions to the gradient log-Jacobian
+    d_logj = (minus_logj - minus_logj.detach())
+    # Note that, d_logj is zero, but its gradeint is the partial derivative of
+    # logj w.r.t. the parameters
+
+    # Compute the log-probability of `x` with adjustment for stability
+    d_logr = - (prior.log_prob(x) - prior.log_prob(x).detach())
+
+    d_logq = d_logr - d_logj
+
+    return d_logq
 
 
 # =============================================================================
