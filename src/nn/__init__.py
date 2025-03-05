@@ -3,7 +3,7 @@ from ._core import Module_, ModuleList_
 from ._core import MultiChannelModule_, MultiOutChannelModule_
 from ._core import InvisibilityMaskWrapperModule_
 
-from .scalar.modules import ConvAct, LinearAct
+from .scalar.modules import ConvBlock
 from .scalar.modules import Affine
 from .scalar.modules import Pade32
 

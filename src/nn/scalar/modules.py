@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """
 This module includes several basic subclasses of `torch.nn.Module` that are
@@ -11,7 +11,7 @@ particularly in probabilistic modeling and generative tasks.
 import torch
 import copy
 import numpy as np
-from typing import Union
+from typing import Union, Tuple
 
 from ...lib.spline import RQSpline
 from ...lib.linalg import neighbor_mean
@@ -71,111 +71,95 @@ class PlusBias(torch.nn.Module):
         return x + self.bias
 
 
-class ConvAct(torch.nn.Sequential):
-    """
-    As an extension to torch.nn.Conv2d, this network is a sequence of
-    convolutional layers with possible hidden layers and activations and other
-    dimensions.
+class ConvBlock(torch.nn.Sequential):
+    r"""
+    A flexible convolutional module extending PyTorch's convolutional layers.
 
-    Instantiating this class with the default optional variables is equivalent
-    to instantiating torch.nn.Conv2d with following optional varaibles:
-    padding = 'same' and padding_mode = 'circular'.
+    This module supports up to 4D convolutions with optional hidden layers,
+    normalizations, activations, and dropout modules for each layer.
 
-    As an option, one can provide a list/tuple for `hidden_sizes`. Then, one
-    must also provide another list/tuple for activations using the option
-    `acts`; the lenght of `acts` must be equal to the lenght of `hidden_sizes`
-    plus 1 (for the output layer).
-    There is also another option for pre-activation of the input: `pre_act`.
+    Instantiating with default options is equivalent to `torch.nn.Conv2d`
+    with `padding='same'` and `padding_mode='circular'`.
 
-    The axes of the input and output tensors are treated as
-    :math:`tensor(:, ch, ...)`, where `:` stands for the batch axis,
-    `ch` for the channels axis, and `...` for the features axes.
+    The input and output are tensors of 3+ dimensions with the signature:
+    `tensor(:, ch, ...)`, where `:` represents the batch, `ch` the channels,
+    and `...` the feature axes.
 
     .. math::
-
         out(:, ch_o, ...) = bias(ch_o) +
                         \sum_{ch_i} weight(ch_o, ...) \star input(:, ch_i, ...)
 
-    where :math:`\star` is n-dimensional cross-correlation operator acting on
-    the features axes. The supported features dinensions are 1, 2, 3, and 4.
-    Note that is is possible to change the channels axis from 1 to any other
-    axis.
+    where :math:`\star` is the n-dimensional cross-correlation operator.
+    Supported feature dimensions: 1, 2, 3, and 4. The channels axis can be
+    customized.
 
-    Parameters
-    ----------
-    in_channels (int):
-        Number of channels in the input data
-    out_channels (int):
-        Number of channels produced by the convolution
-    kernel_size (int or tuple):
-        Size of the convolving kernel
-    conv_dim (int, optional):
-        Dimension of the convolving kernel (default is 2)
-    hidden_sizes (list/tuple of int, optional):
-        Sizes of hidden layers (default is [])
-    acts (list/tuple of str or None, optional):
-        Activations after each layer (default is None)
-    pre_act (str or None, optional):
-        A possible activation layer before the rest (default is None)
-    channels_axis (int, optional):
-        Specifies the channels axis (default is 1)
+    The optional `hidden_sizes` can be a sequence specifying hidden layer
+    sizes. Similarly, `norms`, `acts`, and `dropouts` must match `hidden_sizes`
+    plus 1 in length if provided, containing appropriate modules or None.
+    Finally, use `pre_act` for pre-activations.
+
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        kernel_size (int or tuple): Size of the convolutional kernel.
+        conv_ndim (int, optional): Convolution dimension (default: 2).
+        hidden_sizes (Sequence, optional): Sizes of hidden layers
+           (default: None).
+        norms (Sequence, optional): Normalization layers (default: None).
+        acts (Sequence, optional): Activation functions (default: None).
+        dropouts (Sequence, optional): Dropout layers (default: None).
+        pre_act (optional): Pre-activation layer (default: None).
+        channels_axis (int, optional): Axis for channel dimension (default: 1).
     """
 
-    Conv = {1: torch.nn.Conv1d,
-            2: torch.nn.Conv2d,
-            3: torch.nn.Conv3d,
-            4: Conv4d
-            }
+    _conv = {
+        1: torch.nn.Conv1d,
+        2: torch.nn.Conv2d,
+        3: torch.nn.Conv3d,
+        4: Conv4d
+    }
 
-    def __init__(self,
-            in_channels: int,
-            out_channels: int,
-            kernel_size: int,
-            conv_dim: int = 2,
-            hidden_sizes = [],
-            acts = [None],
-            pre_act = None,
-            channels_axis: int = 1,
-            **extra_kwargs  # all other kwargs to pass to torch.nn.Conv?d
-            ):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        conv_ndim: int = 2,
+        channels_axis: int = 1,
+        hidden_sizes: Tuple[int] = None,
+        norms=None,
+        acts=None,
+        dropouts=None,
+        pre_act=None,
+        **extra_kwargs  # all other kwargs to pass to torch.nn.Conv?d
+    ):
 
-        Conv = self.Conv[conv_dim]
-        sizes = [in_channels, *hidden_sizes, out_channels]
-        assert len(acts) == len(hidden_sizes) + 1
+        if hidden_sizes is None:
+            sizes = (in_channels, out_channels)
+        else:
+            sizes = (in_channels, *hidden_sizes, out_channels)
+
+        n_layers = len(sizes) - 1
+
+        norms, acts, dropouts = \
+            self._check_accessories(norms, acts, dropouts, n_layers)
 
         conv_kwargs = dict(padding='same', padding_mode='circular')
         conv_kwargs.update(extra_kwargs)
 
-        nets = [] if pre_act is None else [get_activation(pre_act)]
+        nets = [] if pre_act is None else [pre_act]
 
-        for i, act in enumerate(acts):
-            nets.append(Conv(sizes[i], sizes[i+1], kernel_size, **conv_kwargs))
-            if act is not None:
-                nets.append(get_activation(act))
+        conv = self._conv[conv_ndim]
+
+        for i in range(n_layers):
+            nets.append(conv(sizes[i], sizes[i+1], kernel_size, **conv_kwargs))
+            for subnet in [norms[i], acts[i], dropouts[i]]:
+                if subnet is not None:
+                    nets.append(subnet)
 
         super().__init__(*nets)
 
-        # save all inputs so that the can be used later for transfer learning
-        conv_kwargs.update(
-                dict(in_channels=in_channels, out_channels=out_channels,
-                     kernel_size=kernel_size, conv_dim=conv_dim,
-                     hidden_sizes=hidden_sizes, acts=acts, pre_act=pre_act,
-                     channels_axis=channels_axis
-                     )
-                )
-        self.conv_kwargs = conv_kwargs
-
-    def forward(self, x):
-        channels_axis = self.conv_kwargs['channels_axis']
-        if channels_axis == 1:
-            return super().forward(x)
-        else:
-            x = torch.movedim(x, channels_axis, 1)
-            x = super().forward(x)
-            return torch.movedim(x, 1, channels_axis)
-
     def set_param2zero(self):
-        # Do NOT use this unless for test, otherwise, the params do not change
         for net in self:
             for param in net.parameters():
                 torch.nn.init.zeros_(param)
@@ -185,125 +169,25 @@ class ConvAct(torch.nn.Sequential):
             for param in net.parameters():
                 torch.nn.init.normal_(param, mean=mean, std=std)
 
-    def _outdated_transfer(self, scale_factor=1, **extra):
-        # Outdated: must be updated and ...
-        """
-        Returns a copy of the current module if scale_factor is 1.
-        Otherwise, uses the input scale_factor to resize the kernel size.
-        """
-        if scale_factor == 1:
-            return copy.deepcopy(self)
+    @staticmethod
+    def _check_accessories(norms, acts, dropouts, n_layers):
+
+        if norms is None:
+            norms = [None] * n_layers
         else:
-            pass  # change the kernel size as below
+            assert len(norms) == n_layers
 
-        ksize = self.conv_kwargs['kernel_size']  # original kernel size
-        ksize = 1 + 2 * round((ksize - 1) * scale_factor/2)  # new kernel size
-
-        conv_kwargs = dict(**self.conv_kwargs)
-        conv_kwargs['kernel_size'] = ksize
-
-        new_size = [ksize] * conv_kwargs['conv_dim']
-        resize = lambda p: torch.nn.functional.interpolate(p, size=new_size)
-
-        state_dict_conv = {key: resize(value)
-                for key, value in self.net[::2].state_dict().items()
-                }
-
-        state_dict_acts = {key: value
-                for key, value in self.net[1::2].state_dict().items()
-                }
-
-        state_dict = dict(**state_dict_conv, **state_dict_acts)
-
-        new_net = self.__class__(**conv_kwargs)
-        new_net.net.load_state_dict(state_dict)
-
-        return new_net
-
-
-class LinearAct(torch.nn.Sequential):
-    """
-    As an extension to torch.nn.Linear, this network is a sequence of linear
-    layers with possible hidden layers and activations.
-
-    As an option, one can provide a list/tuple for `hidden_sizes`. Then, one
-    must also provide another list/tuple for activations using the option
-    `acts`; the lenght of `acts` must be equal to the lenght of `hidden_sizes`
-    plus 1 (for the output layer).
-    There is also another option for pre-activation of the input: `pre_act`.
-
-    The axes of the input and output tensors are treated as
-    :math:`tensor(..., f)`, where `...` stands for any number of dimensions
-    and `f` for the features axis.
-
-    Parameters
-    ----------
-    in_features (int):
-        Number of features in the input data
-    out_features (int):
-        Number of features in the output data
-    hidden_sizes (list/tuple of int, optional):
-        Sizes of hidden layers (default is [])
-    acts (list/tuple of str or None, optional):
-        Activations after each layer (default is None)
-    pre_act (str or None, optional):
-        A possible activation layer before the rest (default is None)
-    """
-    def __init__(self,
-            in_features: int,
-            out_features: int,
-            hidden_sizes = [],
-            acts = [None],
-            pre_act = None,
-            final_bias = False,  # e.g., can be used with 'abs' activation
-            features_axis = -1,
-            **linear_kwargs  # all other kwargs to pass to torch.nn.Linear
-            ):
-
-        Linear = torch.nn.Linear
-        sizes = [in_features, *hidden_sizes, out_features]
-        assert len(acts) == len(hidden_sizes) + 1
-
-        nets = [] if pre_act is None else [get_activation(pre_act)]
-
-        for i, act in enumerate(acts):
-            nets.append(Linear(sizes[i], sizes[i+1], **linear_kwargs))
-            if act is not None:
-                nets.append(get_activation(act))
-
-        if final_bias:
-            nets.append(PlusBias(out_features))
-
-        super().__init__(*nets)
-
-        # save all inputs so that the can be used later for transfer learning
-        linear_kwargs.update(
-                dict(in_features=in_features, out_features=out_features,
-                     hidden_sizes=hidden_sizes, acts=acts, pre_act=pre_act,
-                     final_bias=final_bias, features_axis=features_axis
-                     )
-                )
-        self.linear_kwargs = linear_kwargs
-
-    def forward(self, x):
-        features_axis = self.linear_kwargs['features_axis']
-        if features_axis == -1:
-            return super().forward(x)
+        if acts is None:
+            acts = [None] * n_layers
         else:
-            x = torch.movedim(x, features_axis, -1)
-            x = super().forward(x)
-            return torch.movedim(x, -1, features_axis)
+            assert len(acts) == n_layers
 
-    def set_param2zero(self):
-        # Do NOT use this unless for test, otherwise, the params do not change
-        for net in self:
-            for param in net.parameters():
-                torch.nn.init.zeros_(param)
+        if dropouts is None:
+            dropouts = [None] * n_layers
+        else:
+            assert len(dropouts) == n_layers
 
-    def set_param2normal(self, mean=0.0, std=1.0):
-        for net in self:
-            for param in net.parameters():
-                torch.nn.init.normal_(param, mean=mean, std=std)
+        return norms, acts, dropouts
 
 
 class Affine(torch.nn.Module):
@@ -427,11 +311,12 @@ class Pade32(torch.nn.Module):
         parameter. If provided, :math:`a` is set to `3 expit(w_a - log(2))`.
     """
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 w_a: Union[Tensor, Number, None] = None
-                ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        w_a: Union[Tensor, Number, None] = None
+    ):
 
         super().__init__()
 
@@ -529,13 +414,16 @@ class SplineNet(torch.nn.Module):
         relevant only if spline_shape is not empty list (default value is -1).
     """
 
-    def __init__(self, knots_len, xlim=(0, 1), ylim=(0, 1),
-            knots_x=None, knots_y=None, knots_d=None,
-            weights_x=None, weights_y=None, weights_d=None,
-            spline_shape=[], knots_axis=-1,
-            smooth=False, Spline=RQSpline, set_param2zero=True,
-            **spline_kwargs
-            ):
+    def __init__(
+        self,
+        knots_len,
+        xlim=(0, 1), ylim=(0, 1),
+        knots_x=None, knots_y=None, knots_d=None,
+        weights_x=None, weights_y=None, weights_d=None,
+        spline_shape=[], knots_axis=-1, smooth=False, Spline=RQSpline,
+        set_param2zero=True,
+        **spline_kwargs
+    ):
         super().__init__()
 
         # knots_len and spline_shape are relevant only if flag is True
