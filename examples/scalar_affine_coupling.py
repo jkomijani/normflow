@@ -169,10 +169,9 @@ def _unittest(rel_tol=1e-1):
     # results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=5, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    print(loss)
     passed = math.isclose(loss, -41.57448791055, rel_tol=rel_tol)
     if not passed:
-        print(f"Unittest Failed in scalar_1dof: {loss} != -41.57448791055")
+        print(f"Unittest Failed: {loss} != -41.57448791055")
     return passed
 
 
