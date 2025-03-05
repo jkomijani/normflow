@@ -1,9 +1,8 @@
 # Javad Komijani, 2021-2025
 
 """
-This file implements inverse transform sampling using Rational Quadratic
-Splines (RQS) for a quatic action The RQS parameters are trained within the
-framework of normalizing flows.
+This file implements a model similar to the one defined in [arXiv:2301.01504]
+with PSD flow and coupling layers.
 
 To run the main function with default options, use:
 
@@ -42,6 +41,7 @@ def main(
     lat_shape: tuple = (8, 8),
     n_epochs: int = 1000,
     batch_size: int = 128,
+    l_r: float = 0.01,
     load_fname: str = None,
     save_fname: str = None,
     world_size: int = 1,
@@ -49,7 +49,7 @@ def main(
     debug: bool = False,
     **net_kwargs
 ):
-    """The main file for building and training a model with coupling layers."""
+    """The main file for building and training the model."""
 
     if debug:
         torch.manual_seed(213)
@@ -81,7 +81,7 @@ def main(
         'n_epochs': n_epochs,
         'batch_size': batch_size // world_size,
         'scheduler': scheduler,
-        'hyperparam': {'lr': 0.001},
+        'hyperparam': {'lr': l_r},
         'checkpoint_dict': {'print_every': print_every}
     }
 
@@ -169,9 +169,9 @@ def _unittest(rel_tol=1e-1):
     # results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=5, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    passed = math.isclose(loss, -41.57448791055, rel_tol=rel_tol)
+    passed = math.isclose(loss, -52.72515650, rel_tol=rel_tol)
     if not passed:
-        print(f"Unittest Failed: {loss} != -41.57448791055")
+        print(f"Unittest Failed: {loss} != -52.72515650")
     return passed
 
 
@@ -185,6 +185,7 @@ if __name__ == '__main__':
     add("--m_sq", dest="m_sq", type=float)
     add("--lambd", dest="lambd", type=float)
     add("--kappa", dest="kappa", type=float)
+    add("--l_r", dest="l_r", type=float)
     add("--knots0_len", dest="knots0_len", type=int)
     add("--knots1_len", dest="knots1_len", type=int)
     add("--knots2_len", dest="knots2_len", type=int)
