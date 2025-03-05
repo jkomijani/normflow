@@ -78,7 +78,7 @@ def main(
 
 
 def _unittest(rel_tol=1e-1):
-    # results vary between CPU and GPU
+    # results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=50, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
     passed = math.isclose(loss, -2.291045818475, rel_tol=rel_tol)
@@ -96,7 +96,6 @@ if __name__ == '__main__':
     add("--lat_shape", dest="lat_shape", type=int, nargs='+')
     add("--m_sq", dest="m_sq", type=float)
     add("--lambd", dest="lambd", type=float)
-    add("--kappa", dest="kappa", type=float)
     add("--knots_len", dest="knots_len", type=int)
     add("--batch_size", dest="batch_size", type=int)
     add("--n_epochs", dest="n_epochs", type=int)
