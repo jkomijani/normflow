@@ -53,9 +53,7 @@ In KL divergence minimization, the total derivative of the loss decomposes into
 a partial derivative with respect to the parameters and the transformed
 variable. The contribution from the partial derivative statistically vanishes,
 making it preferable to remove these terms using a reverse flow correction.
-The technique follows Vaitl, L. et al., "Gradients should stay on Path: Better
-Estimators of the Reverse- and Forward KL Divergence for Normalizing Flows"
-[arXiv:2207.08219].
+(The technique follows Vaitl, L. et al. [arXiv:2207.08219].)
 By default, this statistical stability adjustment is enabled in the package.
 However, it can be disabled, which speeds up training by roughly a factor of
 two or more per epoch, at the cost of reduced training effectiveness.
