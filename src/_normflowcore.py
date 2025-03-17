@@ -309,7 +309,7 @@ class Trainer:
         self.checkpoint_dict = {'print_every': None, 'print_bsize': None}
 
         # Default loss function
-        self.loss_fn = Trainer.calc_kl_mean
+        self.loss_func = self.calc_kl_mean
 
     def __call__(
         self,
@@ -317,7 +317,7 @@ class Trainer:
         batch_size: int = 64,
         optimizer_class=None,
         scheduler=None,
-        loss_fn=None,
+        loss_func=None,
         alpha_tmax=None,
         hyperparam=None,
         checkpoint_dict=None
@@ -338,7 +338,7 @@ class Trainer:
         scheduler : scheduler class, optional
             By default no scheduler is used.
 
-        loss_fn : None or function, optional
+        loss_func : None or function, optional
             The default value is None, which translates to using KL divergence.
 
         alpha_tmax : int or None, optional
@@ -360,8 +360,8 @@ class Trainer:
         if checkpoint_dict is not None:
             self.checkpoint_dict.update(checkpoint_dict)
 
-        if loss_fn is not None:
-            self.loss_fn = loss_fn
+        if loss_func is not None:
+            self.loss_func = loss_func
 
         if optimizer_class is not None:
             self.optimizer_class = optimizer_class
@@ -500,7 +500,7 @@ class Trainer:
             logp = - alpha * model.action(y) + (1 - alpha) * prior.log_prob(y)
 
         # Compute Loss
-        loss = self.loss_fn(logq, logp)
+        loss = self.loss_func(logq, logp)
 
         # Backpropagation and optimization
         self.optimizer.zero_grad()  # clears old gradients from last steps
@@ -626,7 +626,7 @@ class Trainer:
             return None
 
         # Compute metrics
-        loss = self.loss_fn(logq, logp).item()  # Compute loss
+        loss = self.loss_func(logq, logp).item()  # Compute loss
         ess = self.calc_ess(logq, logp).item()  # Compute effective sample size
 
         # Compute the mean & std of log(q/p), which is called logqp, and log(p)
