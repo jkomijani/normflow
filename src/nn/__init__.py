@@ -17,9 +17,6 @@ from .scalar.modules_ import Pade11_, Pade22_, Pade32_, Pade32a_
 # Coupling layers:
 from .scalar.couplings_ import ShiftCoupling_, AffineCoupling_
 from .scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_
-from .scalar.cntr_couplings_ import CntrShiftCoupling_, CntrAffineCoupling_
-from .scalar.cntr_couplings_ import CntrRQSplineCoupling_
-from .scalar.cntr_couplings_ import CntrMultiRQSplineCoupling_
 
 
 # Special transformations:
