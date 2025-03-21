@@ -14,61 +14,11 @@ import numpy as np
 from typing import Union, Sequence
 
 from ...lib.spline import RQSpline
-from ...lib.linalg import neighbor_mean
 from .convNd import Conv4d
 
 
 Number = Union[int, float, complex]
 Tensor = torch.Tensor
-
-
-class AvgNeighborPool(torch.nn.Module):
-    """Computes the mean of neighboring elements along non-batch dimensions."""
-
-    def forward(self, x):
-        return neighbor_mean(x, dim=range(1, x.ndim))
-
-
-class Abs(torch.nn.Module):
-    """Added for adding to the list of activations"""
-
-    def forward(self, x):
-        return torch.abs(x)
-
-
-activations_dict = {
-        'tanh': torch.nn.Tanh,
-        'relu': torch.nn.ReLU,
-        'silu': torch.nn.SiLU,
-        'leaky_relu': torch.nn.LeakyReLU,
-        'softplus': torch.nn.Softplus,
-        'avg_neighbor_pool': AvgNeighborPool,
-        'abs': Abs,
-        'none': torch.nn.Identity
-        }
-
-
-def get_activation(act):
-
-    if act is None:
-        return torch.nn.Identity()
-
-    elif isinstance(act, str):
-        return activations_dict[act]()
-
-    else:
-        return act
-
-
-class PlusBias(torch.nn.Module):
-
-    def __init__(self, out_features):
-        super().__init__()
-        self.out_features = out_features
-        self.bias = torch.nn.Parameter(torch.randn(out_features))
-
-    def forward(self, x):
-        return x + self.bias
 
 
 class ConvBlock(torch.nn.Sequential):
@@ -583,3 +533,69 @@ class SplineNet(torch.nn.Module):
     def set_param2normal(self, mean=0.0, std=1.0):
         for param in self.parameters():
             torch.nn.init.normal_(param, mean=mean, std=std)
+
+
+class AvgNeighborPool(torch.nn.Module):
+    """Computes the mean of neighboring elements along non-batch dimensions."""
+
+    def forward(self, x):
+        return neighbor_mean(x, dim=range(1, x.ndim))
+
+
+class Abs(torch.nn.Module):
+    """Introduced for adding to the list of activations"""
+
+    def forward(self, x):
+        return torch.abs(x)
+
+
+activations_dict = {
+    'tanh': torch.nn.Tanh,
+    'relu': torch.nn.ReLU,
+    'silu': torch.nn.SiLU,
+    'leaky_relu': torch.nn.LeakyReLU,
+    'softplus': torch.nn.Softplus,
+    'avg_neighbor_pool': AvgNeighborPool,
+    'abs': Abs,
+    'none': torch.nn.Identity
+}
+
+
+def get_activation(act):
+
+    if act is None:
+        return torch.nn.Identity()
+
+    elif isinstance(act, str):
+        return activations_dict[act]()
+
+    else:
+        return act
+
+
+def neighbor_mean(x: Tensor, dim: Sequence[int] = None) -> Tensor:
+    """
+    Computes the mean of neighboring elements along specified dimensions.
+
+    Args:
+        - x (Tensor): The input tensor.
+        - dim (Sequence[int], optional): The dimensions along which to compute
+          the mean. If `None`, all non-batch dimensions are used.
+
+    Returns:
+        Tensor: A tensor of the same shape as `x`, containing the mean of
+        neighboring elements. If all specified dimensions are singleton
+        (size 1), `x` is returned unchanged.
+    """
+
+    if dim is None:
+        dim = range(1, x.ndim)  # Exclude batch axis (dim 0)
+
+    y, ndim = torch.zeros_like(x), 0
+
+    for mu in dim:
+        if x.shape[mu] > 1:  # Only compute for non-singleton dimensions
+            y += torch.roll(x, 1, mu) + torch.roll(x, -1, mu)
+            ndim += 1
+
+    return x if ndim == 0 else y / (2 * ndim)
