@@ -11,7 +11,7 @@ particularly in probabilistic modeling and generative tasks.
 import torch
 import copy
 import numpy as np
-from typing import Union, Tuple
+from typing import Union, Sequence
 
 from ...lib.spline import RQSpline
 from ...lib.linalg import neighbor_mean
@@ -23,7 +23,7 @@ Tensor = torch.Tensor
 
 
 class AvgNeighborPool(torch.nn.Module):
-    """Return average of all neighbors"""
+    """Computes the mean of neighboring elements along non-batch dimensions."""
 
     def forward(self, x):
         return neighbor_mean(x, dim=range(1, x.ndim))
@@ -109,7 +109,6 @@ class ConvBlock(torch.nn.Sequential):
         acts (Sequence, optional): Activation functions (default: None).
         dropouts (Sequence, optional): Dropout layers (default: None).
         pre_act (optional): Pre-activation layer (default: None).
-        channels_axis (int, optional): Axis for channel dimension (default: 1).
     """
 
     _conv = {
@@ -125,8 +124,7 @@ class ConvBlock(torch.nn.Sequential):
         out_channels: int,
         kernel_size: int,
         conv_ndim: int = 2,
-        channels_axis: int = 1,
-        hidden_sizes: Tuple[int] = None,
+        hidden_sizes: Sequence[int] = None,
         norms=None,
         acts=None,
         dropouts=None,
@@ -188,6 +186,77 @@ class ConvBlock(torch.nn.Sequential):
             assert len(dropouts) == n_layers
 
         return norms, acts, dropouts
+
+
+class DenseBlock(torch.nn.Module):
+    """
+    A flexible extension to `torch.nn.Linear` with possible hidden layers and
+    activations.
+
+    The optional `hidden_sizes` can be a sequence specifying hidden layer
+    sizes. Similarly, `acts` must match `hidden_sizes` plus 1 in length if
+    provided, containing appropriate modules or None. Finally, use `pre_act`
+    for pre-activations.
+
+    The axes of the input and output tensors are treated by default as
+    `(..., f)`, where `...` stands for any number of dimensions and `f` for the
+    features axis. However, it is possible to change the features axis from
+    last to any other axis.
+
+    Args:
+        - in_features (int): Number of input features.
+        - out_features (int): Number of output features.
+        - hidden_sizes (Sequence, optional): Sizes of hidden layers
+          (default: None).
+        - acts (Sequence, optional): Activation functions (default: None).
+        - pre_act (optional): Pre-activation layer (default: None).
+        - features_axis (int, optional): Th features axis (default: -1).
+    """
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_sizes: Sequence[int] = None,
+        acts=None,
+        pre_act=None,
+        features_axis: int = -1,
+        **extra_kwargs  # all other kwargs to pass to torch.nn.Linear
+    ):
+
+        if hidden_sizes is None:
+            sizes = (in_features, out_features)
+        else:
+            sizes = (in_features, *hidden_sizes, out_features)
+
+        n_layers = len(sizes) - 1
+
+        if acts is None:
+            acts = [None] * n_layers
+        else:
+            assert len(acts) == n_layers
+
+        nets = [] if pre_act is None else [pre_act]
+
+        Linear = torch.nn.Linear
+
+        for i in range(n_layers):
+            nets.append(Linear(sizes[i], sizes[i+1], **extra_kwargs))
+            if acts[i] is not None:
+                nets.append(acts)
+
+        super().__init__()
+
+        self.net = torch.nn.Sequential(*nets)
+        self.features_axis = features_axis
+
+    def forward(self, x):
+        features_axis = self.features_axis
+        if features_axis == -1:
+            return self.net(x)
+        else:
+            x = torch.movedim(x, features_axis, -1)
+            x = self.net(x)
+            return torch.movedim(x, -1, features_axis)
 
 
 class Affine(torch.nn.Module):
