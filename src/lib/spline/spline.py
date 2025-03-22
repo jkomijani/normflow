@@ -1,11 +1,164 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """This module includes splines utilities."""
 
 
 import torch
 
+import torch
+import numpy as np
+from typing import Optional, Dict, Tuple
 
+
+__all__ = ["make_rq_spline_field", "RQSpline"]
+
+
+# =============================================================================
+def make_rq_spline_field(
+    feature_map: torch.Tensor,
+    xlim: Tuple[float, float] = (0, 1),
+    ylim: Tuple[float, float] = (0, 1),
+    knots_axis: int = -1,
+    knots_x: Optional[torch.Tensor] = None,
+    knots_y: Optional[torch.Tensor] = None,
+    extrap: Optional[Dict] = None,
+) -> "RQSpline":
+
+    """
+    Constructs a rational quadratic spline (RQSpline) transformation field
+    using the provided feature map.
+
+    The function determines the number of knots dynamically from the input
+    `feature_map` unless predefined knots are provided. The spline is
+    constrained such that the first knot is always at `(xlim[0], ylim[0])`
+    and the last knot is at `(xlim[1], ylim[1])`.
+
+    When `feature_map` has multiple axes, the `knots_axis` specifies which axis
+    corresponds to the knot positions and derivatives. This allows the function
+    to handle batches of inputs and other dimensional structures in the feature
+    map.
+
+    The number of channels in `feature_map` should be `3m - 2` unless `knots_x`
+    or `knots_y` is predefined. Here, `m` is the number of knots in the spline.
+    The input `feature_map` is split into three parts:
+
+    - `(m-1, m-1, m)`, corresponding to `knots_x`, `knots_y`, and `knots_d`
+      when both `knots_x` and `knots_y` are not fixed.
+    - `(m-1, m)`, if one of `knots_x` or `knots_y` is predefined.
+    - No partitioning occurs if both `knots_x` and `knots_y` are fixed.
+
+    When `knots_x` or `knots_y` are provided, they should have compatible
+    shapes. (see `RQSpline` for more details.)
+    If `knots_x` or `knots_y` are not provided, the function calculates them
+    from the `feature_map` as follows:
+
+    - The feature map is split along the specified `knots_axis` into
+      three components `(m-1, m-1, m)` (where `m` is the number of knots).
+    - The first part corresponds to `knots_x`, the second part corresponds
+      to `knots_y`, and the third part corresponds to `knots_d` (the
+      derivative of the spline).
+    - The `knots_x` and `knots_y` values are computed using a **softmax**
+      operation to ensure that the knots are distributed progressively along
+      the specified range.
+    - The `knots_x` and `knots_y` are then mapped to the x and y limits
+      (`xlim`, `ylim`) by scaling them with the corresponding widths.
+    - The derivatives of the spline at the knots, `knots_d`, are computed
+      using **softplus** (with `beta=2`) to enforce positive derivatives.
+
+    Args:
+        feature_map (torch.Tensor):
+            The feature map, which can be the output tensor from a neural
+            network, used to construct the spline.
+        xlim (Tuple[float, float], optional):
+            The x-axis limits for the spline transformation. Defaults to
+            (0, 1).
+        ylim (Tuple[float, float], optional):
+            The y-axis limits for the spline transformation. Defaults to
+            (0, 1).
+        knots_axis (int, optional):
+            The axis along which knots are computed in the feature map.
+            Defaults to -1.
+        knots_x (Optional[torch.Tensor], optional):
+            Predefined knot positions along the x-axis. If `None`, they
+            are inferred.
+        knots_y (Optional[torch.Tensor], optional):
+            Predefined knot positions along the y-axis. If `None`, they
+            are inferred.
+        extrap (Optional[Dict[str, str]], optional):
+            A dictionary specifying the extrapolation behavior, e.g.,
+            `{'left': 'anti', 'right': 'linear'}`. Defaults to `None`.
+
+    Warning: If the extrapolation behavior is not specified, the user is
+    responsible for ensuring that the input values are within the range
+    defined by `xlim` and `ylim` in forward and reverse modes, respectively.
+    Otherwise, the returned values may be problematic, as the first and last
+    splines are used outside their respective domains of validity.
+    This behavior will change in a future version, where out-of-bounds points
+    will return `NaN`.
+
+    Returns:
+        RQSpline:
+            A rational quadratic spline initialized with the computed knots.
+    """
+    if extrap is None:
+        extrap = {}
+
+    xwidth = xlim[1] - xlim[0]
+    ywidth = ylim[1] - ylim[0]
+
+    softmax = torch.nn.Softmax(dim=knots_axis)
+    softplus = torch.nn.Softplus(beta=np.log(2))
+    # we set the beta of Softplus to log(2) so that softplust(0) returns 1.
+    # With this setting, the derivatives would be 1 when feature_map is zero.
+
+    def zeropad(w: torch.Tensor) -> torch.Tensor:
+        """Adds a zero-padding tensor along the specified axis."""
+        pad_shape = list(w.shape)
+        pad_shape[knots_axis] = 1
+        return torch.zeros(pad_shape, device=w.device)
+
+    def to_coord(w: torch.Tensor) -> torch.Tensor:
+        """Computes cumulative softmax and concatenates with zero padding."""
+        return torch.cat(
+            (zeropad(w), torch.cumsum(softmax(w), dim=knots_axis)),
+            dim=knots_axis
+        )
+
+    def to_deriv(d: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+        """Applies the softplus function to enforce positive derivatives."""
+        return softplus(d) if d is not None else None
+
+    n = feature_map.shape[knots_axis]
+
+    if knots_x is None and knots_y is None:
+        m = (n + 2) // 3
+        x_, y_, d_ = feature_map.split((m-1, m-1, m), dim=knots_axis)
+        knots_x = to_coord(x_) * xwidth + xlim[0]
+        knots_y = to_coord(y_) * ywidth + ylim[0]
+        knots_d = to_deriv(d_)
+
+    elif knots_x is not None and knots_y is None:
+        m = (n + 2) // 2
+        y_, d_ = feature_map.split((m-1, m), dim=knots_axis)
+        knots_y = to_coord(y_) * ywidth + ylim[0]
+        knots_d = to_deriv(d_)
+
+    elif knots_x is None and knots_y is not None:
+        m = (n + 2) // 2
+        x_, d_ = feature_map.split((m-1, m), dim=knots_axis)
+        knots_x = to_coord(x_) * xwidth + xlim[0]
+        knots_d = to_deriv(d_)
+
+    else:
+        knots_d = to_deriv(feature_map)
+
+    return RQSpline(
+        knots_x=knots_x, knots_y=knots_y, knots_d=knots_d,
+        knots_axis=knots_axis, extrap=extrap
+    )
+
+
+# =============================================================================
 class SplineTemplate:
     """Interpolate data with a piecewise function.
 
@@ -36,9 +189,9 @@ class SplineTemplate:
     If the number of knots is 2 and `knots_d = None`, the spline will be
     basically a line.
     """
-    def __init__(self, knots_x=None, knots_y=None, knots_d=None, knots_axis=-1,
-            extrap={}
-            ):
+    def __init__(
+        self, *, knots_x, knots_y, knots_d=None, knots_axis=-1, extrap=None
+    ):
 
         shape = lambda a, b: (a.shape != b.shape and a.ndim > 1 and b.ndim > 1)
 
@@ -52,6 +205,9 @@ class SplineTemplate:
 
         if shape(knots_d, knots_x) or shape(knots_d, knots_y):
             raise Exception("shape conflict between d, x, and y.")
+
+        if extrap is None:
+            extrap = {}
 
         # augmentation with different boundary conditions
         # is NOT supported if knots_x.shape != knots_y.shape
@@ -259,7 +415,7 @@ class Pade22Spline(SplineTemplate):
             # conditions:
             # 1) 0 =< eta =< 1
             #    0 < m
-            #    0 =< a0 
+            #    0 =< a0
             # 2) a1**2 = (a2 + m)**2 = a2**2 + m**2 + 2 a2 m >= 4 a2 m
             #          >= 4 a2 m eta
             #    therefore ( a1**2 - 4 a2 a0) >= 0
@@ -317,7 +473,7 @@ class Pade11Spline(SplineTemplate):
         d_list = [d0]
         for k in range(knots_len - 1):
             d_list.append(select(m, knot_ind[k])**2 / d_list[-1])
-        return torch.cat(tuple(d_list), knots_axis) 
+        return torch.cat(tuple(d_list), knots_axis)
 
     def _calc_segment_func(self, segm_ind, squeezed=False, grad=False):
         """Elements of segm_ind must be in range(self.segm_len + 2)."""

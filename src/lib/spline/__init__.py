@@ -1,1 +1,1 @@
-from .spline import RQSpline  # Rational Quadratic Spline
+from .spline import *
