@@ -9,7 +9,6 @@ particularly in probabilistic modeling and generative tasks.
 
 
 import torch
-import copy
 import numpy as np
 from typing import Union, Sequence
 
@@ -21,7 +20,7 @@ Number = Union[int, float, complex]
 Tensor = torch.Tensor
 
 
-class ConvBlock(torch.nn.Sequential):
+class ConvBlock(torch.nn.Module):
     r"""
     A flexible convolutional module extending PyTorch's convolutional layers.
 
@@ -79,7 +78,7 @@ class ConvBlock(torch.nn.Sequential):
         acts=None,
         dropouts=None,
         pre_act=None,
-        **extra_kwargs  # all other kwargs to pass to torch.nn.Conv?d
+        **kwargs  # all other kwargs to pass to torch.nn.Conv?d
     ):
 
         if hidden_sizes is None:
@@ -92,29 +91,33 @@ class ConvBlock(torch.nn.Sequential):
         norms, acts, dropouts = \
             self._check_accessories(norms, acts, dropouts, n_layers)
 
-        conv_kwargs = dict(padding='same', padding_mode='circular')
-        conv_kwargs.update(extra_kwargs)
+        kwargs = dict(padding='same', padding_mode='circular')
+        kwargs.update(kwargs)
 
-        nets = [] if pre_act is None else [pre_act]
+        layers = [] if pre_act is None else [pre_act]
 
         conv = self._conv[conv_ndim]
 
         for i in range(n_layers):
-            nets.append(conv(sizes[i], sizes[i+1], kernel_size, **conv_kwargs))
-            for subnet in [norms[i], acts[i], dropouts[i]]:
-                if subnet is not None:
-                    nets.append(subnet)
+            layers.append(conv(sizes[i], sizes[i+1], kernel_size, **kwargs))
+            for layer in [norms[i], acts[i], dropouts[i]]:
+                if layer is not None:
+                    layers.append(layer)
 
-        super().__init__(*nets)
+        super().__init__()
+        self.layers = torch.nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
 
     def set_param2zero(self):
-        for net in self:
-            for param in net.parameters():
+        for layer in self.layers:
+            for param in layer.parameters():
                 torch.nn.init.zeros_(param)
 
     def set_param2normal(self, mean=0.0, std=1.0):
-        for net in self:
-            for param in net.parameters():
+        for layer in self.layers:
+            for param in layer.parameters():
                 torch.nn.init.normal_(param, mean=mean, std=std)
 
     @staticmethod
@@ -170,7 +173,7 @@ class DenseBlock(torch.nn.Module):
         acts=None,
         pre_act=None,
         features_axis: int = -1,
-        **extra_kwargs  # all other kwargs to pass to torch.nn.Linear
+        **kwargs  # all other kwargs to pass to torch.nn.Linear
     ):
 
         if hidden_sizes is None:
@@ -185,27 +188,27 @@ class DenseBlock(torch.nn.Module):
         else:
             assert len(acts) == n_layers
 
-        nets = [] if pre_act is None else [pre_act]
+        layers = [] if pre_act is None else [pre_act]
 
         Linear = torch.nn.Linear
 
         for i in range(n_layers):
-            nets.append(Linear(sizes[i], sizes[i+1], **extra_kwargs))
+            layers.append(Linear(sizes[i], sizes[i+1], **kwargs))
             if acts[i] is not None:
-                nets.append(acts)
+                layers.append(acts[i])
 
         super().__init__()
 
-        self.net = torch.nn.Sequential(*nets)
+        self.layers = torch.nn.Sequential(*layers)
         self.features_axis = features_axis
 
     def forward(self, x):
         features_axis = self.features_axis
         if features_axis == -1:
-            return self.net(x)
+            return self.layers(x)
         else:
             x = torch.movedim(x, features_axis, -1)
-            x = self.net(x)
+            x = self.layers(x)
             return torch.movedim(x, -1, features_axis)
 
 
