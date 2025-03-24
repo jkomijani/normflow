@@ -81,8 +81,8 @@ class Model:
 
         # Components for training
         self.trainer = Trainer(self)
-        self.train = self.trainer.__call__
-        self.fit = self.trainer.__call__  # Alias for `train`
+        self.train = self.trainer.execute
+        self.fit = self.train  # Alias for `train`
         self.execute_ddp_training = self.trainer.execute_ddp_training
 
         # Components for sampling
@@ -311,7 +311,7 @@ class Trainer:
         # Default loss function
         self.loss_func = self.calc_kl_mean
 
-    def __call__(
+    def execute(
         self,
         n_epochs: int = 100,
         batch_size: int = 64,
@@ -322,7 +322,7 @@ class Trainer:
         hyperparam=None,
         checkpoint_dict=None
     ):
-        """Fit the model; i.e. train the model.
+        """Train the model.
 
         Parameters
         ----------
@@ -406,7 +406,7 @@ class Trainer:
         logging.info("Process group initialized & model wrapped with DDP.")
 
         # Execute training
-        self(**train_kwargs)  # see self.__call__
+        self.execute(**train_kwargs)
 
         # Synchronize processes after training
         torch.distributed.barrier()
