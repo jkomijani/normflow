@@ -41,7 +41,7 @@ def main(
     lat_shape: tuple = (8, 8),
     n_epochs: int = 1000,
     batch_size: int = 128,
-    l_r: float = 0.01,
+    lr: float = 0.01,
     load_fname: str = None,
     save_fname: str = None,
     world_size: int = 1,
@@ -81,7 +81,7 @@ def main(
         'n_epochs': n_epochs,
         'batch_size': batch_size // world_size,
         'scheduler': scheduler,
-        'hyperparam': {'lr': l_r},
+        'hyperparam': {'lr': lr},
         'checkpoint_dict': {'print_every': print_every}
     }
 
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     add("--m_sq", dest="m_sq", type=float)
     add("--lambd", dest="lambd", type=float)
     add("--kappa", dest="kappa", type=float)
-    add("--l_r", dest="l_r", type=float)
+    add("--lr", dest="lr", type=float)
     add("--knots0_len", dest="knots0_len", type=int)
     add("--knots1_len", dest="knots1_len", type=int)
     add("--knots2_len", dest="knots2_len", type=int)
