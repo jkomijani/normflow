@@ -17,8 +17,12 @@ from .scalar.modules_ import Affine_
 from .scalar.modules_ import Pade11_, Pade22_, Pade32_, Pade32a_
 
 # Coupling layers:
-from .scalar.couplings_ import ShiftCoupling_, AffineCoupling_
-from .scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_
+from .scalar.couplings_ import AdditiveCoupling_
+from .scalar.couplings_ import AffineCoupling_
+from .scalar.couplings_ import RQSplineCoupling_
+from .scalar.couplings_ import MultiRQSplineCoupling_
+
+ShiftCoupling_ = AdditiveCoupling_  # an alias, but preferably do not use it
 
 
 # Special transformations:

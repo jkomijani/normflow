@@ -96,7 +96,7 @@ class Coupling_(Module_, ABC):
 
 
 # =============================================================================
-class ShiftCoupling_(Coupling_):
+class AdditiveCoupling_(Coupling_):
     """A Coupling_ with shift transformations."""
 
     def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
