@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """This module has extensions to the linalg packages in torch."""
 
@@ -7,7 +7,7 @@ import torch
 
 
 try:
-    from torch_linalg_ext import svd
+    from lattice_ml.linalg import svd
 except:
     from torch.linalg import svd
 

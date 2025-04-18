@@ -1,17 +1,15 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 # Components of this module are copied from '..matrix_handles.matrix_handle.py'
 
 """This module has utilities for eigenvalue decomposition."""
 
-
 import torch
 
-
 try:
-    from torch_linalg_ext import eigh
-    from torch_linalg_ext import eigu
-    from torch_linalg_ext import inverse_eign
+    from lattice_ml.linalg import eigh
+    from lattice_ml.linalg import eigu
+    from lattice_ml.linalg import inverse_eign
 except:
     from torch.linalg import eigh
     from torch.linalg import eig as eigu
@@ -19,7 +17,7 @@ except:
 
 
 # =============================================================================
-class Eigd_:
+class Eigd_:  # pylint: disable=invalid-name
     """
     A class for performing eigenvalue decomposition on diagonalizable matrices.
 
@@ -73,22 +71,22 @@ class Eigd_:
         return (eigvals, eigvecs), log_jacobian
 
 
-class Eign_(Eigd_):
+class Eign_(Eigd_):  # pylint: disable=invalid-name
     """A (dummy) subclass of `Eigd_` for normal matrices."""
     pass
 
 
-class Eigh_(Eigd_):
+class Eigh_(Eigd_):  # pylint: disable=invalid-name
     """A subclass of `Eigd_` specialized for Hermitian matrices."""
     eig = eigh
 
 
-class Eigu_(Eigd_):
+class Eigu_(Eigd_):  # pylint: disable=invalid-name
     """A subclass of `Eigd_` specialized for unitary matrices."""
     eig = eigu
 
 
-class InverseEign_:
+class InverseEign_:  # pylint: disable=invalid-name
     """
     A class for matrix recomposition from eigenvalues and eigencectors, where
     the matrix of the eigenvectors is unitary. (Therefore, the constructed
@@ -138,7 +136,7 @@ def sum_density(x):
 
 
 def calc_log_conjugacy_vol(eigvals):
-    """
+    r"""
     Calculate the log of the conjugacy volume up to an additive constant.
 
     This function computes a volume measure related to the conjugacy class of a
@@ -168,19 +166,19 @@ def calc_log_conjugacy_vol(eigvals):
         >>> calc_log_conjugacy_vol(eigvals)
         tensor([[-2.7726], [ 1.3863]])
     """
-    
+
     sumlogabs2 = lambda x: 2 * torch.sum(torch.log(torch.abs(x)), dim=-1)
-    
+
     log_vol = torch.zeros(eigvals.shape[:-1], device=eigvals.device)
-    
+
     for k in range(eigvals.shape[-1] - 1):
         log_vol += sumlogabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
-    
+
     return log_vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same
 
 
 def calc_conjugacy_vol(eigvals):
-    """
+    r"""
     Calculate the conjugacy volume up to a multiplacative constant.
 
     This function computes a volume measure related to the conjugacy class of a
@@ -209,12 +207,12 @@ def calc_conjugacy_vol(eigvals):
         >>> calc_conjugacy_vol(eigvals)
         tensor([[0.0625], [4.0000]])
     """
-    
+
     prodabs2 = lambda x: torch.prod(torch.abs(x)**2, dim=-1)
-    
+
     vol = torch.ones(eigvals.shape[:-1], device=eigvals.device)
-    
+
     for k in range(eigvals.shape[-1] - 1):
         vol *= prodabs2(eigvals[..., k:k+1] - eigvals[..., k+1:])
-    
+
     return vol.unsqueeze(-1)  # unsqueeze to keep dimensions the same

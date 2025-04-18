@@ -1,21 +1,21 @@
-# Copyright (c) 2024 Javad Komijani
+# Copyright (c) 2024-2025 Javad Komijani
 
 import torch
 
-from torch_linalg_ext import eyes_like
-from torch_linalg_ext import kronecker_product
+from lattice_ml.linalg import eyes_like
+from lattice_ml.linalg import kronecker_product
 
-from torch_linalg_ext.functions import matrix_exp1jh_and_jacobian
-from torch_linalg_ext.functions import inverse_eign_and_jacobian
-from torch_linalg_ext.functions import commutator_and_jacobian
+from lattice_ml.functions import matrix_exp1jh_and_jacobian
+from lattice_ml.functions import inverse_eign_and_jacobian
+from lattice_ml.functions import commutator_and_jacobian
 
 
 # =============================================================================
 class UnitaryFlow_:
-    """For a transformation of type
+    r"""For a transformation of type
 
     .. math:
-        
+
         V = f(U, args) U;
 
     where :math:`U` and :math:`F = f(U, args)` are unitary. In addition to the
