@@ -1,8 +1,8 @@
 # Copyright (c) 2024 Javad Komijani
 
 
-from torch_solve_ext.integrate import AdjLieODEflow_
-from torch_solve_ext.integrate import AdjLieModule
+from lattice_ml.integrate import AdjLieODEflow_
+from lattice_ml.integrate import AdjLieModule
 
 
 class WilsonTrivMap_(AdjLieODEflow_):
