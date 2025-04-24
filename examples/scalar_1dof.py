@@ -78,12 +78,14 @@ def main(
 
 
 def _unittest(rel_tol=1e-1):
-    # results vary between CPU and GPU, that's why rel_tol is so large!
+    # The reference point `loss_ref` is obtained on GPU with double precision.
+    # Results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=50, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    passed = math.isclose(loss, -2.291045818475, rel_tol=rel_tol)
+    loss_ref = -2.291045818475735
+    passed = math.isclose(loss, loss_ref, rel_tol=rel_tol)
     if not passed:
-        print(f"Unittest Failed in scalar_1dof: {loss} != -2.291045818475")
+        print(f"Unittest Failed in scalar_1dof: {loss} != {loss_ref}")
     return passed
 
 

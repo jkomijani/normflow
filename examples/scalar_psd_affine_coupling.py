@@ -166,12 +166,14 @@ def assemble_net(
 
 
 def _unittest(rel_tol=1e-1):
-    # results vary between CPU and GPU, that's why rel_tol is so large!
+    # The reference point `loss_ref` is obtained on GPU with double precision.
+    # Results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=5, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    passed = math.isclose(loss, -52.72515650, rel_tol=rel_tol)
+    loss_ref = -47.080631127868756
+    passed = math.isclose(loss, loss_ref, rel_tol=rel_tol)
     if not passed:
-        print(f"Unittest Failed: {loss} != -52.72515650")
+        print(f"Unittest Failed in psd_affine_coupling: {loss} != {loss_ref}")
     return passed
 
 

@@ -1,4 +1,3 @@
-
 #!bash
 
 # Manual unittest for the examples
