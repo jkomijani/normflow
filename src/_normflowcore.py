@@ -285,17 +285,67 @@ class Posterior:
 
 # =============================================================================
 class Trainer:
-    """A class for training a given model."""
+    """
+    A class responsible for training a model, handling optimization, loss
+    computation, and scheduling tasks.
+
+    This class provides functionality for setting up and running the training
+    loop with various configurable parameters such as optimizer, loss function,
+    and learning rate scheduler. The `Trainer` tracks key statistics such as
+    loss and supports the use of checkpoints to monitor training progress.
+
+    Attributes
+    ----------
+    path_gradient_autodiff : bool
+        A flag indicating whether gradient autodiff is used.
+
+    optimizer_class : torch.optim.Optimizer
+        The class for the optimizer to be used during training (default:
+        torch.optim.AdamW).
+
+    optimizer : torch.optim.Optimizer, optional
+        The optimizer object used in training. Set automatically using
+        `optimizer_class`.
+
+    scheduler : torch.optim.lr_scheduler._LRScheduler, optional
+        The learning rate scheduler used during training.
+
+    alpha_scheduler : AlphaScheduler, optional
+        A scheduler for controlling interpolation between prior and target
+        distributions.
+
+    train_history : dict
+        A dictionary tracking training statistics such as epoch number, loss,
+        ESS (Effective Sample Size), and log probabilities.
+
+    hyperparam : dict
+        A dictionary for storing hyperparameters like learning rate and decay
+        weights.
+
+    checkpoint_dict : dict
+        A dictionary used to configure printing and checkpointing behavior
+        during training.
+
+    loss_func : function
+        The loss function used during training. By default, it is set to
+        calculate KL divergence.
+    """
 
     path_gradient_autodiff = True
-
     optimizer_class = torch.optim.AdamW
     optimizer = None
     scheduler = None
     alpha_scheduler = None
 
     def __init__(self, model: Model):
+        """
+        Initializes the trainer with the given model.
 
+        Parameters
+        ----------
+        model : Model
+            The model to be trained.
+        """
         self._model = model
 
         # Initialize training history tracking
@@ -322,66 +372,98 @@ class Trainer:
         hyperparam=None,
         checkpoint_dict=None
     ):
-        """Train the model.
+        """
+        Executes the training loop with the specified configuration.
 
         Parameters
         ----------
-        n_epochs : int
-            Number of epochs of training.
+        n_epochs : int, optional, default=100
+            Number of training epochs.
 
-        batch_size : int
-            Size of samples used at each epoch.
+        batch_size : int, optional, default=64
+            The size of the batch used for each training step.
 
-        optimizer_class : optimization class, optional
-            By default is set to torch.optim.AdamW, but can be changed.
+        optimizer_class : type, optional
+            Optimizer class to use. If provided, replaces the current optimizer
+            class and reinitializes the optimizer. By default, it uses AdamW.
 
-        scheduler : scheduler class, optional
-            By default no scheduler is used.
+        scheduler : type, optional
+            Learning rate scheduler constructor. If provided, a scheduler will
+            be created using the initialized optimizer.
 
-        loss_func : None or function, optional
-            The default value is None, which translates to using KL divergence.
+        loss_func : function, optional
+            Loss function to use. Defaults to KL divergence if not provided.
 
-        alpha_tmax : int or None, optional
-            If a positive integer, a scheduler would be setup for interpolating
-            between prior and target distributions. Default is None.
-            (See `AlphaScheduler`.)
+        alpha_tmax : int, optional
+            Maximum steps for alpha interpolation between the prior and target
+            distributions over the course of training. If provided, activates
+            an `AlphaScheduler`.
 
         hyperparam : dict, optional
-            Can be used to set hyperparameters like the learning rate and decay
-            weights.
+            Dictionary of optimizer hyperparameters, like `lr`. If provided,
+            updates internal hyperparams and reinitializes the optimizer with
+            the new values.
 
         checkpoint_dict : dict, optional
-            Can be set to control printing the status of the training.
+            Dictionary to control training progress output and checkpointing.
+
+        Notes
+        -----
+        The optimizer is (re)initialized under the following conditions:
+        - If an `optimizer_class` is explicitly provided, it replaces the
+          default and reinitializes the optimizer.
+        - If `hyperparam` is provided, even if the optimizer already exists, it
+          is reinitialized with the updated values.
+        - If neither is provided, and the optimizer has not yet been
+          initialized.
         """
-        # Update the attributes of the instance
+        # Flag to decide whether the optimizer needs to be (re)initialized
+        if self.optimizer is None:
+            # If no optimizer has been created yet, we must initialize one
+            initiate_optimizer_flag = True
+        else:
+            # Assume no need to init; will override if other conditions apply
+            initiate_optimizer_flag = False
+
+        # Update hyperparameters if provided, and re-init optimizer accordingly
         if hyperparam is not None:
             self.hyperparam.update(hyperparam)
+            initiate_optimizer_flag = True   # new settings require re-init
 
-        if checkpoint_dict is not None:
-            self.checkpoint_dict.update(checkpoint_dict)
-
-        if loss_func is not None:
-            self.loss_func = loss_func
-
+        # Override optimizer class if explicitly provided, and re-init
         if optimizer_class is not None:
             self.optimizer_class = optimizer_class
+            initiate_optimizer_flag = True
 
-        # Optimizer and scheduler setup
-        net_ = self._model.net_
-        if '_groups' in net_.__dict__.keys():
-            parameters = net_.grouped_parameters()
-        else:
-            parameters = net_.parameters()
+        # (Re)initialize the optimizer if flagged
+        if initiate_optimizer_flag:
+            # For initiating optimizer, get model parameters (grouped or flat)
+            net_ = self._model.net_
+            if '_groups' in net_.__dict__.keys():
+                params = net_.grouped_parameters()
+            else:
+                params = net_.parameters()
 
-        self.optimizer = self.optimizer_class(parameters, **self.hyperparam)
+            # Create the optimizer using the selected optimizer class
+            self.optimizer = self.optimizer_class(params, **self.hyperparam)
 
+        # Setup scheduler if provided
         if scheduler is not None:
             self.scheduler = scheduler(self.optimizer)
 
+        # Setup alpha scheduler if alpha_tmax is provided
         if alpha_tmax is not None:
             self.alpha_scheduler = AlphaScheduler(alpha_tmax)
 
-        # Execut training if n_epochs > 0
+        # Update checkpoint configuration if provided
+        if checkpoint_dict is not None:
+            self.checkpoint_dict.update(checkpoint_dict)
+
+        # Update the loss function if provided
+        if loss_func is not None:
+            self.loss_func = loss_func
+
+        # Begin training if n_epochs > 0
         if n_epochs > 0:
             self._train(n_epochs, batch_size)
 
