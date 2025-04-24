@@ -361,10 +361,8 @@ class Trainer:
         # Default loss function
         self.loss_func = self.calc_kl_mean
 
-    def execute(
+    def setup_optimizer_and_components(
         self,
-        n_epochs: int = 100,
-        batch_size: int = 64,
         optimizer_class=None,
         scheduler=None,
         loss_func=None,
@@ -377,12 +375,6 @@ class Trainer:
 
         Parameters
         ----------
-        n_epochs : int, optional, default=100
-            Number of training epochs.
-
-        batch_size : int, optional, default=64
-            The size of the batch used for each training step.
-
         optimizer_class : type, optional
             Optimizer class to use. If provided, replaces the current optimizer
             class and reinitializes the optimizer. By default, it uses AdamW.
@@ -462,6 +454,41 @@ class Trainer:
         # Update the loss function if provided
         if loss_func is not None:
             self.loss_func = loss_func
+
+    def execute(
+        self,
+        n_epochs: int = 100,
+        batch_size: int = 64,
+        **setup_kwargs
+    ):
+        """
+        Executes the training loop with the specified configuration.
+
+        Parameters
+        ----------
+        n_epochs : int, optional, default=100
+            Number of training epochs.
+
+        batch_size : int, optional, default=64
+            Size of training batches.
+
+        **setup_kwargs : dict
+            Additional keyword arguments passed directly to
+            `setup_optimizer_and_components`. These can include:
+
+            - optimizer_class
+            - scheduler
+            - loss_func
+            - alpha_tmax
+            - hyperparam
+            - checkpoint_dict
+
+        Notes
+        -----
+        Delegates configuration and setup of training components to
+        `setup_optimizer_and_components()`.
+        """
+        self.setup_optimizer_and_components(**setup_kwargs)
 
         # Begin training if n_epochs > 0
         if n_epochs > 0:
