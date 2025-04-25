@@ -524,7 +524,7 @@ class Trainer:
         self._model.device_handler.destroy_process_group()
         logging.info("Process group destroyed.")
 
-    def _train(self, n_epochs, batch_size):
+    def _train(self, n_epochs, batch_size, debug=False):
         """Train the model.
 
         Parameters
@@ -551,8 +551,7 @@ class Trainer:
 
         if rank == 0 and report_progress:
             print(f">>> Training started for {n_epochs} epochs <<<")
-
-        t_1 = time.time()
+            t_1 = time.time()
 
         for epoch in range(last_epoch + 1, last_epoch + 1 + n_epochs):
 
@@ -565,13 +564,21 @@ class Trainer:
             if self.alpha_scheduler is not None:
                 self.alpha_scheduler.step()
 
-        t_2 = time.time()
-
         if rank == 0 and report_progress:
+            t_2 = time.time()
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
-    def step(self, batch_size, debug=False):
+        if debug:
+            param = list(self._model.net_.parameters())[-1]
+            print((
+                f"rank = {self._model.device_handler.rank} | "
+                f"loss = {loss.item():.4f} | "
+                f"param = {param.ravel()[0].item():.14e} | "
+                f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
+            ))
+
+    def step(self, batch_size):
         """
         Perform a single training step with a batch of size `batch_size`.
 
@@ -615,15 +622,6 @@ class Trainer:
         self.optimizer.zero_grad()  # clears old gradients from last steps
         loss.backward()
         self.optimizer.step()
-
-        if debug:
-            param = list(model.net_.parameters())[-1]
-            print((
-                f"rank = {self._model.device_handler.rank} | "
-                f"loss = {loss.item():.4f} | "
-                f"param = {param.ravel()[0].item():.14e} | "
-                f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
-            ))
 
         return loss, logq, logp
 
