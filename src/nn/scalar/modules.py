@@ -211,6 +211,16 @@ class DenseBlock(torch.nn.Module):
             x = self.layers(x)
             return torch.movedim(x, -1, features_axis)
 
+    def set_param2zero(self):
+        for layer in self.layers:
+            for param in layer.parameters():
+                torch.nn.init.zeros_(param)
+
+    def set_param2normal(self, mean=0.0, std=1.0):
+        for layer in self.layers:
+            for param in layer.parameters():
+                torch.nn.init.normal_(param, mean=mean, std=std)
+
 
 class Affine(torch.nn.Module):
     """
