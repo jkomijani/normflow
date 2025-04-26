@@ -353,7 +353,7 @@ class Trainer:
             {'epoch': 0, 'loss': [], 'ess': [], 'logp': [], 'logqp': []}
 
         # Default hyperparameters
-        self.hyperparam = {'fused': False}
+        self.hyperparam = {'fused': torch.cuda.is_available()}
 
         # Checkpoint configuration
         self.checkpoint_dict = {'print_every': None, 'print_bsize': None}
