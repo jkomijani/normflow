@@ -2,9 +2,8 @@
 
 import torch
 
-from lattice_ml.linalg import eyes_like
-from lattice_ml.linalg import kronecker_product
-
+from lattice_ml.functions import eyes_like
+from lattice_ml.functions import kronecker_product
 from lattice_ml.functions import matrix_exp1jh_and_jacobian
 from lattice_ml.functions import inverse_eign_and_jacobian
 from lattice_ml.functions import commutator_and_jacobian
