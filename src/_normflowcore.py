@@ -149,7 +149,7 @@ class Model:
         """
         state = torch.load(path, map_location=map_location, weights_only=True)
 
-        self.net_.load_state_dict(state['net_state_dict'])
+        self.net_.load_state_dict(clean_state_dict(state['net_state_dict']))
 
         if not parameters_only:
             self.prior.load_state_dict(state['prior_state_dict'])
@@ -461,22 +461,43 @@ class Trainer:
         self,
         n_epochs: int = 100,
         batch_size: int = 64,
+        load_checkpoint_path: str | None = None,
+        save_checkpoint_path: str | None = None,
         **setup_kwargs
     ):
         """
-        Executes the training loop with the specified configuration.
+        Executes the training workflow based on the specified training setup,
+        optionally loading from or saving to a checkpoint.
+
+        This method performs the following steps:
+        - Loads a checkpoint if a `load_checkpoint_path` is provided.
+        - Sets up the optimizer, scheduler, loss function, and other training
+          components.
+        - Runs the training loop for the specified number of epochs.
+        - Saves a checkpoint after training if a `save_checkpoint_path` is
+          provided (only on the main process when using distributed training).
 
         Parameters
         ----------
-        n_epochs : int, optional, default=100
-            Number of training epochs.
+        n_epochs : int, optional
+            Number of training epochs. Defaults to 100.
 
-        batch_size : int, optional, default=64
-            Size of training batches.
+        batch_size : int, optional
+            Size of training batches. Defaults to 64.
+
+        load_checkpoint_path : str or None, optional
+            Path to a checkpoint file to load model and optimizer states before
+            training. Defaults to None.
+
+        save_checkpoint_path : str or None, optional
+            Path to save the checkpoint after training. Only the main process
+            will perform saving if distributed training is used. Defaults to
+            None.
 
         **setup_kwargs : dict
-            Additional keyword arguments passed directly to
-            `setup_optimizer_and_components`. These can include:
+            A dictionary of additional keyword arguments used to configure
+            the training setup. These arguments are forwarded to the
+            `setup_optimizer_and_components` method, and can include:
 
             - optimizer_class
             - scheduler
@@ -485,46 +506,66 @@ class Trainer:
             - alpha_tmax
             - hyperparam
             - checkpoint_dict
-
-        Notes
-        -----
-        Delegates configuration and setup of training components to
-        `setup_optimizer_and_components()`.
         """
+        if load_checkpoint_path is not None:
+            self._model.load_checkpoint(load_checkpoint_path)
+
         self.setup_optimizer_and_components(**setup_kwargs)
 
         # Begin training if n_epochs > 0
         if n_epochs > 0:
             self._train(n_epochs, batch_size)
 
-    def execute_ddp_training(self, seeds_list=None, **train_kwargs):
+        # Save model (only on rank 0)
+        device_handler = self._model.device_handler
+        if save_checkpoint_path is not None and device_handler.is_main_process:
+            self._model.save_checkpoint(save_checkpoint_path)
+
+    def execute_ddp_training(
+        self,
+        load_checkpoint_path: str | None = None,
+        save_checkpoint_path: str | None = None,
+        seeds_list: tuple | None = None,
+        **train_kwargs
+    ):
         """
         Execute distributed training using Distributed Data Parallel (DDP).
 
-        Here are the steps:
+        Steps:
         1. Initialize the process group for distributed communication.
-        2. Wrap the model with DDP for multi-GPU training.
-        3. Set random seeds for reproducibility.
-        4. Execute the training routine.
-        5. Synchronize all processes.
-        6. Destroy the process group to free resources.
+        2. Load the model if a valid path is provided.
+        3. Wrap the model with DDP for multi-GPU training.
+        4. Set random seeds for reproducibility.
+        5. Execute the training routine.
+        6. Save the model if a valid path is provided (only on main process).
+        7. Synchronize all processes.
+        8. Destroy the process group to free resources.
         """
-        # Initialize distributed backend
-        self._model.device_handler.init_process_group(backend="nccl")
-        self._model.device_handler.ddp_wrapper()
-        self._model.device_handler.set_seed(seeds_list)
+        device_handler = self._model.device_handler
 
-        # Log initialization
-        logging.info("Process group initialized & model wrapped with DDP.")
+        # Initialize distributed backend
+        device_handler.init_process_group(backend="nccl")
+
+        if load_checkpoint_path is not None:
+            self._model.load_checkpoint(load_checkpoint_path)
+
+        device_handler.ddp_wrapper()
+        device_handler.set_seed(seeds_list)
+
+        logging.info("Process group initialized and model wrapped with DDP.")
 
         # Execute training
         self.execute(**train_kwargs)
 
-        # Synchronize processes after training
+        # Save model (only on rank 0)
+        if save_checkpoint_path is not None and device_handler.is_main_process:
+            self._model.save_checkpoint(save_checkpoint_path)
+
+        # Synchronize all processes after training
         torch.distributed.barrier()
 
-        # Ensure cleanup of the process group
-        self._model.device_handler.destroy_process_group()
+        # Cleanup
+        device_handler.destroy_process_group()
         logging.info("Process group destroyed.")
 
     def _train(self, n_epochs, batch_size, debug=False):
@@ -904,6 +945,29 @@ class AlphaScheduler:
         clamped to a maximum of 1.
         """
         self.alpha = min(1, self.alpha + 1 / self.t_max)
+
+
+# =============================================================================
+def clean_state_dict(state_dict: dict) -> dict:
+    """
+    Removes 'module.' prefixes from state_dict keys if they exist.
+
+    When training a model with DistributedDataParallel (DDP) in PyTorch,
+    the model's state_dict keys are automatically prefixed with 'module.'.
+    If we later load this checkpoint into a non-DDP model (i.e., not wrapped),
+    the 'module.' prefixes cause mismatches when calling load_state_dict().
+
+    This function processes a loaded state_dict and removes 'module.' from
+    the beginning of each key, if present.
+
+    Args:
+        state_dict: The original state dictionary loaded from checkpoint.
+
+    Returns:
+        A new state dictionary with 'module.' prefixes removed if necessary.
+    """
+    xyz = state_dict
+    return {k[7:] if k.startswith('module.') else k: v for k, v in xyz.items()}
 
 
 # =============================================================================
