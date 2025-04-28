@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """
 This module contains high-level classes for normalizing flow techniques,
@@ -139,13 +139,6 @@ class Model:
         map_location : torch.device, optional
             Specifies how to map storage locations when loading the checkpoint.
             Defaults to `torch.device('cpu')`.
-
-        Raises:
-            FileNotFoundError:
-                If the file specified by `path` does not exist.
-            KeyError:
-                If the checkpoint file does not contain the required state
-                keys.
 
         Notes:
             - When `torch.load()` is called on a file containing GPU tensors,
@@ -366,12 +359,13 @@ class Trainer:
         optimizer_class=None,
         scheduler=None,
         loss_func=None,
+        path_gradient_autodiff=None,
         alpha_tmax=None,
         hyperparam=None,
         checkpoint_dict=None
     ):
         """
-        Executes the training loop with the specified configuration.
+        Sets up the training configuration.
 
         Parameters
         ----------
@@ -385,6 +379,10 @@ class Trainer:
 
         loss_func : function, optional
             Loss function to use. Defaults to KL divergence if not provided.
+
+        path_gradient_autodiff : bool, optional
+            A flag indicating whether gradient autodiff is used. Defaults to
+            True if not provided.
 
         alpha_tmax : int, optional
             Maximum steps for alpha interpolation between the prior and target
@@ -455,6 +453,10 @@ class Trainer:
         if loss_func is not None:
             self.loss_func = loss_func
 
+        # Update path_gradient_autodiff if provided
+        if path_gradient_autodiff is not None:
+            self.path_gradient_autodiff = path_gradient_autodiff
+
     def execute(
         self,
         n_epochs: int = 100,
@@ -479,6 +481,7 @@ class Trainer:
             - optimizer_class
             - scheduler
             - loss_func
+            - path_gradient_autodiff
             - alpha_tmax
             - hyperparam
             - checkpoint_dict
