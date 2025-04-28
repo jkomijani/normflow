@@ -544,7 +544,7 @@ class Trainer:
         self.train_history['logp'].extend([None] * n_epochs)
         self.train_history['logqp'].extend([None] * n_epochs)
 
-        rank = self._model.device_handler.rank
+        is_main_process = self._model.device_handler.is_main_process
 
         last_epoch = self.train_history['epoch']
         report_progress = self.checkpoint_dict['print_every'] is not None
@@ -552,7 +552,7 @@ class Trainer:
         if last_epoch == 0:
             self._checkpoint(last_epoch, None, None)
 
-        if rank == 0 and report_progress:
+        if is_main_process and report_progress:
             print(f">>> Training started for {n_epochs} epochs <<<")
             t_1 = time.time()
 
@@ -567,7 +567,7 @@ class Trainer:
             if self.alpha_scheduler is not None:
                 self.alpha_scheduler.step()
 
-        if rank == 0 and report_progress:
+        if is_main_process and report_progress:
             t_2 = time.time()
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
@@ -666,7 +666,7 @@ class Trainer:
             return
 
         # Update the training history if on rank 0
-        if self._model.device_handler.rank == 0:
+        if self._model.device_handler.is_main_process:
             loss, ess, logqp, logp = out
             self.train_history['epoch'] = epoch
             self.train_history['ess'][epoch - 1] = ess
@@ -732,7 +732,7 @@ class Trainer:
         logp = self._model.device_handler.all_gather_into_tensor(logp)
 
         # Terminate if not on zero rank
-        if self._model.device_handler.rank > 0:
+        if not self._model.device_handler.is_main_process:
             return None
 
         # Compute metrics
