@@ -20,20 +20,27 @@ class DDP(torch.nn.parallel.DistributedDataParallel):
 # =============================================================================
 class ModelDeviceHandler:
     """
-    A handler for managing device and distributed training setup in multi-GPU
-    environments.
+    A handler for managing device setup and distributed training across
+    CPU, single-GPU, and multi-GPU environments.
 
-    This class helps manage distributed training by initializing and destroying
-    the process group, setting seeds for reproducibility across processes, and
-    moving model components to the appropriate device.
+    This class provides an abstraction to manage the device placement
+    of a model, initialization of distributed communication (when needed),
+    and consistent seed setting for reproducibility.
+
+    Key Features:
+        - Supports CPU, single GPU, and multi-GPU distributed training.
+        - Automatically initializes and destroys process groups when needed.
+        - Moves models to the appropriate device.
+        - Wraps models with DistributedDataParallel for multi-GPU training.
+        - Provides utilities like main-process detection & reproducible seeds.
     """
 
     def __init__(self, model):
         """
-        Initializes the ModelDeviceHandler instance.
+        Initializes the ModelDeviceHandler.
 
         Args:
-            model: The model that will be trained on multiple GPUs.
+            model: The model to be trained on CPU, GPU, or multiple GPUs.
         """
         self._model = model
         self.world_size = 1
@@ -129,3 +136,8 @@ class ModelDeviceHandler:
             out = torch.zeros(*out_shape, dtype=x.dtype, device=x.device)
             torch.distributed.all_gather_into_tensor(out, x)
             return out
+
+    @property
+    def is_main_process(self):
+        """Returns True if the current process is the main process (rank 0)."""
+        return self.rank == 0
