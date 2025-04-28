@@ -59,7 +59,6 @@ def main(
     prior = NormalPrior(shape=lat_shape)
 
     model = Model(net_=net_, prior=prior, action=action)
-    model.trainer.path_gradient_autodiff = True
 
     # print("number of model parameters =", model.net_.npar)
 
@@ -70,9 +69,6 @@ def main(
         ]
     )
 
-    if load_fname is not None:
-        model.load_checkpoint(load_fname)
-
     scheduler = partial(
         torch.optim.lr_scheduler.CosineAnnealingLR, T_max=int(1.01 * n_epochs)
     )
@@ -80,20 +76,17 @@ def main(
     train_kwargs = {
         'n_epochs': n_epochs,
         'batch_size': batch_size // world_size,
+        'load_checkpoint_path': load_fname,
+        'save_checkpoint_path': save_fname,
         'scheduler': scheduler,
         'hyperparam': {'lr': lr},
         'checkpoint_dict': {'print_every': print_every}
     }
 
     if world_size > 1:
-        if debug:
-            train_kwargs.update({'seeds_list': range(world_size)})
         model.execute_ddp_training(**train_kwargs)
     else:
         model.train(**train_kwargs)
-
-    if save_fname is not None:
-        model.save_checkpoint(save_fname)
 
     return model
 
