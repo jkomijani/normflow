@@ -312,12 +312,47 @@ class Trainer:
         ESS (Effective Sample Size), and log probabilities.
 
     hyperparam : dict
-        A dictionary for storing hyperparameters like learning rate and decay
-        weights.
+        A dictionary storing training-related hyperparameters that control
+        various aspects of optimization.
+
+        The dictionary may include keys such as learning rate, weight decay,
+        warm-up parameters, and other scalar configuration values used by the
+        optimizer, scheduler, or model components.
+
+        By default, it includes:
+            - 'fused': A boolean indicating whether to use fused operations
+              (set automatically to True if CUDA is available).
+
+        This dictionary can be extended dynamically to include additional
+        hyperparameters required by specific training workflows.
 
     checkpoint_dict : dict
         A dictionary used to configure printing and checkpointing behavior
-        during training.
+        during training. In particular, it controls when and how training
+        metrics are printed and optionally evaluated with higher statistical
+        accuracy during the training process.
+
+        Keys
+        ----
+        print_every : int or None
+            The number of epochs between each logging event. If set to an
+            integer N, training metrics are computed and printed to the console
+            or log output every N epochs. If None, periodic metric printing is
+            disabled. By default, this key is set to None.
+
+        print_bsize : int or None
+            Used only when metrics are printed (i.e., every `print_every`
+            epochs). If not None, `print_bsize` samples are generated with
+            `torch.no_grad()` solely for evaluation of the metrics, with no
+            gradient computation or backpropagation. This allows the printed
+            metrics (e.g., ESS) to be computed with higher statistical
+            accuracy. These metric values overwrite the corresponding metrics
+            recorded during training for that epoch.
+
+            Additionally, if `print_bsize` is not None, metric evaluation is
+            also performed **before training begins**, at epoch 0.
+
+            By default, this key is set to None.
 
     loss_func : function
         The loss function used during training. By default, it is set to
@@ -568,7 +603,7 @@ class Trainer:
         device_handler.destroy_process_group()
         logging.info("Process group destroyed.")
 
-    def _train(self, n_epochs, batch_size, debug=False):
+    def _train(self, n_epochs: int, batch_size: int, debug: bool = False):
         """Train the model.
 
         Parameters
@@ -622,7 +657,7 @@ class Trainer:
                 f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
             ))
 
-    def step(self, batch_size):
+    def step(self, batch_size: int):
         """
         Perform a single training step with a batch of size `batch_size`.
 
@@ -681,10 +716,10 @@ class Trainer:
         epoch : int
             The current epoch in the training loop.
 
-        logq : torch.Tensor
+        logq : torch.Tensor | None
             Log-probabilities under the model.
 
-        logp : torch.Tensor
+        logp : torch.Tensor | None
             Log-probabilities under the target distribution.
         """
 
