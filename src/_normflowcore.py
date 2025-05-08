@@ -349,6 +349,12 @@ class Trainer:
             accuracy. These metric values overwrite the corresponding metrics
             recorded during training for that epoch.
 
+            If `print_bsize` is None, the metrics are evaluated and printed
+            using the default sampling or batch size for that epoch, and no
+            special evaluation is done before printing. In this case, the
+            metrics printed may not be as statistically accurate as when
+            `print_bsize` is set to a specific value.
+
             Additionally, if `print_bsize` is not None, metric evaluation is
             also performed **before training begins**, at epoch 0.
 
