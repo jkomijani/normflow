@@ -289,9 +289,6 @@ class Trainer:
 
     Attributes
     ----------
-    path_gradient_autodiff : bool
-        A flag indicating whether gradient autodiff is used.
-
     optimizer_class : torch.optim.Optimizer
         The class for the optimizer to be used during training (default:
         torch.optim.AdamW).
@@ -307,6 +304,11 @@ class Trainer:
         A scheduler for controlling interpolation between prior and target
         distributions.
 
+    path_gradient_autodiff : bool
+        A flag indicating whether path-gradient autodiff is used for
+        statistical stability. See `adjustment_for_path_gradient_autodiff` for
+        more details. (Defaults to True.)
+
     train_history : dict
         A dictionary tracking training statistics such as epoch number, loss,
         ESS (Effective Sample Size), and log probabilities.
@@ -320,8 +322,8 @@ class Trainer:
         optimizer, scheduler, or model components.
 
         By default, it includes:
-            - 'fused': A boolean indicating whether to use fused operations
-              (set automatically to True if CUDA is available).
+            - 'fused': A boolean indicating whether to use fused operations.
+              Defaults to True (False) if CUDA is available (unavailable).
 
         This dictionary can be extended dynamically to include additional
         hyperparameters required by specific training workflows.
@@ -365,11 +367,11 @@ class Trainer:
         calculate KL divergence.
     """
 
-    path_gradient_autodiff = True
     optimizer_class = torch.optim.AdamW
     optimizer = None
     scheduler = None
     alpha_scheduler = None
+    path_gradient_autodiff = True
 
     def __init__(self, model: Model):
         """
