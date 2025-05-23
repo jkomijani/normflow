@@ -1,14 +1,14 @@
 # Copyright (c) 2024 Javad Komijani
 
 
-from lattice_ml.integrate import AdjLieODEflow_
+from lattice_ml.integrate import AdjLieODEFlow_
 from lattice_ml.integrate import AdjLieModule
 
 
-class WilsonTrivMap_(AdjLieODEflow_):
+class WilsonTrivMap_(AdjLieODEFlow_):
 
     def __init__(
-            self, wilson_action, t_span=[0, 1], step_size=None, order='LO'
+            self, wilson_action, t_span=(0, 1), step_size=None, order='LO'
             ):
 
         assert order == 'LO', "NLO is not implemented yet"
