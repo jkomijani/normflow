@@ -98,7 +98,7 @@ class U1WilsonGaugeAction(WilsonGaugeAction):
     """A special case of GaugeAction with special `plaq_rule`, ...."""
 
     def __init__(self, **kwargs):
-        super().__init__(nc=1, **kwargs)
+        super().__init__(n_c=1, **kwargs)
 
     @staticmethod
     def plaq_rule(a, b, c, d):

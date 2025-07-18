@@ -241,7 +241,8 @@ class U1Parametrizer:
     def matrix2param_(self, u1, **kwargs):
         """Return angle of eigenvalues and logJ of transformation."""
         phase = torch.angle(u1)  # in (-pi, pi]
-        self.phase = phase.unsqueeze(-1)  # to be consistent with SU(n)
+        phase = phase.unsqueeze(-1)  # to be consistent with SU(n)
+        self.phase = phase  # save for later use in param2matrix_
         param = phase / (2*pi) + 1/2
         logJ = 0  # logJ = -np.log(2 pi)xN, but suppress the additive constant
         return param, logJ
