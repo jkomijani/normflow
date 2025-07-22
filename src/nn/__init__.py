@@ -62,6 +62,6 @@ from .gauge.gauge_param_dual_couplings_ import SU3RQSplineDualCoupling_
 try:
     from .gauge.trivializing_map_ import WilsonTrivMap_
     from .gauge.unitary_flow_ import ModalMatrixFlow_
-    from .gauge.wilson_modal_odeflow_handle import WilsonModalFlow_
+    from .gauge.modal_commutator_odeflow_ import ModalCommutatorFlow_
 except:
     pass
