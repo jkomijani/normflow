@@ -5,11 +5,13 @@ This module contains new neural networks that are subclasses of `Module_`
 and couple sites to each other.
 """
 
+# pylint: disable=relative-beyond-top-level, arguments-differ, too-many-locals
+# pylint: disable=too-many-arguments, too-few-public-methods
+# pylint: disable=invalid-name
 
 import torch
 import numpy as np
 
-from .._core import Module_
 from ..scalar.modules_ import Logit_, Expit_
 from ..scalar.couplings_ import AffineCoupling_, Coupling_
 from ..scalar.couplings_ import RQSplineCoupling_, MultiRQSplineCoupling_
@@ -33,6 +35,7 @@ class Pade11Coupling_(Coupling_):
     softplus = torch.nn.Softplus(beta=np.log(2))
 
     def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
+        """Forward pass of a single coupling layer."""
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d1 = self.softplus(t)
@@ -47,6 +50,7 @@ class Pade11Coupling_(Coupling_):
         return x_active, log0 + logJ
 
     def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
+        """Reverse pass of a single coupling layer."""
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d1 = self.softplus(t)
@@ -76,6 +80,7 @@ class Pade22Coupling_(Coupling_):
     softplus = torch.nn.Softplus(beta=np.log(2))
 
     def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
+        """Forward pass of a single coupling layer."""
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
@@ -91,6 +96,7 @@ class Pade22Coupling_(Coupling_):
         return x_active, log0 + logJ
 
     def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
+        """Reverse pass of a single coupling layer."""
         t = net(x_frozen)
         t = self.mask.purify(t, channel=parity)
         d0, d1 = self.softplus(t).chunk(2, dim=self.channels_axis)
@@ -107,7 +113,7 @@ class Pade22Coupling_(Coupling_):
 
     @staticmethod
     def reverse_pade22(y, d0, d1):
-        """Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
+        r"""Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
         where the coefficients correspond to Pade [2, 2] map.
 
         Using the facts about :math:`x, y, d_0, and d_1`, one can show that the
@@ -136,66 +142,38 @@ class Pade22Coupling_(Coupling_):
 
 # =============================================================================
 class SU3RQSplineCoupling_(MultiRQSplineCoupling_):
-    """Like `MultiRQSplineCoupling_`, but assuming the input has a channel axis."""
-
-    def __init__(self, nets,
-            xlims=[(0, 1), (0, 1)],
-            ylims=[(0, 1), (0, 1)],
-            **kwargs
-            ):
-
-        super().__init__(nets, xlims=xlims, ylims=ylims, **kwargs)
-
-    def preprocess_fz(self, x):  # fz: frozen
-        return x
+    """Identical to the default of MultiRQSplineCoupling_."""
 
 
 # =============================================================================
 class SU2RQSplineCoupling_(RQSplineCoupling_):
-    """Like `RQSplineCoupling_`, but assuming the input has a channel axis."""
+    """Like RQSplineCoupling_, but with existing channel axis in input."""
 
-    def preprocess_fz(self, x):  # fz: frozen
-        return x
-
-    def preprocess(self, x):
-        return x
-
-    def postprocess(self, x):
-        return x
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, handle_channel_axis=False, **kwargs)
 
 
 # =============================================================================
-class U1RQSplineCoupling_(RQSplineCoupling_):
-    """Like `SU2RQSplineCoupling_` but different preprocessing."""
+class U1RQSplineCoupling_(SU2RQSplineCoupling_):
+    """Like `SU2RQSplineCoupling_`."""
 
-    def preprocess_fz(self, x):  # fz: frozen
-        x = (2 * np.pi) * x
-        return torch.cat((torch.cos(x), torch.sin(x)), dim=self.channels_axis)
-
-    def preprocess(self, x):
-        return x
-
-    def postprocess(self, x):
-        return x
+    # Ideally the following preprocessing should be done in embeded in "net"
+    # def preprocess_fz(self, x):  # fz: frozen
+    #    x = (2 * np.pi) * x
+    #    return torch.cat((torch.cos(x), torch.sin(x)), dim=self.channels_axis)
 
 
 # =============================================================================
 class SUnParamAffineCoupling_(AffineCoupling_):
+    """Like `AffineCoupling_`, but for bounded input/output."""
 
     logit_ = Logit_()
     expit_ = Expit_()
 
     def forward(self, x, log0=0):
+        """Forward pass for maping the interval :math:`[0, 1]` to itself."""
         return self.expit_(*super().forward(*self.logit_(x, log0=log0)))
 
     def reverse(self, x, log0=0):
+        """Reverse pass for maping the interval :math:`[0, 1]` to itself."""
         return self.expit_(*super().reverse(*self.logit_(x, log0=log0)))
-
-    def preprocess_fz(self, x):
-        return x
-
-    def preprocess(self, x):
-        return x
-
-    def postprocess(self, x):
-        return x
