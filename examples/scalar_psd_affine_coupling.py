@@ -18,35 +18,50 @@ The `world_size` option serves two purposes:
 2. Running `execute_ddp_training` if `world_size > 1`.
 """
 
-import math
-
 from functools import partial
 
+import math
 import torch
+import normflow
 
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
 from normflow.mask import EvenOddMask
-from normflow.nn import ModuleList_, Identity_, DistConvertor_, AffineCoupling_
-from normflow.nn import FFTNet_, MeanFieldNet_, PSDBlock_
-from normflow.nn import ConvBlock
+
+from normflow.nn import (
+    ModuleList_,
+    Identity_,
+    DistConvertor_,
+    FFTNet_,
+    MeanFieldNet_,
+    PSDBlock_,
+    AffineCoupling_,
+    ConvBlock
+)
 
 
 # =============================================================================
 def main(
+    # Lattice setup
     kappa: float = 0.67,
     m_sq: float = -4*0.67,
     lambd: float = 0.5,
     lat_shape: tuple = (8, 8),
+    # Training setup
     n_epochs: int = 1000,
     batch_size: int = 128,
     lr: float = 0.01,
-    load_fname: str = None,
-    save_fname: str = None,
+    path_gradient_autodiff: bool = True,
+    alpha_tmax: bool = None,
     world_size: int = 1,
     print_every: int = 100,
+    print_bsize: int | None = None,
+    # IO & test
+    load_fname: str = None,
+    save_fname: str = None,
     debug: bool = False,
+    # Architecture setup
     **net_kwargs
 ):
     """The main file for building and training the model."""
@@ -60,8 +75,6 @@ def main(
 
     model = Model(net_=net_, prior=prior, action=action)
 
-    # print("number of model parameters =", model.net_.npar)
-
     model.net_.setup_groups(
         groups=[
             {'ind': [0, 1, 3], 'hyper': {'weight_decay': 1e-4}},
@@ -69,24 +82,34 @@ def main(
         ]
     )
 
+    checkpoint_dict = {
+        'print_every': print_every,
+        'print_bsize': print_bsize and print_bsize // world_size
+    }
+
     scheduler = partial(
-        torch.optim.lr_scheduler.CosineAnnealingLR, T_max=int(1.01 * n_epochs)
+        torch.optim.lr_scheduler.CosineAnnealingLR,
+        T_max=int(1.01 * n_epochs + 1)
     )
 
     train_kwargs = {
         'n_epochs': n_epochs,
         'batch_size': batch_size // world_size,
+        'path_gradient_autodiff': path_gradient_autodiff,
         'load_checkpoint_path': load_fname,
         'save_checkpoint_path': save_fname,
         'scheduler': scheduler,
+        'alpha_tmax': alpha_tmax,
         'hyperparam': {'lr': lr},
-        'checkpoint_dict': {'print_every': print_every}
+        'checkpoint_dict': checkpoint_dict
     }
 
     if world_size > 1:
         model.execute_ddp_training(**train_kwargs)
     else:
+        print("number of model parameters =", model.net_.npar)
         model.train(**train_kwargs)
+        normflow.reverse_flow_sanitychecker(model)
 
     return model
 
@@ -158,12 +181,13 @@ def assemble_net(
     return ModuleList_(nets_list)
 
 
+# =============================================================================
 def _unittest(rel_tol=1e-1):
     # The reference point `loss_ref` is obtained on GPU with double precision.
     # Results vary between CPU and GPU, that's why rel_tol is so large!
     model = main(debug=True, n_epochs=5, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    loss_ref = -47.080631127868756
+    loss_ref = -51.857249875727
     passed = math.isclose(loss, loss_ref, rel_tol=rel_tol)
     if not passed:
         print(f"Unittest Failed in psd_affine_coupling: {loss} != {loss_ref}")
@@ -176,21 +200,29 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     add = parser.add_argument
 
+    # Lattice setup
     add("--lat_shape", dest="lat_shape", type=int, nargs='+')
     add("--m_sq", dest="m_sq", type=float)
     add("--lambd", dest="lambd", type=float)
     add("--kappa", dest="kappa", type=float)
-    add("--lr", dest="lr", type=float)
+    # Architecture setup
+    add("--n_layers", dest="n_layers", type=int)
     add("--knots0_len", dest="knots0_len", type=int)
     add("--knots1_len", dest="knots1_len", type=int)
     add("--knots2_len", dest="knots2_len", type=int)
     add("--knots4_len", dest="knots4_len", type=int)
     add("--zee2sym", dest="zee2sym", type=bool)
-    add("--n_layers", dest="n_layers", type=int)
-    add("--batch_size", dest="batch_size", type=int)
-    add("--n_epochs", dest="n_epochs", type=int)
     add("--hidden_sizes", dest="hidden_sizes", type=int, nargs='+')
+    # Training setup
+    add("--batch_size", dest="batch_size", type=int)
+    add("--lr", dest="lr", type=float)
+    add("--n_epochs", dest="n_epochs", type=int)
     add("--world_size", dest="world_size", type=int)
+    add("--path_gradient_autodiff", dest="path_gradient_autodiff", type=bool)
+    add("--alpha_tmax", dest="alpha_tmax", type=int)
+    add("--print_every", dest="print_every", type=int)
+    add("--print_bsize", dest="print_bsize", type=int)
+    # IO & test
     add("--load_fname", dest="load_fname", type=str)
     add("--save_fname", dest="save_fname", type=str)
     add("--unittest", dest="unittest", type=bool)

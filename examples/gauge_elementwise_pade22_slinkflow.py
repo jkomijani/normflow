@@ -20,54 +20,63 @@ The `world_size` option serves two purposes:
 
 from functools import partial
 
-
 import torch
-
 import normflow
 
 from normflow import Model
 
-from normflow.prior import U1Prior
-from normflow.prior import SUnPrior
+from normflow.prior import (
+    U1Prior,
+    SUnPrior
+)
 
-from normflow.action import U1GaugeAction
-from normflow.action import GaugeAction
+from normflow.action import (
+    U1GaugeAction,
+    GaugeAction
+)
 
-from normflow.nn import GaugeModule_
-from normflow.nn import GaugeModuleList_
-from normflow.nn import ModuleList_
+from normflow.nn import (
+    GaugeModule_,
+    GaugeModuleList_,
+    ModuleList_,
+    Pade22_,
+    Pade22DualCoupling_,
+    InvisibilityMaskWrapperModule_,
+    ModalMatrixFlow_,
+    DenseBlock
+)
 
-from normflow.nn import Pade22_
-from normflow.nn import Pade22DualCoupling_
-from normflow.nn import InvisibilityMaskWrapperModule_
-
-from normflow.nn import ModalMatrixFlow_
-from normflow.nn import DenseBlock
-
-from normflow.lib.matrix_handles import U1WilsonStaplesHandle
-from normflow.lib.matrix_handles import WilsonStaplesHandle
-from normflow.lib.matrix_handles import U1Parametrizer
-from normflow.lib.matrix_handles import SU2MatrixParametrizer
-from normflow.lib.matrix_handles import SU3MatrixParametrizer
+from normflow.lib.matrix_handles import (
+    U1WilsonStaplesHandle,
+    WilsonStaplesHandle,
+    U1Parametrizer,
+    SU2MatrixParametrizer,
+    SU3MatrixParametrizer
+)
 
 from normflow.mask import EvenOddMask
 
 
 # =============================================================================
 def main(
+    # Lattice setup
     beta: float = 1,
     gauge: str = 'SU(3)',
     lat_shape: tuple = (4, 4, 4, 4),
+    # Training setup
     n_epochs: int = 1000,
     batch_size: int = 128,
     lr: float = 0.01,
     path_gradient_autodiff: bool = True,
     alpha_tmax: bool = None,
-    load_fname: str = None,
-    save_fname: str = None,
     world_size: int = 1,
     print_every: int = 10,
+    print_bsize: int | None = None,
+    # IO & test
+    load_fname: str = None,
+    save_fname: str = None,
     debug: bool = False,
+    # Architecture setup
     **net_kwargs
 ):
     """The main file for building and training the model."""
@@ -92,14 +101,14 @@ def main(
 
     model = Model(net_=net_, prior=prior, action=action)
 
-    # print("number of model parameters =", model.net_.npar)
-
     checkpoint_dict = {
-        'print_every': print_every, 'print_bsize': 1024 // world_size
+        'print_every': print_every,
+        'print_bsize': print_bsize and print_bsize // world_size
     }
 
     scheduler = partial(
-        torch.optim.lr_scheduler.CosineAnnealingLR, T_max=int(1.01 * n_epochs)
+        torch.optim.lr_scheduler.CosineAnnealingLR,
+        T_max=int(1.01 * n_epochs + 1)
     )
 
     train_kwargs = {
@@ -110,14 +119,16 @@ def main(
         'save_checkpoint_path': save_fname,
         'scheduler': scheduler,
         'alpha_tmax': alpha_tmax,
-        'hyperparam': {'lr': lr, 'weight_decay': 0.1, 'betas': (0.9, 0.99)},
+        'hyperparam': {'lr': lr, 'weight_decay': 1e-3, 'betas': (0.9, 0.99)},
         'checkpoint_dict': checkpoint_dict
     }
 
     if world_size > 1:
         model.execute_ddp_training(**train_kwargs)
     else:
+        print("number of model parameters =", model.net_.npar)
         model.train(**train_kwargs)
+        normflow.reverse_flow_sanitychecker(model)
 
     return model
 
@@ -352,7 +363,7 @@ def set_staples_handles(n_c):
 
 # =============================================================================
 def _unittest():
-    """NOT READY YET"""
+    print("""NOT IMPLEMENTED YET""")
 
 
 # =============================================================================
@@ -361,21 +372,26 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     add = parser.add_argument
 
+    # Lattice setup
     add("--lat_shape", dest="lat_shape", type=int, nargs='+')
     add("--beta", dest="beta", type=float)
     add("--gauge", dest="gauge", type=str)
-    add("--batch_size", dest="batch_size", type=int)
-    add("--n_epochs", dest="n_epochs", type=int)
-    add("--print_every", dest="print_every", type=int)
-    add("--world_size", dest="world_size", type=int)
+    # Architecture setup
     add("--n_layers", dest="n_layers", type=int)
     add("--add_triv_map", dest="add_triv_map", type=bool)
-    add("--path_gradient_autodiff", dest="path_gradient_autodiff", type=bool)
-    add("--lr", dest="lr", type=float)
     add("--add_eigvecs_net", dest="add_eigvecs_net", type=bool)
     add("--add_eigangs_net", dest="add_eigangs_net", type=bool)
     add("--add_dual_param_net", dest="add_dual_param_net", type=bool)
+    # Training setup
+    add("--batch_size", dest="batch_size", type=int)
+    add("--lr", dest="lr", type=float)
+    add("--n_epochs", dest="n_epochs", type=int)
+    add("--world_size", dest="world_size", type=int)
+    add("--path_gradient_autodiff", dest="path_gradient_autodiff", type=bool)
     add("--alpha_tmax", dest="alpha_tmax", type=int)
+    add("--print_every", dest="print_every", type=int)
+    add("--print_bsize", dest="print_bsize", type=int)
+    # IO & test
     add("--load_fname", dest="load_fname", type=str)
     add("--save_fname", dest="save_fname", type=str)
     add("--unittest", dest="unittest", type=bool)
