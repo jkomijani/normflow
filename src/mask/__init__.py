@@ -3,6 +3,7 @@ from .mask import AlongAxesEvenOddMask
 
 from .partitioner import AlongAxisEvenOddPartitioner
 from .partitioner import ChunkCatPartitioner
+from .partitioner import ListPartitioner
 
 from .double_mask import DoubleMask, GaugeLinksDoubleMask
 
