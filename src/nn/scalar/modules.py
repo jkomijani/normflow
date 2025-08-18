@@ -7,10 +7,14 @@ transformations, making them useful for applications in machine learning,
 particularly in probabilistic modeling and generative tasks.
 """
 
+# pylint: disable=relative-beyond-top-level, arguments-differ, too-many-locals
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+# pylint: disable=invalid-name
+
+from typing import Union, Sequence
 
 import torch
 import numpy as np
-from typing import Union, Sequence
 
 from ...lib.spline import RQSpline
 from .convNd import Conv4d
@@ -58,6 +62,7 @@ class ConvBlock(torch.nn.Module):
         acts (Sequence, optional): Activation functions (default: None).
         dropouts (Sequence, optional): Dropout layers (default: None).
         pre_act (optional): Pre-activation layer (default: None).
+        **kwargs: All other kwargs to pass to CNN (such as bias).
     """
 
     _conv = {
@@ -91,8 +96,7 @@ class ConvBlock(torch.nn.Module):
         norms, acts, dropouts = \
             self._check_accessories(norms, acts, dropouts, n_layers)
 
-        kwargs = dict(padding='same', padding_mode='circular')
-        kwargs.update(kwargs)
+        kwargs.update({'padding': 'same', 'padding_mode': 'circular'})
 
         layers = [] if pre_act is None else [pre_act]
 
@@ -164,6 +168,7 @@ class DenseBlock(torch.nn.Module):
         - acts (Sequence, optional): Activation functions (default: None).
         - pre_act (optional): Pre-activation layer (default: None).
         - features_axis (int, optional): Th features axis (default: -1).
+        - **kwargs: All other kwargs to pass to nn.Linear (such as bias).
     """
     def __init__(
         self,
@@ -206,10 +211,9 @@ class DenseBlock(torch.nn.Module):
         features_axis = self.features_axis
         if features_axis == -1:
             return self.layers(x)
-        else:
-            x = torch.movedim(x, features_axis, -1)
-            x = self.layers(x)
-            return torch.movedim(x, -1, features_axis)
+        x = torch.movedim(x, features_axis, -1)
+        x = self.layers(x)
+        return torch.movedim(x, -1, features_axis)
 
     def set_param2zero(self):
         for layer in self.layers:
@@ -439,9 +443,9 @@ class SplineNet(torch.nn.Module):
         fix corresponding tensors to the input if provided.
     weights_x & weights_y & weights_d : None or tensors, optional
         fix corresponding tensors to the input if provided.
-    spline_shape : array-like, optional
+    spline_shape : array-like | None, optional
         specifies number of splines organized as a tensor
-        (default is [], indicating there is only one spline).
+        (default is None, indicating there is only one spline).
     knots_axis : int, optional
         relevant only if spline_shape is not empty list (default value is -1).
     """
@@ -452,7 +456,7 @@ class SplineNet(torch.nn.Module):
         xlim=(0, 1), ylim=(0, 1),
         knots_x=None, knots_y=None, knots_d=None,
         weights_x=None, weights_y=None, weights_d=None,
-        spline_shape=[], knots_axis=-1, smooth=False, Spline=RQSpline,
+        spline_shape=None, knots_axis=-1, smooth=False, Spline=RQSpline,
         set_param2zero=True,
         **spline_kwargs
     ):
@@ -467,7 +471,7 @@ class SplineNet(torch.nn.Module):
         self.knots_x = knots_x
         self.knots_y = knots_y
         self.knots_d = knots_d
-        self.spline_shape = spline_shape
+        self.spline_shape = spline_shape or []
         self.knots_axis = knots_axis
 
         self.Spline = Spline
@@ -480,7 +484,7 @@ class SplineNet(torch.nn.Module):
         # to 1 (with zero inputs).
 
         def init(n):
-            spline_shape_ = list(spline_shape)
+            spline_shape_ = list(self.spline_shape)
             spline_shape_.insert(knots_axis, n)
             return torch.randn(*spline_shape_) / n**0.5
 
@@ -579,11 +583,10 @@ def get_activation(act):
     if act is None:
         return torch.nn.Identity()
 
-    elif isinstance(act, str):
+    if isinstance(act, str):
         return activations_dict[act]()
 
-    else:
-        return act
+    return act
 
 
 def neighbor_mean(x: Tensor, dim: Sequence[int] = None) -> Tensor:
