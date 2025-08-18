@@ -22,15 +22,11 @@ from .scalar.couplings_ import AffineCoupling_
 from .scalar.couplings_ import RQSplineCoupling_
 from .scalar.couplings_ import MultiRQSplineCoupling_
 
-ShiftCoupling_ = AdditiveCoupling_  # an alias, but preferably do not use it
-
 
 # Special transformations:
+from .scalar.auto_regressive_ import *
 
 from .scalar.planar_ import MultiPlanarFlow_
-
-from .scalar.auto_regressive_ import FiboARModule_
-from .scalar.auto_regressive_ import VectorARModule_
 
 from .scalar.fftflow_ import FFTNet_
 from .scalar.meanfield_ import MeanFieldNet_
