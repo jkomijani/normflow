@@ -1,13 +1,25 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
+"""
+This module contains subclass of `torch.nn.Module` designed for creating
+invertible transformations that also compute the logarithm of the Jacobian
+of the transformation.
 
-import torch
-import numpy as np
+In orther to distinguish the type of the modules, we use a trailing underscore
+in the class name to indicate that the `forward` method not only returns the
+transformed inputs but also computes and returns the log-Jacobian as the second
+item in a two-item tuple. These modules are also equipped with a `reverse`
+method that applies the inverse of the transformation.
+"""
+# pylint: disable=invalid-name
+
 import copy
 import io
 import base64
 from abc import abstractmethod, ABC
-from typing import Type, List
+from typing import List
+import torch
+import numpy as np
 
 
 # =============================================================================
@@ -116,7 +128,6 @@ class Module_(torch.nn.Module, ABC):
             Tensor: Transformed output tensor.
             Tensor: Updated log Jacobian of the transformation.
         """
-        pass
 
     @abstractmethod
     def reverse(self, x, log0=0):
@@ -132,9 +143,8 @@ class Module_(torch.nn.Module, ABC):
             Tensor: Transformed output tensor.
             Tensor: Updated log Jacobian of the reverse transformation.
         """
-        pass
 
-    def transfer(self, **kwargs):
+    def transfer(self, **kwargs):  # pylint: disable=unused-argument
         return copy.deepcopy(self)
 
     @property
@@ -144,8 +154,7 @@ class Module_(torch.nn.Module, ABC):
     def sum_density(self, x):
         if self.propagate_density:
             return x
-        else:
-            return torch.sum(x, dim=list(range(1, x.dim())))
+        return torch.sum(x, dim=list(range(1, x.dim())))
 
     def set_param2zero(self):
         for param in self.parameters():
@@ -226,20 +235,24 @@ class ModuleList_(torch.nn.ModuleList, Module_):
             Tensor: Cumulative log Jacobians across reverse flows.
         """
         logj = log0
-        for net_ in list(self)[::-1]:  # list() is needed for child classes...
+        for net_ in reversed(self):
             x, logj = net_.reverse(x, log0=logj)
         return x, logj
 
     def grouped_parameters(self):
         if self._groups is None:
             return super().parameters()
-        else:
-            params_list = []
-            sum_ = lambda x: sum(x, start=[])
-            for grp in self._groups:
-                par = sum_([list(self[k].parameters()) for k in grp['ind']])
-                params_list.append(dict(params=par, **grp['hyper']))
-            return params_list
+
+        params_list = []
+
+        def sum_list(x):
+            return sum(x, start=[])
+
+        for grp in self._groups:
+            par = sum_list([list(self[k].parameters()) for k in grp['ind']])
+            params_list.append(dict(params=par, **grp['hyper']))
+
+        return params_list
 
     def setup_groups(self, groups=None):
         """If group is not None, it must be a list of dicts. e.g. as
@@ -268,14 +281,16 @@ class ModuleList_(torch.nn.ModuleList, Module_):
 
 # =============================================================================
 class MultiChannelModule_(torch.nn.ModuleList):
-    """A prototype class similar to `Module_` except that it handles multiple
+    """
+    A prototype class similar to `Module_` except that it handles multiple
     channels seperately, in the sense that each channel is transformed by
     corresponding NN. The number of input NNs must agree with the number of
     channels.
     """
 
-    def __init__(self, nets_,
-            label=None, channels_axis=1, keep_channels_axis=True):
+    def __init__(
+        self, nets_, label=None, channels_axis=1, keep_channels_axis=True
+    ):
         super().__init__(nets_)
         self.channels_axis = channels_axis
         self.keep_channels_axis = keep_channels_axis
@@ -303,9 +318,9 @@ class MultiChannelModule_(torch.nn.ModuleList):
             x = torch.cat([o[0] for o in out], dim=self.channels_axis)
         else:
             x = torch.stack([o[0] for o in out], dim=self.channels_axis)
-        logJ = sum([o[1] for o in out])
+        logj = sum([o[1] for o in out])
 
-        return x, log0 + logJ
+        return x, log0 + logj
 
     def parameters(self):
         return super().parameters()
@@ -322,15 +337,16 @@ class MultiOutChannelModule_(MultiChannelModule_):
 
         out = [fj_(x) for fj_ in f_]
         x = torch.cat([o[0] for o in out], dim=self.channels_axis)
-        logJ = sum([o[1] for o in out])
+        logj = sum([o[1] for o in out])
 
-        return x, log0 + logJ
+        return x, log0 + logj
 
 
 # =============================================================================
 class InvisibilityMaskWrapperModule_(Module_):
-    """A wrapper that makes a part of the input invisible before passing it the
-    underlying network (`net_`). 
+    """
+    A wrapper that makes a part of the input invisible before passing it the
+    underlying network (`net_`).
 
     Parameters
     ----------
@@ -350,14 +366,14 @@ class InvisibilityMaskWrapperModule_(Module_):
 
     def forward(self, x, log0=0):
         x_v, x_invisible = self.mask.split(x)  # x_v: x_visible
-        x_v, logJ_density = self.net_.forward(x_v)
+        x_v, logj_density = self.net_.forward(x_v)
         x_v = self.mask.purify(x_v, channel=0)
-        logJ = self.sum_density(self.mask.purify(logJ_density, channel=0))
-        return self.mask.cat(x_v, x_invisible), log0 + logJ
+        logj = self.sum_density(self.mask.purify(logj_density, channel=0))
+        return self.mask.cat(x_v, x_invisible), log0 + logj
 
     def reverse(self, x, log0=0):
         x_v, x_invisible = self.mask.split(x)  # x_v: x_visible
-        x_v, logJ_density = self.net_.reverse(x_v)
+        x_v, logj_density = self.net_.reverse(x_v)
         x_v = self.mask.purify(x_v, channel=0)
-        logJ = self.sum_density(self.mask.purify(logJ_density, channel=0))
-        return self.mask.cat(x_v, x_invisible), log0 + logJ
+        logj = self.sum_density(self.mask.purify(logj_density, channel=0))
+        return self.mask.cat(x_v, x_invisible), log0 + logj
