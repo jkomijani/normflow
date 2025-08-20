@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """
 This module includes several basic subclasses of `Module_` that are designed
@@ -14,21 +14,45 @@ The trailing underscore in `Module_` and its subclasses indicates that the
       that involve volume changes.
 """
 
+# pylint: disable=relative-beyond-top-level
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+# pylint: disable=invalid-name
+
+
+from typing import Union
 
 import torch
-import copy
 import numpy as np
-from typing import Union
 
 from .modules import SplineNet
 from .._core import Module_, ModuleList_
 
 
+__all__ = [
+    "Identity_",
+    "Clone_",
+    "Affine_",
+    "Pade11_",
+    "Pade22_",
+    "Pade32_",
+    "Pade32a_",
+    "DistConvertor_",
+    "UnityDistConvertor_",
+    "PhaseDistConvertor_"
+]
+
 Number = Union[int, float, complex]
 Tensor = torch.Tensor
 
 
+# =============================================================================
 class Identity_(Module_):
+    """
+    Identity transformation.
+
+    Applies the identity map to inputs: forward and reverse both
+    return `(x, log0)` unchanged.
+    """
 
     def forward(self, x, log0=0, **extra):
         return x, log0
@@ -38,6 +62,12 @@ class Identity_(Module_):
 
 
 class Clone_(Module_):
+    """
+    Clone transformation.
+
+    Forward and reverse both return a cloned copy of `x`, leaving
+    `log0` unchanged.
+    """
 
     def forward(self, x, log0=0, **extra):
         return x.clone(), log0
@@ -47,6 +77,12 @@ class Clone_(Module_):
 
 
 class Tanh_(Module_):
+    """
+    Hyperbolic tangent transformation.
+
+    Applies `tanh` in the forward direction, adjusting `log0` with
+    the log-Jacobian. Reverse is implemented with `ArcTanh_`.
+    """
 
     def forward(self, x, log0=0):
         logj = -2 * self.sum_density(torch.log(torch.cosh(x)))
@@ -57,6 +93,12 @@ class Tanh_(Module_):
 
 
 class ArcTanh_(Module_):
+    """
+    Inverse hyperbolic tangent transformation.
+
+    Applies `atanh` in the forward direction, adjusting `log0` with
+    the log-Jacobian. Reverse is implemented with `Tanh_`.
+    """
 
     def forward(self, x, log0=0):
         y = torch.atanh(x)
@@ -68,7 +110,12 @@ class ArcTanh_(Module_):
 
 
 class Expit_(Module_):
-    """This can be also called `Sigmoid_`."""
+    """
+    Logistic sigmoid transformation.
+
+    Also called `Sigmoid_`. Applies `expit` in the forward direction,
+    with exact log-Jacobian. Reverse is implemented with `Logit_`.
+    """
 
     def forward(self, x, log0=0):
         y = 1 / (1 + torch.exp(-x))
@@ -80,11 +127,17 @@ class Expit_(Module_):
 
 
 class Logit_(Module_):
-    """This is inverse of `Sigmoid_`."""
+    """
+    Logit transformation.
+
+    Inverse of `Sigmoid_`. Maps (0, 1) to (-inf, inf) in the forward
+    direction with exact log-Jacobian. Reverse is implemented with
+    `Expit_`.
+    """
 
     def forward(self, x, log0=0):
         y = torch.log(x / (1 - x))
-        logj = - self.sum_density(torch.log(x * (1 - x)))
+        logj = -self.sum_density(torch.log(x * (1 - x)))
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
@@ -92,10 +145,8 @@ class Logit_(Module_):
 
 
 # =============================================================================
-# The following Modules have trainable parameters
+# The following Modules may have trainable parameters
 # =============================================================================
-
-
 class Affine_(Module_):
     """
     An affine transformation, :math:`a x + b`, with trainable parameters.
@@ -131,12 +182,13 @@ class Affine_(Module_):
     softplus = torch.nn.Softplus(beta=np.log(2))
     # with beta = log(2), we have softplust(0) = 1
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 w_scale: Union[Tensor, Number, None] = None,
-                 w_bias: Union[Tensor, Number, None] = None
-                 ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        w_scale: Union[Tensor, Number, None] = None,
+        w_bias: Union[Tensor, Number, None] = None
+    ):
 
         super().__init__()
 
@@ -216,10 +268,11 @@ class Pade11_(Module_):
     softplus = torch.nn.Softplus(beta=np.log(2))
     # with beta = log(2), we have softplust(0) = 1
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1
-                 ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1
+    ):
 
         super().__init__()
 
@@ -291,11 +344,12 @@ class Pade22_(Module_):
     softplus = torch.nn.Softplus(beta=np.log(2))
     # with beta = log(2), we have softplust(0) = 1
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 symmetric: bool = False
-                 ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        symmetric: bool = False
+    ):
 
         super().__init__()
 
@@ -340,7 +394,7 @@ class Pade22_(Module_):
 
     @staticmethod
     def reverse_pade22(y, d0, d1):
-        """Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
+        r"""Return the solution of :math:`a x^2 + b x + c = 0,  x \in [0, 1]`,
         where the coefficients correspond to Pade [2, 2] map.
 
         Using the facts about :math:`x, y, d_0, and d_1`, one can show that the
@@ -406,11 +460,12 @@ class Pade32_(Module_):
         parameter. If provided, :math:`a` is set to `3 expit(w_a - log(2))`.
     """
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 w_a: Union[Tensor, Number, None] = None
-                ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        w_a: Union[Tensor, Number, None] = None
+    ):
 
         super().__init__()
 
@@ -453,24 +508,49 @@ class Pade32_(Module_):
 
     @staticmethod
     def reverse_pade32(y, a):
-        """We solve a cubic relation that has only one real solution.
-
-        More specfically, we would like to invert
-
-        .. math::
+        """
+        Invert the rational function
 
             f(x) = x (a + x^2) / (1 + a x^2)
 
-        where :math:`0 < a < 3`.
+        where 0 < a < 3, by solving the equivalent cubic equation for x.
+        This function computes the unique real solution for x given `y = f(x)`.
+
+        Parameters
+        ----------
+        y : torch.Tensor or float
+            The value of the function f(x) to invert.
+        a : float
+            Parameter of the rational function, must satisfy 0 < a < 3.
+
+        Returns
+        -------
+        x : torch.Tensor or float
+            The unique real solution of f(x) = y.
+
+        Notes
+        -----
+        - f(x)/x ≥ 0 for all x ≠ 0, with f(0) = 0.
+        - The inversion reduces to solving a cubic equation with one real root.
+        - To ensure numerical stability, we introduce sgn(y) explicitly.
+          A previous version avoided this but required special handling for
+          y = 0.
+        - Here, we use a sign-adjusted formulation that handles all cases
+          uniformly.
         """
-        # `f(x) / x` is always positive unless for `x = 0`, where f(0) = 0`.
-        del0 = a**2 - 3 * a / y**2
-        del1 = - 2 * a**3 + (9 * a**2 - 27) / y**2
-        delta = 2**(-1/3) * (- del1 + torch.sqrt(del1**2 - 4*del0**3))**(1/3)
-        x = y * (a + delta + del0 / delta) / 3
-        # The above algorithm works for all `y` but `y = 0`. For this special
-        # case we use `torch.nan_to_num` to set to 0.
-        x = torch.nan_to_num(x, nan=0., posinf=0., neginf=0.)
+
+        # Compute discriminant-like terms (del0, del1) adapted for stability
+        # Then, adjust del1 by sign(y)
+        del0 = (a * y)**2 - 3 * a
+        del1 = -2 * (a * y)**3 + (9 * a**2 - 27) * y
+        del1 *= torch.sgn(y)
+
+        # Compute the cubic solution via Cardano's method
+        delta = 2**(-1/3) * (-del1 + torch.sqrt(del1**2 - 4 * del0**3))**(1/3)
+
+        # Final solution: sign-adjusted root ensuring the correct branch
+        x = (a * y + (delta + del0 / delta) * torch.sgn(y)) / 3
+
         return x
 
 
@@ -523,22 +603,23 @@ class Pade32a_(ModuleList_):
         parameter. If provided, :math:`a` is set to `3 expit(w_a - log(2))`.
     """
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 w_scale: Union[Tensor, Number, None] = None,
-                 w_bias: Union[Tensor, Number, None] = None,
-                 w_a: Union[Tensor, Number, None] = None
-                ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        w_scale: Union[Tensor, Number, None] = None,
+        w_bias: Union[Tensor, Number, None] = None,
+        w_a: Union[Tensor, Number, None] = None
+    ):
 
         affine_ = Affine_(channels_axis, n_channels, w_scale, w_bias)
         pade32_ = Pade32_(channels_axis, n_channels, w_a)
 
         super().__init__([affine_, pade32_])
 
-    def reset_options(self, w_scale, w_bias, w_a):
+    def reset_weights(self, w_scale, w_bias, w_a):
         self[0].w_scale = w_scale
-        self[0].w_bias = w_scale
+        self[0].w_bias = w_bias
         self[1].w_a = w_a
 
 
@@ -573,7 +654,7 @@ class UnityDistConvertor_(SplineNet_):
     def __init__(self, knots_len, symmetric=False, **kwargs):
 
         if symmetric:
-            extra = dict(xlim=(0.5, 1), ylim=(0.5, 1), extrap={'left':'anti'})
+            extra = dict(xlim=(0.5, 1), ylim=(0.5, 1), extrap={'left': 'anti'})
         else:
             extra = {}
 
@@ -588,7 +669,7 @@ class PhaseDistConvertor_(SplineNet_):
         pi = np.pi
 
         if symmetric:
-            extra = dict(xlim=(0, pi), ylim=(0, pi), extrap={'left':'anti'})
+            extra = dict(xlim=(0, pi), ylim=(0, pi), extrap={'left': 'anti'})
         else:
             extra = dict(xlim=(-pi, pi), ylim=(-pi, pi))
 
@@ -611,7 +692,7 @@ class DistConvertor_(ModuleList_):
         assert knots_len > 1, f"SplineNet is not defined for {knots_len} knots"
 
         if symmetric:
-            extra = dict(xlim=(0.5, 1), ylim=(0.5, 1), extrap={'left':'anti'})
+            extra = dict(xlim=(0.5, 1), ylim=(0.5, 1), extrap={'left': 'anti'})
         else:
             extra = dict(xlim=(0, 1), ylim=(0, 1))
 
@@ -633,7 +714,7 @@ class SgnBiasNet_(Module_):
     is not continuous, the derivatives will be messed up.
     """
 
-    def __init__(self, size=[1]):
+    def __init__(self, size=(1,)):
         super().__init__()
         self.w = torch.nn.Parameter(torch.rand(*size)/10)
 
