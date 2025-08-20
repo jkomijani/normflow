@@ -11,7 +11,7 @@ particularly in probabilistic modeling and generative tasks.
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 # pylint: disable=invalid-name
 
-from typing import Union, Sequence
+from typing import Union, Sequence, Type, Optional
 
 import torch
 import numpy as np
@@ -20,10 +20,21 @@ from ...lib.spline import RQSpline
 from .convNd import Conv4d
 
 
+__all__ = [
+    "ConvBlock",
+    "DenseBlock",
+    "ResidualBlock",
+    "Affine",
+    "Pade32",
+    "SplineNet",
+    "AvgNeighborPool"
+]
+
 Number = Union[int, float, complex]
 Tensor = torch.Tensor
 
 
+# =============================================================================
 class ConvBlock(torch.nn.Module):
     r"""
     A flexible convolutional module extending PyTorch's convolutional layers.
@@ -65,7 +76,7 @@ class ConvBlock(torch.nn.Module):
         **kwargs: All other kwargs to pass to CNN (such as bias).
     """
 
-    _conv = {
+    conv_map = {
         1: torch.nn.Conv1d,
         2: torch.nn.Conv2d,
         3: torch.nn.Conv3d,
@@ -85,6 +96,7 @@ class ConvBlock(torch.nn.Module):
         pre_act=None,
         **kwargs  # all other kwargs to pass to torch.nn.Conv?d
     ):
+        super().__init__()
 
         if hidden_sizes is None:
             sizes = (in_channels, out_channels)
@@ -100,15 +112,16 @@ class ConvBlock(torch.nn.Module):
 
         layers = [] if pre_act is None else [pre_act]
 
-        conv = self._conv[conv_ndim]
+        conv_cls = self.conv_map[conv_ndim]
 
         for i in range(n_layers):
-            layers.append(conv(sizes[i], sizes[i+1], kernel_size, **kwargs))
+            layers.append(
+                conv_cls(sizes[i], sizes[i + 1], kernel_size, **kwargs)
+            )
             for layer in [norms[i], acts[i], dropouts[i]]:
                 if layer is not None:
                     layers.append(layer)
 
-        super().__init__()
         self.layers = torch.nn.Sequential(*layers)
 
     def forward(self, x):
@@ -226,6 +239,100 @@ class DenseBlock(torch.nn.Module):
                 torch.nn.init.normal_(param, mean=mean, std=std)
 
 
+class ResidualBlock(torch.nn.Module):
+    """
+    Pre-activation Residual Block with flexible conv, norm, and activation.
+
+    Implements the pre-activation style of ResNet (He et al., 2016), where
+    normalization and activation are applied before each convolution. The
+    skip connection is either an identity or a 1×1 projection if input and
+    output channels differ.
+
+    Features:
+        - Supports 1D, 2D, 3D, or 4D convolutions.
+        - Flexible normalization (BatchNorm, GroupNorm, etc.).
+        - Flexible activation (ReLU, SiLU, LeakyReLU, etc.).
+        - Optional skip projection if channels differ.
+
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        kernel_size (int): Kernel size of convolutions.
+        conv_ndim (int, default=2): Convolution dimension (1,2,3,[4]).
+        norm_cls (nn.Module, optional): Normalization class. Defaults to
+            BatchNorm of the appropriate dimension.
+        act_cls (nn.Module, optional): Activation class. Defaults to SiLU.
+        **kwargs: Additional args passed to convolution layers.
+    """
+
+    conv_map = {
+        1: torch.nn.Conv1d,
+        2: torch.nn.Conv2d,
+        3: torch.nn.Conv3d,
+        4: Conv4d  # replace with actual 4D conv if available
+    }
+
+    default_norm_map = {
+        1: torch.nn.BatchNorm1d,
+        2: torch.nn.BatchNorm2d,
+        3: torch.nn.BatchNorm3d,
+        4: None  # replace with 4D norm if available
+    }
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        conv_ndim: int = 2,
+        mid_channels: int | None = None,
+        norm_cls: Optional[Type[torch.nn.Module]] = None,
+        act_cls: Optional[Type[torch.nn.Module]] = torch.nn.SiLU,
+        **kwargs
+    ):
+        super().__init__()
+
+        assert conv_ndim in (1, 2, 3, 4), "conv_ndim must be 1,2,3,4"
+        conv_cls = self.conv_map[conv_ndim]
+
+        norm_cls = norm_cls or self.default_norm_map[conv_ndim]
+
+        # Pre-activation conv blocks
+        mid_channels = mid_channels or out_channels
+        kwargs.update({'padding': 'same', 'padding_mode': 'circular'})
+        self.conv_block1 = torch.nn.Sequential(
+            norm_cls(in_channels),
+            act_cls(inplace=True),
+            conv_cls(in_channels, mid_channels, kernel_size, **kwargs)
+        )
+        self.conv_block2 = torch.nn.Sequential(
+            norm_cls(mid_channels),
+            act_cls(inplace=True),
+            conv_cls(mid_channels, out_channels, kernel_size, **kwargs)
+        )
+
+        # Skip connection
+        if in_channels != out_channels:
+            self.skip = conv_cls(in_channels, out_channels, kernel_size=1)
+        else:
+            self.skip = torch.nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass.
+
+        Args:
+            x (Tensor): Input tensor of shape (batch, channels, ...)
+
+        Returns:
+            Tensor: Output tensor after residual addition.
+        """
+        out = self.conv_block1(x)
+        out = self.conv_block2(out)
+        out = out + self.skip(x)
+        return out
+
+
 class Affine(torch.nn.Module):
     """
     An affine transformation, :math:`a x + b`, with trainable parameters.
@@ -261,12 +368,13 @@ class Affine(torch.nn.Module):
     softplus = torch.nn.Softplus(beta=np.log(2))
     # with beta = log(2), we have softplust(0) = 1
 
-    def __init__(self,
-                 channels_axis: Union[int, None] = None,
-                 n_channels: int = 1,
-                 w_scale: Union[Tensor, Number, None] = None,
-                 w_bias: Union[Tensor, Number, None] = None
-                 ):
+    def __init__(
+        self,
+        channels_axis: Union[int, None] = None,
+        n_channels: int = 1,
+        w_scale: Union[Tensor, Number, None] = None,
+        w_bias: Union[Tensor, Number, None] = None
+    ):
 
         super().__init__()
 
@@ -389,24 +497,49 @@ class Pade32(torch.nn.Module):
 
     @staticmethod
     def reverse_pade32(y, a):
-        """We solve a cubic relation that has only one real solution.
-
-        More specfically, we would like to invert
-
-        .. math::
+        """
+        Invert the rational function
 
             f(x) = x (a + x^2) / (1 + a x^2)
 
-        where :math:`0 < a < 3`.
+        where 0 < a < 3, by solving the equivalent cubic equation for x.
+        This function computes the unique real solution for x given `y = f(x)`.
+
+        Parameters
+        ----------
+        y : torch.Tensor or float
+            The value of the function f(x) to invert.
+        a : float
+            Parameter of the rational function, must satisfy 0 < a < 3.
+
+        Returns
+        -------
+        x : torch.Tensor or float
+            The unique real solution of f(x) = y.
+
+        Notes
+        -----
+        - f(x)/x ≥ 0 for all x ≠ 0, with f(0) = 0.
+        - The inversion reduces to solving a cubic equation with one real root.
+        - To ensure numerical stability, we introduce sgn(y) explicitly.
+          A previous version avoided this but required special handling for
+          y = 0.
+        - Here, we use a sign-adjusted formulation that handles all cases
+          uniformly.
         """
-        # `f(x) / x` is always positive unless for `x = 0`, where f(0) = 0`.
-        del0 = a**2 - 3 * a / y**2
-        del1 = - 2 * a**3 + (9 * a**2 - 27) / y**2
-        delta = 2**(-1/3) * (- del1 + torch.sqrt(del1**2 - 4*del0**3))**(1/3)
-        x = y * (a + delta + del0 / delta) / 3
-        # The above algorithm works for all `y` but `y = 0`. For this special
-        # case we use `torch.nan_to_num` to set to 0.
-        x = torch.nan_to_num(x, nan=0., posinf=0., neginf=0.)
+
+        # Compute discriminant-like terms (del0, del1) adapted for stability
+        # Then, adjust del1 by sign(y)
+        del0 = (a * y)**2 - 3 * a
+        del1 = -2 * (a * y)**3 + (9 * a**2 - 27) * y
+        del1 *= torch.sgn(y)
+
+        # Compute the cubic solution via Cardano's method
+        delta = 2**(-1/3) * (-del1 + torch.sqrt(del1**2 - 4 * del0**3))**(1/3)
+
+        # Final solution: sign-adjusted root ensuring the correct branch
+        x = (a * y + (delta + del0 / delta) * torch.sgn(y)) / 3
+
         return x
 
 
