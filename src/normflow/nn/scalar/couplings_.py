@@ -27,8 +27,18 @@ from abc import abstractmethod, ABC
 
 import torch
 
+from .modules_ import Pade32a_
 from .._core import Module_
 from ...lib.spline import make_rq_spline_field
+
+
+__all__ = [
+    "AdditiveCoupling_",
+    "AffineCoupling_",
+    "Pade32aCoupling_",
+    "RQSplineCoupling_",
+    "MultiRQSplineCoupling_"
+]
 
 
 # =============================================================================
@@ -317,6 +327,64 @@ class AffineCoupling_(Coupling_):
         s = self.mask.purify(s, channel=parity)
         s = s.abs()
         return (x_active - t) * torch.exp(s), log0 + self.sum_density(s)
+
+
+# =============================================================================
+class Pade32aCoupling_(Coupling_):
+    """
+    A `Coupling_` subclass implementing Padé(3,2)-based rational coupling
+    transformations.
+
+    In each coupling layer, the frozen partition `x_frozen` is passed through
+    a subnetwork `net`. Its output is split along the channel axis into three
+    parts `(w_scale, w_bias, w_a)`, which parameterize the rational transform
+    of the active partition `x_active` via a `Pade32a_` module:
+
+        y = Pade32a_(x_active ; w_scale, w_bias, w_a)
+
+    The underlying Padé(3,2) mapping is
+
+        f(x) = a z (a + z^2) / (1 + a z^2),   where z = s x + b
+
+    This map is invertible and strictly increasing for all real x whenever
+    0 < a < 3 and s > 0. Inversion and the Jacobian log-determinant are both
+    computed in closed form by `Pade32a_`.
+
+    Compared to affine coupling, the Padé(3,2) transform provides more
+    flexibility in modeling nonlinear dependencies while remaining exactly
+    invertible.
+
+    Notes
+    -----
+    - The subnetwork `net` must output three tensors along the channel axis,
+      corresponding to `(w_scale, w_bias, w_a)`.
+    - `mask.purify` ensures that only the active partition is transformed,
+      while the frozen partition remains unchanged.
+    - `w_scale` and `w_a` are used in `Pade32a_` to construct the scale
+      parameter `s > 0` (via softplus) and the bounded parameter `0 < a < 3`
+      (via expit).
+    - If all weights are zero, the transformation reduces to the identity.
+    - Exact inversion requires solving a cubic equation, handled internally
+      by `Pade32a_`.
+    """
+
+    pade32a_ = Pade32a_(w_scale=0, w_bias=0, w_a=0)
+
+    def atomic_forward(self, *, x_active, x_frozen, parity, net, log0=0):
+        w_scale, w_bias, w_a = net(x_frozen).chunk(3, dim=self.channels_axis)
+        w_scale = self.mask.purify(w_scale, channel=parity)
+        w_bias = self.mask.purify(w_bias, channel=parity)
+        w_a = self.mask.purify(w_a, channel=parity)
+        self.pade32a_.reset_weights(w_scale=w_scale, w_bias=w_bias, w_a=w_a)
+        return self.pade32a_(x_active, log0=log0)
+
+    def atomic_reverse(self, *, x_active, x_frozen, parity, net, log0=0):
+        w_scale, w_bias, w_a = net(x_frozen).chunk(3, dim=self.channels_axis)
+        w_scale = self.mask.purify(w_scale, channel=parity)
+        w_bias = self.mask.purify(w_bias, channel=parity)
+        w_a = self.mask.purify(w_a, channel=parity)
+        self.pade32a_.reset_weights(w_scale=w_scale, w_bias=w_bias, w_a=w_a)
+        return self.pade32a_.reverse(x_active, log0=log0)
 
 
 # =============================================================================

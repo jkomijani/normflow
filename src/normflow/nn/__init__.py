@@ -1,20 +1,11 @@
-# Base modules:
 from ._core import Module_, ModuleList_
 from ._core import MultiChannelModule_, MultiOutChannelModule_
 from ._core import InvisibilityMaskWrapperModule_
 
 from .scalar.modules import *
 
-
-# Subclasses of Module_
 from .scalar.modules_ import *
-
-# Coupling layers:
-from .scalar.couplings_ import AdditiveCoupling_
-from .scalar.couplings_ import AffineCoupling_
-from .scalar.couplings_ import RQSplineCoupling_
-from .scalar.couplings_ import MultiRQSplineCoupling_
-
+from .scalar.couplings_ import *
 
 # Special transformations:
 from .scalar.auto_regressive_ import *
