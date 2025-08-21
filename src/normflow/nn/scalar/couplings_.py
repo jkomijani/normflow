@@ -466,7 +466,7 @@ class RQSplineCoupling_(Coupling_):
         spline = self.make_rq_spline_field(feature_map)
 
         # below g is the gradient of spline @ x_active
-        x_active, g = spline(x_active, grad=True)
+        x_active, g = spline.reverse(x_active, grad=True)
 
         x_active = self.mask.purify(x_active, channel=parity)
         logg = self.mask.purify(torch.log(g), channel=parity)
