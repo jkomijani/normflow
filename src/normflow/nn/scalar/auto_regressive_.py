@@ -209,12 +209,6 @@ class FibonacciTilingSplitter(AutoRegSplitter):
     compared to sequential splitting strategies, making it suitable for
     high-dimensional lattices and maintaing multiscale decomposition.
 
-    Parameters
-    ----------
-    shape : tuple or list of int
-        The shape of the lattice to split. Each dimension specifies the size
-        along that axis.
-
     Behavior
     --------
     The input tensor is split into subtensors using a series of slices:
@@ -240,7 +234,7 @@ class FibonacciTilingSplitter(AutoRegSplitter):
 
        The `split` method returns the slices from bottom to top.
 
-    - Exampel: consider `shape = [7, 8]`, where the tensor is divided into
+    - Example: consider `shape = [7, 8]`, where the tensor is divided into
       sub-tensors of shape::
 
         [3, 8]
@@ -285,82 +279,171 @@ class FibonacciTilingSplitter(AutoRegSplitter):
     )
 
     def __init__(self, shape: List[int]):
+        """
+        Precompute the hierarchical splitting pattern for a lattice of the
+        given `shape`. The pattern is stored as metadata and a list of
+        slices that can later be used by `split` and `cat`.
+
+        Parameters
+        ----------
+        shape : tuple or list of int
+            Shape of the lattice (excluding batch axis). Each entry gives
+            the lattice length along that dimension.
+        """
 
         slices_list = []
         metadata_list = []
 
-        axis, leftovoer_shape = 0, shape
+        bite_axis = 0  # start biting/splitting along the first axis
 
-        while leftovoer_shape is not None:
-            out = self.bite_along_axis(shape, axis)
-            slice_list, bite_length, _, leftovoer_shape = out
+        while shape is not None:
+            # Try to bite/split the lattice along the current axis
+            out = self.bite_along_axis(shape, bite_axis)
+            bite_slices, bite_length, _, leftover_shape = out
+
+            # If a split was possible, record slices and metadata
             if bite_length is not None:
-                slices_list.append(slice_list)
-                metadata_list.append((shape, axis, *out[1:]))
-            axis = (axis + 1) % len(shape)  # increase for the next round
-            shape = leftovoer_shape
+                slices_list.append(bite_slices)
+                # metadata stores tuples with following info:
+                # (shape, bite_axis, bite_length, bite_shape, leftover_shape)
+                metadata_list.append((shape, bite_axis, *out[1:]))
 
-        self.slices_list = slices_list[::-1]
-        self.metadata_list = metadata_list[::-1]
+            # Move to next axis cyclically, continue with leftover shape
+            bite_axis = (bite_axis + 1) % len(shape)
+            shape = leftover_shape
+
+        # Reverse lists so that splitting proceeds from coarse to fine
+        self.slices_list = list(reversed(slices_list))
+        self.metadata_list = list(reversed(metadata_list))
 
     def __repr__(self):
-
+        """
+        String representation of the splitter, showing metadata about
+        each split for inspection and debugging.
+        """
         labels = ', '.join(self.metadata_labels)
-        metdata = '\n'.join([f"{val}\t" for val in self.metadata_list[::-1]])
-
-        return f"Fibonacci Auto-Regressive Mask\n{labels}\n{metdata}"
+        metadata = '\n'.join([f"{val}\t" for val in self.metadata_list[::-1]])
+        return f"Fibonacci Auto-Regressive Splitter\n{labels}\n{metadata}"
 
     def split(self, x: Tensor) -> List[Tensor]:
-        """Splits the input, suitable for the forward process."""
+        """
+        Split the input tensor into subtensors according to the precomputed
+        slicing pattern.
+
+        Parameters
+        ----------
+        x : Tensor
+            Input tensor of shape (batch_size, *shape).
+
+        Returns
+        -------
+        List[Tensor]
+            A list of subtensors, each corresponding to one "bite"
+            of the lattice as determined in `__init__`.
+        """
         return [x[slices] for slices in self.slices_list]
 
     def cat(self, x_list: List[Tensor]) -> Tensor:
-        """Reverses the `split` method, suitable for the reverse process."""
+        """
+        Reconstruct the original tensor from a list of subtensors.
+
+        This is the exact inverse of `split`, placing each subtensor
+        back into its original location in the lattice.
+
+        Parameters
+        ----------
+        x_list : list[Tensor]
+            List of subtensors produced by `split`.
+
+        Returns
+        -------
+        Tensor
+            The reconstructed tensor of shape (batch_size, *original_shape).
+        """
         item = x_list[-1]
-        shape = (item.shape[0], *self.metadata_list[-1][0])
+        shape = (item.shape[0], *self.metadata_list[-1][0])  # restore original
         x = torch.zeros(shape, dtype=item.dtype, device=item.device)
+
+        # Place each subtensor back in its recorded slice
         for item, slices in zip(x_list, self.slices_list):
             x[slices] = item
+
         return x
 
     def stepwise_cat(
         self, x_frozen: Tensor, x_active: Tensor, ind: int
     ) -> Tensor:
-        """Concatenates `x_frozen` and `x_active` in order to create
-        an updated frozen variable for the next layer, suitable for the forward
-        process.
+        """
+        Concatenate `x_frozen` and `x_active` to create an updated frozen
+        variable for the next layer. Suitable for hierarchical forward process.
 
-        The inputs are defined as::
+        The inputs follow the recursive pattern::
 
             x_active[n] = split(var)[n]
             x_frozen[n] = stepwise_cat(x_frozen[n - 1], x_active[n - 1])
 
-        with `x_frozen[0] = None`.
+        with the convention that `x_frozen[0] = None`.
+
+        Parameters
+        ----------
+        x_frozen : Tensor
+            Tensor containing previously frozen parts of the lattice.
+        x_active : Tensor
+            Tensor containing newly active parts of the lattice.
+        ind : int
+            Index in the metadata list corresponding to the current split.
+
+        Returns
+        -------
+        Tensor
+            Concatenated tensor representing the updated frozen lattice.
         """
         if ind == 0:
             return x_active
 
         lat_shape, axis = self.metadata_list[ind][:2]
-        pre_axes = [slice(None)] * (1 + axis)  # 1 for the batch axis
+
+        # Prepare slices for all preceding axes, including batch axis
+        pre_axes = [slice(None)] * (1 + axis)
         shape = (x_active.shape[0], *lat_shape)
 
         x = torch.zeros(shape, dtype=x_active.dtype, device=x_active.device)
+
+        # Place frozen values at even indices, active at odd indices
         x[pre_axes + [slice(0, None, 2)]] = x_frozen
         x[pre_axes + [slice(1, None, 2)]] = x_active
 
         return x
 
     def stepwise_split(self, x: Tensor, ind: int) -> [Tensor, Tensor]:
-        """Reverses the `stepwise_cat` method, i.e., splits the input to active
-        and frozen parts, suitable for the reverse process.
         """
+        Split the input tensor into `x_frozen` and `x_active` components.
+        This reverses `stepwise_cat` and is used for the hierarchical reverse
+        process.
 
+        Parameters
+        ----------
+        x : Tensor
+            Input tensor to split.
+        ind : int
+            Index in the metadata list corresponding to the current split.
+
+        Returns
+        -------
+        x_frozen : Tensor or None
+            Frozen part of the lattice (None if `ind == 0`).
+        x_active : Tensor
+            Active part of the lattice.
+        """
         if ind == 0:
             return None, x
 
         _, axis = self.metadata_list[ind][:2]
-        pre_axes = [slice(None)] * (1 + axis)    # 1 for the batch axis
 
+        # Prepare slices for all preceding axes, including batch axis
+        pre_axes = [slice(None)] * (1 + axis)
+
+        # Extract frozen (even indices) and active (odd indices) parts
         x_frozen = x[pre_axes + [slice(0, None, 2)]]
         x_active = x[pre_axes + [slice(1, None, 2)]]
 
@@ -375,30 +458,32 @@ class FibonacciTilingSplitter(AutoRegSplitter):
 
         for_batch_axis = [slice(0, None)]
 
+        # Case 1: Fully reduced
         if np.prod(shape) == 1:
-            bite_slice_list = for_batch_axis + [slice(0, 1) for _ in shape]
+            bite_slices = for_batch_axis + [slice(0, 1) for _ in shape]
             bite_length = 1
             bite_shape = shape
             leftover_shape = None  # a flag to signal the end of the procedure
 
+        # Case 2: Cannot bite/split along this axis
         elif shape[axis] == 1:
-            bite_slice_list = None  # cannot split along the `axis` diection
+            bite_slices = None  # cannot split along the `axis` diection
             bite_length = None
             bite_shape = None
             leftover_shape = shape
 
+        # Case 3: Split into two halves along the `axis` direction
         else:
-            # split the lattice along the `axis` direction
-            bite_slice_list = for_batch_axis + [slice(0, ell) for ell in shape]
+            bite_slices = for_batch_axis + [slice(0, ell) for ell in shape]
             ell = shape[axis]
-            bite_slice_list[1 + axis] = slice((1 + ell) // 2, ell)
+            bite_slices[1 + axis] = slice((1 + ell) // 2, ell)
             bite_length = ell // 2
             bite_shape = list(shape)
             bite_shape[axis] = ell // 2
             leftover_shape = list(shape)
             leftover_shape[axis] = (1 + ell) // 2
 
-        return bite_slice_list, bite_length, bite_shape, leftover_shape
+        return bite_slices, bite_length, bite_shape, leftover_shape
 
 
 # =============================================================================
