@@ -31,6 +31,7 @@ from .._core import Module_, ModuleList_
 __all__ = [
     "Identity_",
     "Clone_",
+    "SoftSqrt_",
     "Affine_",
     "Pade11_",
     "Pade22_",
@@ -142,6 +143,39 @@ class Logit_(Module_):
 
     def reverse(self, x, log0=0):
         return Expit_().forward(x, log0)
+
+
+class SoftSqrt_(Module_):
+    """
+    Signed Soft Square-Root Transformation.
+
+    This transformation smoothly maps real values `x` to `y` using a signed
+    square-root operation with a small positive offset `eps` for numerical
+    stability when computing the log-Jacobian.
+
+    Forward transformation:
+        y = sign(x) * sqrt(eps^2 + |x|)
+
+    Inverse (reverse) transformation:
+        x = sign(y) * (|y|^2 - eps^2)
+    """
+
+    def __init__(self, eps=1e-4):
+        super().__init__()
+        # Store squared epsilon to avoid recomputation
+        self.eps_sq = eps ** 2
+
+    def forward(self, x: torch.Tensor, log0=0):
+        """Apply the forward signed soft square-root transformation."""
+        y = torch.sign(x) * torch.sqrt(self.eps_sq + torch.abs(x))
+        logj = -self.sum_density(torch.log(torch.abs(y) * 2))
+        return y, log0 + logj
+
+    def reverse(self, y: torch.Tensor, log0=0):
+        """Apply the reverse transformation."""
+        x = torch.sign(y) * (torch.abs(y) ** 2 - self.eps_sq)
+        logj = -self.sum_density(torch.log(torch.abs(y) * 2))
+        return x, log0 - logj
 
 
 # =============================================================================
