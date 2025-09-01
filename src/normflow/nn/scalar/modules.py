@@ -64,11 +64,17 @@ class ConvBlock(torch.nn.Module):
 
     Args:
         in_channels (int): Number of input channels.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically unsqueeze the input to add a channel axis before
+            processing.
         out_channels (int): Number of output channels.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically squeeze the channel axis from the output after
+            processing.
         kernel_size (int or tuple): Size of the convolutional kernel.
         conv_ndim (int, optional): Convolution dimension (default: 2).
         hidden_sizes (Sequence, optional): Sizes of hidden layers
-           (default: None).
+            (default: None).
         norms (Sequence, optional): Normalization layers (default: None).
         acts (Sequence, optional): Activation functions (default: None).
         dropouts (Sequence, optional): Dropout layers (default: None).
@@ -98,10 +104,14 @@ class ConvBlock(torch.nn.Module):
     ):
         super().__init__()
 
+        # Handle "channel-less" convention by introduced effetive channels
+        eff_in_channels = 1 if in_channels == 0 else in_channels
+        eff_out_channels = 1 if out_channels == 0 else out_channels
+
         if hidden_sizes is None:
-            sizes = (in_channels, out_channels)
+            sizes = (eff_in_channels, eff_out_channels)
         else:
-            sizes = (in_channels, *hidden_sizes, out_channels)
+            sizes = (eff_in_channels, *hidden_sizes, eff_out_channels)
 
         n_layers = len(sizes) - 1
 
@@ -123,16 +133,39 @@ class ConvBlock(torch.nn.Module):
                     layers.append(layer)
 
         self.layers = torch.nn.Sequential(*layers)
+        self.add_input_axis = in_channels == 0
+        self.remove_output_axis = out_channels == 0
 
-    def forward(self, x):
-        return self.layers(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the model.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape.
+            If `add_input_axis` is True, an extra axis is added at dimension 1.
+
+        Returns:
+            torch.Tensor: Output tensor after passing through the layers.
+            If `remove_output_axis` is True, dimension 1 is squeezed out.
+        """
+        if self.add_input_axis:
+            x = x.unsqueeze(1)
+
+        x = self.layers(x)
+
+        if self.remove_output_axis:
+            x = x.squeeze(1)
+
+        return x
 
     def set_param2zero(self):
+        """Set all trainable parameters to zero."""
         for layer in self.layers:
             for param in layer.parameters():
                 torch.nn.init.zeros_(param)
 
-    def set_param2normal(self, mean=0.0, std=1.0):
+    def set_param2normal(self, mean: float = 0.0, std: float = 1.0):
+        """Set all trainable parameters to Gaussian with given mean and std."""
         for layer in self.layers:
             for param in layer.parameters():
                 torch.nn.init.normal_(param, mean=mean, std=std)
@@ -175,7 +208,13 @@ class DenseBlock(torch.nn.Module):
 
     Args:
         - in_features (int): Number of input features.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically unsqueeze the input to add a feature axis before
+            processing.
         - out_features (int): Number of output features.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically squeeze the feature axis from the output after
+            processing.
         - hidden_sizes (Sequence, optional): Sizes of hidden layers
           (default: None).
         - acts (Sequence, optional): Activation functions (default: None).
@@ -193,11 +232,14 @@ class DenseBlock(torch.nn.Module):
         features_axis: int = -1,
         **kwargs  # all other kwargs to pass to torch.nn.Linear
     ):
+        # Handle "feature-less" convention by introduced effetive feature axis
+        eff_in_features = 1 if in_features == 0 else in_features
+        eff_out_features = 1 if out_features == 0 else out_features
 
         if hidden_sizes is None:
-            sizes = (in_features, out_features)
+            sizes = (eff_in_features, eff_out_features)
         else:
-            sizes = (in_features, *hidden_sizes, out_features)
+            sizes = (eff_in_features, *hidden_sizes, eff_out_features)
 
         n_layers = len(sizes) - 1
 
@@ -219,21 +261,47 @@ class DenseBlock(torch.nn.Module):
 
         self.layers = torch.nn.Sequential(*layers)
         self.features_axis = features_axis
+        self.add_input_axis = in_features == 0
+        self.remove_output_axis = out_features == 0
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the model.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape.
+            If `add_input_axis` is True, an extra axis is added at dimension
+            specifed by self.feature_axis.
+
+        Returns:
+            torch.Tensor: Output tensor after passing through the layers.
+            If `remove_output_axis` is True, dimension seelf.feature_axis is
+            squeezed out.
+        """
         features_axis = self.features_axis
+        if self.add_input_axis:
+            x = x.unsqueeze(features_axis)
+
         if features_axis == -1:
-            return self.layers(x)
-        x = torch.movedim(x, features_axis, -1)
-        x = self.layers(x)
-        return torch.movedim(x, -1, features_axis)
+            x = self.layers(x)
+        else:
+            x = torch.movedim(x, features_axis, -1)
+            x = self.layers(x)
+            x = torch.movedim(x, -1, features_axis)
+
+        if self.remove_output_axis:
+            x = x.squeeze(features_axis)
+
+        return x
 
     def set_param2zero(self):
+        """Set all trainable parameters to zero."""
         for layer in self.layers:
             for param in layer.parameters():
                 torch.nn.init.zeros_(param)
 
-    def set_param2normal(self, mean=0.0, std=1.0):
+    def set_param2normal(self, mean: float = 0.0, std: float = 1.0):
+        """Set all trainable parameters to Gaussian with given mean and std."""
         for layer in self.layers:
             for param in layer.parameters():
                 torch.nn.init.normal_(param, mean=mean, std=std)
@@ -256,7 +324,13 @@ class ResidualBlock(torch.nn.Module):
 
     Args:
         in_channels (int): Number of input channels.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically unsqueeze the input to add a channel axis before
+            processing.
         out_channels (int): Number of output channels.
+            If set to 0, this is interpreted as 1 internally, and the model
+            will automatically squeeze the channel axis from the output after
+            processing.
         kernel_size (int): Kernel size of convolutions.
         conv_ndim (int, default=2): Convolution dimension (1,2,3,[4]).
         norm_cls (nn.Module, optional): Normalization class. Defaults to
@@ -297,39 +371,57 @@ class ResidualBlock(torch.nn.Module):
 
         norm_cls = norm_cls or self.default_norm_map[conv_ndim]
 
+        # Handle "channel-less" convention by introduced effetive channels
+        eff_in_channels = 1 if in_channels == 0 else in_channels
+        eff_out_channels = 1 if out_channels == 0 else out_channels
+
         # Pre-activation conv blocks
         mid_channels = mid_channels or out_channels
         kwargs.update({'padding': 'same', 'padding_mode': 'circular'})
         self.conv_block1 = torch.nn.Sequential(
-            norm_cls(in_channels),
+            norm_cls(eff_in_channels),
             act_cls(inplace=True),
-            conv_cls(in_channels, mid_channels, kernel_size, **kwargs)
+            conv_cls(eff_in_channels, mid_channels, kernel_size, **kwargs)
         )
         self.conv_block2 = torch.nn.Sequential(
             norm_cls(mid_channels),
             act_cls(inplace=True),
-            conv_cls(mid_channels, out_channels, kernel_size, **kwargs)
+            conv_cls(mid_channels, eff_out_channels, kernel_size, **kwargs)
         )
 
         # Skip connection
-        if in_channels != out_channels:
-            self.skip = conv_cls(in_channels, out_channels, kernel_size=1)
+        if eff_in_channels != eff_out_channels:
+            self.skip = conv_cls(
+                eff_in_channels, eff_out_channels, kernel_size=1
+            )
         else:
             self.skip = torch.nn.Identity()
 
+        self.add_input_axis = in_channels == 0
+        self.remove_output_axis = out_channels == 0
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass.
+        Forward pass of the model.
 
         Args:
-            x (Tensor): Input tensor of shape (batch, channels, ...)
+            x (torch.Tensor): Input tensor of shape.
+            If `add_input_axis` is True, an extra axis is added at dimension 1.
 
         Returns:
-            Tensor: Output tensor after residual addition.
+            torch.Tensor: Output tensor after passing through the layers.
+            If `remove_output_axis` is True, dimension 1 is squeezed out.
         """
+        if self.add_input_axis:
+            x = x.unsqueeze(1)
+
         out = self.conv_block1(x)
         out = self.conv_block2(out)
         out = out + self.skip(x)
+
+        if self.remove_output_axis:
+            out = out.squeeze(1)
+
         return out
 
 
@@ -392,15 +484,18 @@ class Affine(torch.nn.Module):
         self.n_channels = n_channels
         self.channels_axis = channels_axis
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         scale, bias = self.get_parameters_reshaped(x.shape)
         return scale * x + bias
 
-    def reverse(self, y):
+    def reverse(self, y: torch.Tensor) -> torch.Tensor:
+        """Reverse pass."""
         scale, bias = self.get_parameters_reshaped(y.shape)
         return (y - bias) / scale
 
     def get_parameters_reshaped(self, shape):
+        """Compute paramaters and reshape if required."""
         if self.channels_axis is None:
             w_scale = self.w_scale
             w_bias = self.w_bias
@@ -476,17 +571,20 @@ class Pade32(torch.nn.Module):
         self.channels_axis = channels_axis
         self.n_channels = n_channels
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         a = self.get_parameters_reshaped(x.shape)  # a is derivative at x = 0
         y = a * x * (a + x**2) / (1 + a * x**2)
         return y
 
-    def reverse(self, y):
+    def reverse(self, y: torch.Tensor) -> torch.Tensor:
+        """Reverse pass."""
         a = self.get_parameters_reshaped(y.shape)  # a is derivative at x = 0
         x = self.reverse_pade32(y / a, a)
         return x
 
     def get_parameters_reshaped(self, shape):
+        """Compute paramaters and reshape if required."""
         if self.channels_axis is None:
             w_a = self.w_a
         else:
@@ -608,7 +706,7 @@ class SplineNet(torch.nn.Module):
         self.knots_axis = knots_axis
 
         self.Spline = Spline
-        self.spline_kwargs = dict(**spline_kwargs, knots_axis=knots_axis)
+        self.spline_kwargs = {"knots_axis": knots_axis, **spline_kwargs}
 
         self.softmax = torch.nn.Softmax(dim=self.knots_axis)
         self.softplus = torch.nn.Softplus(beta=np.log(2))
@@ -641,17 +739,20 @@ class SplineNet(torch.nn.Module):
         if set_param2zero:
             self.set_param2zero()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         spline = self.make_spline()
         x_reshaped = x.reshape(*self.spline_shape, -1)
         return spline(x_reshaped).reshape(x.shape)
 
-    def reverse(self, x):
+    def reverse(self, y: torch.Tensor) -> torch.Tensor:
+        """Reverse pass."""
         spline = self.make_spline()
-        x_reshaped = x.reshape(*self.spline_shape, -1)
-        return spline.reverse(x_reshaped).reshape(x.shape)
+        y_reshaped = y.reshape(*self.spline_shape, -1)
+        return spline.reverse(y_reshaped).reshape(y.shape)
 
     def make_spline(self):
+        """Make an spline for forward and reverse passes."""
         dim = self.knots_axis
         zero_shape = list(self.spline_shape)
         zero_shape.insert(dim, 1)
@@ -677,10 +778,12 @@ class SplineNet(torch.nn.Module):
         return self.Spline(**mydict, **self.spline_kwargs)
 
     def set_param2zero(self):
+        """Set all trainable parameters to zero."""
         for param in self.parameters():
             torch.nn.init.zeros_(param)
 
-    def set_param2normal(self, mean=0.0, std=1.0):
+    def set_param2normal(self, mean: float = 0.0, std: float = 1.0):
+        """Set all trainable parameters to Gaussian with given mean and std."""
         for param in self.parameters():
             torch.nn.init.normal_(param, mean=mean, std=std)
 
@@ -688,14 +791,16 @@ class SplineNet(torch.nn.Module):
 class AvgNeighborPool(torch.nn.Module):
     """Computes the mean of neighboring elements along non-batch dimensions."""
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         return neighbor_mean(x, dim=range(1, x.ndim))
 
 
 class Abs(torch.nn.Module):
     """Introduced for adding to the list of activations"""
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         return torch.abs(x)
 
 
@@ -712,7 +817,19 @@ activations_dict = {
 
 
 def get_activation(act):
+    """
+    Retrieve an activation function.
 
+    Args:
+        act (str | torch.nn.Module | None):
+            - If None, returns an identity mapping (`torch.nn.Identity`).
+            - If str, looks up the activation class in `activations_dict` and
+              instantiates it.
+            - If already a `torch.nn.Module`, returns it directly.
+
+    Returns:
+        torch.nn.Module: The corresponding activation function.
+    """
     if act is None:
         return torch.nn.Identity()
 
