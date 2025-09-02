@@ -12,8 +12,8 @@ from .scalar.auto_regressive_ import *
 
 from .scalar.planar_ import MultiPlanarFlow_
 
-from .scalar.fftflow_ import FFTNet_
-from .scalar.meanfield_ import MeanFieldNet_
+from .scalar.fftflow_ import *
+from .scalar.meanfield_ import *
 from .scalar.psd_ import PSDBlock_
 
 from .matrix.matrix_module_ import MatrixModule_
