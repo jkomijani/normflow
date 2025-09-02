@@ -24,6 +24,7 @@ the transformed tensor and the accumulated log-Jacobian determinant.
 # pylint: disable=invalid-name
 
 from abc import abstractmethod, ABC
+import warnings
 
 import torch
 
@@ -103,6 +104,11 @@ class Coupling_(Module_, ABC):
         self.mask = mask
         self.channels_axis = channels_axis
         self.handle_channel_axis = handle_channel_axis
+
+        if handle_channel_axis and channels_axis != 1:
+             warnings.warn(
+                "Depending on 'mask', can have unintended effects", UserWarning
+            )
 
     @property
     def nets(self):
