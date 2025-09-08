@@ -267,8 +267,8 @@ class FibonacciTilingSplitter(AutoRegSplitter):
         - Provide insight into how the lattice is recursively divided.
 
     2. `slices_list`:
-        A list of Python slice objects (or tuples of slices) corresponding to
-        each bite/split. Each element specifies exactly which part of the input
+        A list of tuples of Python slice objects, where each tuple corresponds
+        to one bite/split. Each tuple specifies exactly which part of the input
         tensor to extract for that split. This list is used directly in the
         `split` method to slice the input tensor and in `cat` / `stepwise_cat`
         to recombine subtensors in the correct positions.
@@ -404,14 +404,14 @@ class FibonacciTilingSplitter(AutoRegSplitter):
         lat_shape, axis = self.metadata_list[ind][:2]
 
         # Prepare slices for all preceding axes, including batch axis
-        pre_axes = [slice(None)] * (1 + axis)
+        pre_axes = (slice(None),) * (1 + axis)
         shape = (x_active.shape[0], *lat_shape)
 
         x = torch.zeros(shape, dtype=x_active.dtype, device=x_active.device)
 
         # Place frozen values at even indices, active at odd indices
-        x[pre_axes + [slice(0, None, 2)]] = x_frozen
-        x[pre_axes + [slice(1, None, 2)]] = x_active
+        x[pre_axes + (slice(0, None, 2),)] = x_frozen
+        x[pre_axes + (slice(1, None, 2),)] = x_active
 
         return x
 
@@ -441,42 +441,65 @@ class FibonacciTilingSplitter(AutoRegSplitter):
         _, axis = self.metadata_list[ind][:2]
 
         # Prepare slices for all preceding axes, including batch axis
-        pre_axes = [slice(None)] * (1 + axis)
+        pre_axes = (slice(None),) * (1 + axis)
 
         # Extract frozen (even indices) and active (odd indices) parts
-        x_frozen = x[pre_axes + [slice(0, None, 2)]]
-        x_active = x[pre_axes + [slice(1, None, 2)]]
+        x_frozen = x[pre_axes + (slice(0, None, 2),)]
+        x_active = x[pre_axes + (slice(1, None, 2),)]
 
         return x_frozen, x_active
 
     @staticmethod
     def bite_along_axis(shape, axis):
-        """Returns a list of `slices` for "taking a bite" and returns the shape
-        of the leftover piece. It is assumed `shape` specifies the shape of the
-        lattice and the bite is along `axis` axis excluding the batch axis.
-        """
+        """Compute slices for a "bite" along a given axis of a lattice.
 
+        This method is used by `FibonacciTilingSplitter` to recursively split
+        a lattice along the specified `axis`. It returns slices selecting the
+        bite, the length of the bite along that axis, the shape of the
+        subtensor returned, and the shape of the leftover lattice.
+
+        Parameters
+        ----------
+        shape : sequence of int
+            The full shape of the lattice to be split (excluding batch axis).
+        axis : int
+            The axis along which to take the bite.
+
+        Returns
+        -------
+        bite_slices : tuple of slice or None
+            A tuple of slices specifying the subtensor to extract, or None if
+            the lattice cannot be split along this axis.
+        bite_length : int or None
+            Length of the bite along `axis`, or None if no split is possible.
+        bite_shape : list of int or None
+            Shape of the extracted bite, or None if no split is possible.
+        leftover_shape : list of int or None
+            Shape of the remaining lattice after the bite, or None if this was
+            the last bite.
+        """
         for_batch_axis = [slice(0, None)]
 
         # Case 1: Fully reduced
         if np.prod(shape) == 1:
-            bite_slices = for_batch_axis + [slice(0, 1) for _ in shape]
+            bite_slices = tuple(for_batch_axis + [slice(0, 1) for _ in shape])
             bite_length = 1
             bite_shape = shape
             leftover_shape = None  # a flag to signal the end of the procedure
 
         # Case 2: Cannot bite/split along this axis
         elif shape[axis] == 1:
-            bite_slices = None  # cannot split along the `axis` diection
+            bite_slices = None  # cannot split along the `axis` direction
             bite_length = None
             bite_shape = None
             leftover_shape = shape
 
         # Case 3: Split into two halves along the `axis` direction
         else:
-            bite_slices = for_batch_axis + [slice(0, ell) for ell in shape]
+            bite_slices = for_batch_axis + [slice(0, l) for l in shape]
             ell = shape[axis]
             bite_slices[1 + axis] = slice((1 + ell) // 2, ell)
+            bite_slices = tuple(bite_slices)
             bite_length = ell // 2
             bite_shape = list(shape)
             bite_shape[axis] = ell // 2
