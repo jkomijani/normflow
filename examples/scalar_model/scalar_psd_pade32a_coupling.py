@@ -19,6 +19,7 @@ The `world_size` option serves two purposes:
 2. Running `execute_ddp_training` if `world_size > 1`.
 """
 
+from typing import Tuple
 from functools import partial
 
 import math
@@ -32,11 +33,8 @@ from normflow.mask import EvenOddMask
 
 from normflow.nn import (
     ModuleList_,
-    Identity_,
     DistConvertor_,
-    FFTNet_,
-    MeanFieldNet_,
-    PSDBlock_,
+    make_psd_block,
     Pade32aCoupling_,
     ConvBlock
 )
@@ -46,9 +44,9 @@ from normflow.nn import (
 def main(
     # Lattice setup
     kappa: float = 0.67,
-    m_sq: float = -4*0.67,
+    m_sq: float = -4 * 0.67,
     lambd: float = 0.5,
-    lat_shape: tuple = (8, 8),
+    lat_shape: Tuple[int, ...] = (8, 8),
     # Training setup
     n_epochs: int = 1000,
     batch_size: int = 128,
@@ -65,7 +63,39 @@ def main(
     # Architecture setup
     **net_kwargs
 ):
-    """The main file for building and training the model."""
+    """
+    Build, configure, and train a lattice model.
+
+    This function assembles the network, sets up the action and prior, and
+    runs training using either single-GPU or DDP mode.
+
+    Steps:
+        1. Assemble the network with `assemble_net`.
+        2. Define the lattice action (`ScalarPhi4Action`) and prior
+           distribution (`NormalPrior`).
+        3. Wrap into a `Model` and configure parameter groups.
+        4. Set up optimizer scheduler and training arguments.
+        5. Execute training (DDP if `world_size > 1`) and perform checks.
+
+    Args:
+        kappa, m_sq, lambd: Lattice action parameters.
+        lat_shape: Shape of the lattice.
+        n_epochs: Number of training epochs.
+        batch_size: Training batch size.
+        lr: Learning rate.
+        path_gradient_autodiff: Whether to use path-wise gradient autodiff.
+        alpha_tmax: Optional alpha tmax for scheduler.
+        world_size: Number of parallel workers for DDP.
+        print_every: Steps between console prints.
+        print_bsize: Optional batch size for printing metrics.
+        load_fname: Path to load checkpoint.
+        save_fname: Path to save checkpoint.
+        debug: If True, sets a fixed random seed for reproducibility.
+        **net_kwargs: Additional keyword arguments for `assemble_net`.
+
+    Returns:
+        Model: The trained model instance.
+    """
 
     if debug:
         torch.manual_seed(213)
@@ -76,6 +106,7 @@ def main(
 
     model = Model(net_=net_, prior=prior, action=action)
 
+    # Training setup
     model.net_.setup_groups(
         groups=[
             {'ind': [0, 1, 3], 'hyper': {'weight_decay': 1e-4}},
@@ -117,35 +148,52 @@ def main(
 
 # =============================================================================
 def assemble_net(
-    *, lat_shape,
-    n_layers=4,
-    hidden_sizes=(8, 8),
-    zee2sym=True,
-    acts=None,
-    knots0_len=10,
-    knots1_len=10,
-    knots2_len=50,
-    knots4_len=50
+    lat_shape: Tuple[int, ...],
+    n_layers: int = 4,
+    hidden_sizes: Tuple[int, ...] = (8, 8),
+    zee2sym: bool = True,
+    acts: Tuple[torch.nn.Module, ...] | None = None,
+    len0: int = 4,
+    len1: int = 10,
+    len2: int = 50,
+    len3: int = 50
 ):
-    """Assemble a module and return it as an instance of `ModuleList_`."""
+    """
+    Assemble a modular neural network for lattice data as a `ModuleList_`.
 
-    mfdict = dict(
-        knots_len=knots0_len, symmetric=zee2sym, final_scale=True, smooth=True
+    The network includes, in order:
+        1. PSD block (mean-field + FFT-based) for lattice modes.
+        2. Optional DistConvertor_ for intermediate activation.
+        3. Pade32a coupling blocks (ConvBlock inside Pade32aCoupling_).
+        4. Optional DistConvertor_ for output transformation.
+
+    Args:
+        lat_shape: Shape of the lattice input.
+        n_layers: Number of affine layers in each affine coupling.
+        hidden_sizes: Hidden channel sizes for ConvBlock in an affine layer.
+        zee2sym: If True, enforces Z2 symmetry for activations and converters.
+        acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
+            LeakyReLU.
+        len0: Reserved for number of layers in PSD block mean-field.
+        len1: Number of spline knots in the PSD block (ipsd_knots_len).
+        len2: Size of first DistConvertor_ (optional intermediate activation).
+        len3: Size of final DistConvertor_ (optional output activation).
+
+    Returns:
+        ModuleList_: List of modules forming the complete lattice network.
+    """
+
+    # 1. PSD block
+    psd_block_ = make_psd_block(
+        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=len1
     )
 
-    fftdict = dict(knots_len=knots1_len, ignore_zeromode=True)
-
-    nets_list = []
-
-    # 1. First block
-    mfnet_ = MeanFieldNet_.build(**mfdict) if (knots0_len > 1) else Identity_()
-    fftnet_ = FFTNet_.build(lat_shape, **fftdict)
-    nets_list.append(PSDBlock_(mfnet_=mfnet_, fftnet_=fftnet_))
+    nets_list = [psd_block_]
 
     # 2. include (possible) activation
-    if knots2_len > 1:
+    if len2 > 1:
         nets_list.append(
-            DistConvertor_(knots2_len, symmetric=zee2sym, smooth=True)
+            DistConvertor_(len2, symmetric=zee2sym, smooth=True)
         )
 
     # 3. Add (possible) affine blocks
@@ -153,16 +201,16 @@ def assemble_net(
         act = torch.nn.Tanh() if zee2sym else torch.nn.LeakyReLU()
         acts = (*[act]*len(hidden_sizes), None)
 
-    conv_dict = dict(
-        in_channels=1,
-        out_channels=3,
-        hidden_sizes=hidden_sizes,
-        kernel_size=3,
-        padding_mode='circular',
-        conv_ndim=len(lat_shape),
-        acts=acts,
-        bias=not zee2sym
-    )
+    conv_dict = {
+        'in_channels': 1,
+        'out_channels': 3,
+        'hidden_sizes': hidden_sizes,
+        'kernel_size': 3,
+        'padding_mode': 'circular',
+        'conv_ndim': len(lat_shape),
+        'acts': acts,
+        'bias': not zee2sym
+    }
 
     mask = EvenOddMask(shape=lat_shape)
 
@@ -174,21 +222,30 @@ def assemble_net(
     )
 
     # 4. include (possible) activation
-    if knots4_len > 1:
+    if len3 > 1:
         nets_list.append(
-            DistConvertor_(knots4_len, symmetric=zee2sym, smooth=True)
+            DistConvertor_(len3, symmetric=zee2sym, smooth=True)
         )
 
     return ModuleList_(nets_list)
 
 
 # =============================================================================
-def _unittest(rel_tol=1e-1):
-    # The reference point `loss_ref` is obtained on GPU with double precision.
-    # Results vary between CPU and GPU, that's why rel_tol is so large!
+def _unittest(rel_tol: float = 1e-1):
+    """
+    Minimal unit test for the PSD + pade32a coupling model.
+
+    Due to CPU/GPU differences, the relative tolerance is intentionally large.
+
+    Args:
+        rel_tol: Relative tolerance for comparing computed loss to reference.
+
+    Returns:
+        bool: True if the computed loss is within tolerance, False otherwise.
+    """
     model = main(debug=True, n_epochs=5, print_every=None)
     loss = model.trainer.compute_metrics(batch_size=16)[0]
-    loss_ref = -51.857249875727
+    loss_ref = -53.56669168147471
     passed = math.isclose(loss, loss_ref, rel_tol=rel_tol)
     if not passed:
         print(f"Unittest Failed in psd_affine_coupling: {loss} != {loss_ref}")
@@ -208,10 +265,10 @@ if __name__ == '__main__':
     add("--kappa", dest="kappa", type=float)
     # Architecture setup
     add("--n_layers", dest="n_layers", type=int)
-    add("--knots0_len", dest="knots0_len", type=int)
-    add("--knots1_len", dest="knots1_len", type=int)
-    add("--knots2_len", dest="knots2_len", type=int)
-    add("--knots4_len", dest="knots4_len", type=int)
+    add("--len0", dest="len0", type=int)
+    add("--len1", dest="len1", type=int)
+    add("--len2", dest="len2", type=int)
+    add("--len3", dest="len3", type=int)
     add("--zee2sym", dest="zee2sym", type=bool)
     add("--hidden_sizes", dest="hidden_sizes", type=int, nargs='+')
     # Training setup
