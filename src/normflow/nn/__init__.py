@@ -10,11 +10,11 @@ from .scalar.couplings_ import *
 # Special transformations:
 from .scalar.auto_regressive_ import *
 
-from .scalar.planar_ import MultiPlanarFlow_
-
 from .scalar.fftflow_ import *
 from .scalar.meanfield_ import *
-from .scalar.psd_ import PSDBlock_
+from .scalar.psd_ import *
+
+from .scalar.planar_ import MultiPlanarFlow_
 
 from .matrix.matrix_module_ import MatrixModule_
 from .matrix.stapled_matrix_module_ import StapledMatrixModule_

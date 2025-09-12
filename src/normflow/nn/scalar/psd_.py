@@ -1,19 +1,73 @@
 # Copyright (c) 2021-2025 Javad Komijani
 
 """
-This module introduces a neural network to handle the PSD of a field.
+Neural network blocks for lattice mean-field and power spectral density (PSD).
+
+Includes:
+    - PSDBlock_: combines mean-field and FFT-based PSD transformations.
+    - Factory functions for constructing these networks.
 """
 
 # pylint: disable=relative-beyond-top-level
 
+from typing import Tuple
 import torch
 import numpy as np
 
 from .._core import Module_
+from .meanfield_ import make_meanfield_net
+from .fftflow_ import make_fftnet
+
+
+__all__ = ["make_psd_block", "PSDBlock_"]
+
+
+def make_psd_block(
+    lat_shape: Tuple[int, ...],
+    ipsd_knots_len: int = 10,
+    meanfield_n_layers: int = 0,
+):
+    """
+    Build a PSDBlock_ with FFT-based and optional mean-field components.
+
+    - If ``meanfield_n_layers > 0``:
+        * MeanFieldNet_: handles the zero mode (lattice mean).
+        * FFTNet_: handles non-zero modes (fluctuations), with the zero mode
+          ignored.
+    - If ``meanfield_n_layers == 0``:
+        * Only FFTNet_ is constructed.
+
+    Args:
+        lat_shape: Lattice shape.
+        ipsd_knots_len: Number of spline knots for FFTNet_ (> 2).
+        meanfield_n_layers: Depth of the mean-field converter. If 0, no
+            mean-field network is used. Default is 0.
+
+    Returns:
+        PSDBlock_ or FFTNet_: Combined PSD block or FFT-based network
+    """
+    if ipsd_knots_len <= 2:
+        raise ValueError("ipsd_knots_len must be greater than 2")
+
+    if meanfield_n_layers <= 0:
+        # Only FFTNet_ is needed
+        return make_fftnet(lat_shape, knots_len=ipsd_knots_len)
+
+    # Build MeanFieldNet_ for zero mode
+    mfnet_ = make_meanfield_net(meanfield_n_layers)
+
+    # Build FFTNet_ for non-zero modes
+    fftnet_ = make_fftnet(
+        lat_shape, knots_len=ipsd_knots_len, ignore_zeromode=True
+    )
+
+    # Combine both components into a PSD block.
+    return PSDBlock_(mfnet_=mfnet_, fftnet_=fftnet_)
 
 
 class PSDBlock_(Module_):  # pylint: disable=invalid-name
-    """Block that applies Mean-Field and FFT-based PSD transformations.
+    """
+    Block that applies combined mean-field and FFT-based PSD transformations.
 
     The PSDBlock contains two components:
         1. MeanFieldNet_ for the zero-mode (mean) of the lattice.
