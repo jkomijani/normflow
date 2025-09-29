@@ -2,13 +2,16 @@
 
 # Components of this module are mainly copied from '.matrix_handle.py'
 
+# pylint: disable=invalid-name, arguments-differ
+
 """This module has utilities to handle Lie groups."""
 
+
+from abc import abstractmethod, ABC
 
 import torch
 import numpy as np
 
-from abc import abstractmethod, ABC
 
 from .ordering import ZeroSumOrder
 from ..linalg import eigh_
@@ -30,11 +33,12 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
     In addition to the group-valued matrix, this class calculates the logarithm
     of the Jacobian of the transformation.
     """
-    
-    def __init__(self,
-            coordinate_representation: bool = True,
-            makesure_invertible: bool = True
-            ):
+
+    def __init__(
+        self,
+        coordinate_representation: bool = True,
+        makesure_invertible: bool = True
+    ):
         super().__init__()
         self.coordinate_representation = coordinate_representation
         self.makesure_invertible = makesure_invertible
@@ -42,11 +46,11 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    def forward(self, matrix, log0 = 0):
+    def forward(self, matrix, log0=0):
         """
         Computes the unitary group matrix and log-Jacobian from the input
         matrix.
-        
+
         Parameters:
         -----------
         matrix : torch.Tensor
@@ -54,7 +58,7 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             depending on `coordinate_representation`.
         log0 : torch.Tensor or float, optional
             Initial log-Jacobian value, default is 0.
-        
+
         Returns:
         --------
         tuple : (torch.Tensor, torch.Tensor)
@@ -62,35 +66,35 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             - The group-valued matrix.
             - The logarithm of the Jacobian of the transformation.
         """
-        
+
         # 0) Transform coefficients to matrix if in coordinate representation
         if self.coordinate_representation:
             matrix = self.get_matrix_representation(matrix)
-        
+
         # 1) Eigen decomposition using `eigh_` for Hermitian matrices
         (eigvals, eigvecs), logj1 = eigh_(matrix)
-        
+
         # 2) Map eigenvalues to the principal cell for invertibility
         if self.makesure_invertible:
             eigvals, logj2 = self.map2principal_forward(eigvals)
         else:
             logj2 = 0
-        
+
         # 3) Exponentiate eigenvalues
         eigvals = torch.exp(1j * eigvals)
-        
+
         # 4) Reconstruct matrix from eigendecomposition
         matrix, logj3 = inverse_eign_(eigvals, eigvecs)
-        
+
         # Return the transformed matrix and total Jacobian log
         return matrix, logj3 + logj2 + logj1 + log0
-    
+
     def reverse(self, matrix, log0=0):
         """Inverse of the `forward` method."""
 
         # 4) Eigen decomposition using `eigu_` for unitary matrices
         (eigvals, eigvecs), logj1 = eigu_(matrix)
-        
+
         # 3) Compute the angle of eigenvalues
         eigvals = torch.angle(eigvals)
 
@@ -99,7 +103,7 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             eigvals, logj2 = self.map2principal_reverse(eigvals)
         else:
             logj2 = 0
-        
+
         # 1) Reconstruct matrix from eigendecomposition
         matrix, logj3 = inverse_eign_(eigvals, eigvecs)
 
@@ -114,7 +118,7 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
     def get_matrix_representation(self, coeffs):
         """
         Convert coefficients to an algebra-valued matrix.
-        
+
         Parameters:
         -----------
         coeffs : torch.Tensor
@@ -124,13 +128,12 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             torch.Tensor: Algebra-valued matrix.
         """
         # Implement the actual transformation logic here
-        pass
-    
+
     @abstractmethod
     def extract_generators_coeffs(self, matrix):
         """
         Expand matrix in basis of the Lie algebra generators.
-        
+
         Parameters:
         -----------
         matrix : torch.Tensor
@@ -140,20 +143,19 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             torch.Tensor: Coefficients of the Lie algebra generators.
         """
         # Implement the actual transformation logic here
-        pass
 
     @staticmethod
     def map2principal_forward(phase):
         """Maps phase to the principal range with log-Jacobian."""
         zeta, logj = tanh_(phase / np.pi)
         return np.pi * zeta, logj
-    
+
     @staticmethod
     def map2principal_reverse(phase):
         """Reverse mapping of phase to principal range with log-Jacobian."""
         zeta, logj = atanh_(phase / np.pi)
         return np.pi * zeta, logj
-    
+
 
 def tanh_(x):
     """
@@ -186,12 +188,21 @@ def atanh_(x):
 
 # =============================================================================
 class SU2Algebra2Group_(UnitaryAlgebra2Group_):
+    r"""
+    Maps coefficients of unitary group generators to group elements as
+
+    .. math::
+
+        U = e^{i \sum_a \theta_a T_a}
+
+    where :math:`T_a` are the generators of SU(2) group.
+    """
 
     @staticmethod
     def get_matrix_representation(coeffs):
         """
         Convert coefficients to an algebra-valued matrix.
-        
+
         Parameters:
         -----------
         coeffs : torch.Tensor
@@ -217,7 +228,7 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
     def extract_generators_coeffs(matrix):
         """
         Expand matrix in basis of the Lie algebra generators.
-        
+
         Parameters:
         -----------
         matrix : torch.Tensor
@@ -254,12 +265,21 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
 
 # =============================================================================
 class SU3Algebra2Group_(UnitaryAlgebra2Group_):
+    r"""
+    Maps coefficients of unitary group generators to group elements as
+
+    .. math::
+
+        U = e^{i \sum_a \theta_a T_a}
+
+    where :math:`T_a` are the generators of SU(3) group.
+    """
 
     @staticmethod
     def get_matrix_representation(coeffs):
         """
         Convert coefficients to an algebra-valued matrix.
-        
+
         Parameters:
         -----------
         coeffs : torch.Tensor
@@ -287,12 +307,12 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
         matrix[..., 1, 2] = matrix[..., 2, 1].conj()
 
         return matrix
-    
+
     @staticmethod
     def extract_generators_coeffs(matrix):
         """
         Expand matrix in basis of the Lie algebra generators.
-        
+
         Parameters:
         -----------
         matrix : torch.Tensor
@@ -401,4 +421,5 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
 
 # =============================================================================
 def sum_density(x):
+    """Compute the sum over all, but the batch, axes."""
     return torch.sum(x, dim=list(range(1, x.dim())))
