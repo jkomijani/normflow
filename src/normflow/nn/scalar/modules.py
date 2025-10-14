@@ -11,7 +11,7 @@ particularly in probabilistic modeling and generative tasks.
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 # pylint: disable=invalid-name
 
-from typing import Union, Sequence, Type, Optional
+from typing import Tuple, Union, Sequence, Type, Optional
 
 import torch
 import numpy as np
@@ -27,6 +27,7 @@ __all__ = [
     "Affine",
     "Pade32",
     "SplineNet",
+    "RQSplineWithGrad",
     "AvgNeighborPool"
 ]
 
@@ -643,44 +644,58 @@ class Pade32(torch.nn.Module):
 
 class SplineNet(torch.nn.Module):
     """
-    Return a neural network for spline interpolation/extrapolation.
-    The input `knots_len` specifies the number of knots of the spline.
-    In general, the first knot is always at (xlim[0], ylim[0]) and the last
-    knot is always at (xlim[1], ylim[1]) and the coordintes of other knots are
-    network parameters to be trained, unless one explicitely provides
-    `knots_x` and/or `knots_y`.
-    Assuming `knots_x` is None, one needs `(knots_len - 1)` parameters to
-    specify the `x` position of the knots (with softmax);
-    similarly for the `y` position.
-    There will be additional `knots_len` parameters to specify the derivatives
-    at knots unless `smooth == True`.
+    Neural network wrapper for learnable spline-based transformations.
 
-    Note that `knots_len` must be at least equal 2. Also note that
+    The network defines a monotonic mapping from `xlim` to `ylim` using a
+    trainable spline function. The specific spline implementation can be
+    provided via the `Spline` argument. By default, it uses a rational
+    quadratic spline (`RQSpline`).
 
-        SplineNet(2, smooth=True)
+    The number of knots is specified by `knots_len`. The first knot is fixed
+    at (xlim[0], ylim[0]) and the last at (xlim[1], ylim[1]). The coordinates
+    of intermediate knots are learned unless explicitly provided through
+    `knots_x` or `knots_y`.
 
-    is basically an identity net (although it has two dummy parameters!)
+    If `knots_x` is None, `(knots_len - 1)` parameters are learned to define
+    the x-positions of the knots via a softmax; the same applies to y.
+    Additional `knots_len` parameters control the derivatives at the knots,
+    unless `smooth=True`.
 
-    Can be used as a probability distribution convertor for variables with
-    nonzero probability in [0, 1].
+    When `xlim=(0, 1)` and `ylim=(0, 1)`, the transformation becomes a smooth
+    bijection from [0, 1] to [0, 1], making it suitable for applications such
+    as normalizing flows or differentiable coordinate transforms.
+
+    Notes
+    -----
+    - `knots_len` must be at least 2.
+    - `SplineNet(2, smooth=True)` yields an identity-like mapping with two
+      dummy parameters.
 
     Parameters
     ----------
     knots_len : int
-        number of knots of the spline.
-    xlim & ylim : array-like, optional
-        the min and max values for `x` & `y` of the knots.
-    knots_x & knots_y & knots_d : None or tensors, optional
-        fix corresponding tensors to the input if provided.
-    weights_x & weights_y & weights_d : None or tensors, optional
-        fix corresponding tensors to the input if provided.
-    spline_shape : array-like | None, optional
-        specifies number of splines organized as a tensor
-        (default is None, indicating there is only one spline).
+        Number of knots in the spline.
+    xlim, ylim : array-like, optional
+        The minimum and maximum values for x and y coordinates of the knots.
+        Defaults to [0, 1].
+    knots_x, knots_y, knots_d : torch.Tensor or None, optional
+        Fixed knot positions or derivatives, if provided.
+    weights_x, weights_y, weights_d : torch.Tensor or None, optional
+        Fixed weight tensors that override the default initialization.
+    spline_shape : array-like or None, optional
+        Shape of the tensor specifying the number of independent splines.
+        Defaults to None, indicating a single spline.
     knots_axis : int, optional
-        relevant only if spline_shape is not empty list (default value is -1).
+        Relevant only if `spline_shape` is not an empty list. Default is -1.
+    smooth : bool, optional
+        If True, enforces smooth derivatives across knots. Default is False.
+    Spline : callable, optional
+        Spline class or factory to use. Defaults to `RQSpline`.
+    set_param2zero : bool, optional
+        If True, initializes internal parameters to zero. Defaults to True.
+    **spline_kwargs : dict
+        Additional keyword arguments passed to the `Spline` constructor.
     """
-
     def __init__(
         self,
         knots_len,
@@ -708,13 +723,14 @@ class SplineNet(torch.nn.Module):
         self.Spline = Spline
         self.spline_kwargs = {"knots_axis": knots_axis, **spline_kwargs}
 
+        # Softmax for normalized x/y weights, Softplus for positive derivatives
         self.softmax = torch.nn.Softmax(dim=self.knots_axis)
         self.softplus = torch.nn.Softplus(beta=np.log(2))
-        # we set the beta of Softplus to log(2) so that self.softplust(0)
-        # returns 1. With this setting it would be easy to set the derivatives
-        # to 1 (with zero inputs).
+        # Softplus(0) = 1 when beta = log(2); this makes it easy to initialize
+        # derivatives at 1 (identity slope) with zero-weight initialization.
 
         def init(n):
+            """Utility to initialize a tensor of size (spline_shape, n)."""
             spline_shape_ = list(self.spline_shape)
             spline_shape_.insert(knots_axis, n)
             return torch.randn(*spline_shape_) / n**0.5
@@ -740,15 +756,53 @@ class SplineNet(torch.nn.Module):
             self.set_param2zero()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
+        """
+        Compute the forward spline transformation.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor of values within the spline domain (`xlim`), assuming
+            the spline is not defined outside this range.
+
+        Returns
+        -------
+        torch.Tensor
+            Transformed tensor of the same shape, mapping values from `xlim`
+            to the corresponding range defined by `ylim`.
+        """
+        # Build the spline transformation defined by current parameters.
         spline = self.make_spline()
+
+        # Reshape input to match the spline shape for evaluation.
         x_reshaped = x.reshape(*self.spline_shape, -1)
+
+        # Evaluate spline, reshape outputs back to the original shape, & return
         return spline(x_reshaped).reshape(x.shape)
 
     def reverse(self, y: torch.Tensor) -> torch.Tensor:
-        """Reverse pass."""
+        """
+        Compute the inverse spline transformation.
+
+        Parameters
+        ----------
+        y : torch.Tensor
+            Input tensor of values within the spline range (`ylim`), assuming
+            the spline is not defined outside this range.
+
+        Returns
+        -------
+        torch.Tensor
+            Inverse-transformed tensor of the same shape, mapping values from
+            `ylim` back to the corresponding domain defined by `xlim`.
+        """
+        # Build the spline transformation defined by current parameters.
         spline = self.make_spline()
+
+        # Reshape input to match the spline shape for evaluation.
         y_reshaped = y.reshape(*self.spline_shape, -1)
+
+        # Evaluate reverse spline, reshape outputs, & return
         return spline.reverse(y_reshaped).reshape(y.shape)
 
     def make_spline(self):
@@ -786,6 +840,84 @@ class SplineNet(torch.nn.Module):
         """Set all trainable parameters to Gaussian with given mean and std."""
         for param in self.parameters():
             torch.nn.init.normal_(param, mean=mean, std=std)
+
+
+class RQSplineWithGrad(SplineNet, torch.nn.Module):
+    """
+    Extension of `SplineNet` that also computes the first-order derivative
+    (gradient) of the rational quadratic (RQ) spline transformation.
+
+    The superclass `SplineNet` already defines a monotonic RQ spline mapping
+    from (0, 0) to (1, 1). This subclass behaves identically, except that its
+    `forward` and `reverse` methods also return the derivative of the
+    transformation with respect to the input.
+
+    The mapping is strictly monotonic increasing and can be used as a smooth
+    bijection over [0, 1].
+
+    For changing the spline configuration (number of knots, domain/range,
+    smoothness), see the documentation of `SplineNet`.
+    """
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute the forward spline transformation and its gradient.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor of values within [0, 1].
+
+        Returns
+        -------
+        y : torch.Tensor
+            Transformed values of the spline at `x` in range [0, 1].
+        grad : torch.Tensor
+            Gradient (derivative) of the transformation at `x`.
+        """
+        # Build the spline transformation defined by current parameters.
+        spline = self.make_spline()
+
+        # Reshape input to match the spline shape for evaluation.
+        x_reshaped = x.reshape(-1)
+
+        # Evaluate spline and compute its gradient.
+        y, grad = spline(x_reshaped, grad=True)
+
+        # Reshape outputs back to the original input shape.
+        y, grad = y.reshape(x.shape), grad.reshape(x.shape)
+
+        return y, grad
+
+    def reverse(self, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute the inverse spline transformation and its gradient.
+
+        Parameters
+        ----------
+        y : torch.Tensor
+            Input tensor of values within [0, 1].
+
+        Returns
+        -------
+        x : torch.Tensor
+            Inverse-transformed values of the spline at `y` in range [0, 1].
+        grad : torch.Tensor
+            Gradient (derivative) of the inverse transformation at `y`.
+        """
+        # Build the spline transformation defined by current parameters.
+        spline = self.make_spline()
+
+        # Reshape input to match the spline shape for evaluation.
+        y_reshaped = y.reshape(-1)
+
+        # Evaluate inverse spline and compute its gradient.
+        x, grad = spline.reverse(y_reshaped, grad=True)
+
+        # Reshape outputs back to the original input shape.
+        x, grad = x.reshape(x.shape), grad.reshape(x.shape)
+
+        return x, grad
 
 
 class AvgNeighborPool(torch.nn.Module):
