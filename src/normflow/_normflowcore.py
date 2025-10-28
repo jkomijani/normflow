@@ -132,9 +132,9 @@ class Model:
             specific state dictionaries (e.g., 'net_state_dict').
 
         parameters_only : bool, optional
-            If `True`, only the model's parameters (network weights) are
-            loaded. If `False`, additional states such as prior, action, and
-            training states are also restored. Defaults to `True`.
+            If True, load only trainable network parameters (buffers ignored).
+            If False, load full model including prior, action, and trainer
+            states.
 
         map_location : torch.device, optional
             Specifies how to map storage locations when loading the checkpoint.
@@ -149,12 +149,18 @@ class Model:
         """
         state = torch.load(path, map_location=map_location, weights_only=True)
 
-        self.net_.load_state_dict(clean_state_dict(state['net_state_dict']))
+        net_state = clean_state_dict(state['net_state_dict'])
 
-        if not parameters_only:
+        if parameters_only:
+            # Load only trainable parameters into net_ (ignore missing buffers)
+            trainable = {k: v for k, v in net_state.items() if v.requires_grad}
+            self.net_.load_state_dict(trainable, strict=False)
+        else:
+            self.net_.load_state_dict(net_state)
             self.prior.load_state_dict(state['prior_state_dict'])
             self.action.load_state_dict(state['action_state_dict'])
             self.trainer.load_state_dict(state['train_state_dict'])
+
 
 
 # =============================================================================
