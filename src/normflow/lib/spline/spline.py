@@ -3,11 +3,9 @@
 """This module includes splines utilities."""
 
 
-import torch
-
+from typing import Optional, Dict, Tuple
 import torch
 import numpy as np
-from typing import Optional, Dict, Tuple
 
 
 __all__ = ["make_rq_spline_field", "RQSpline"]
@@ -21,6 +19,7 @@ def make_rq_spline_field(
     knots_axis: int = -1,
     knots_x: Optional[torch.Tensor] = None,
     knots_y: Optional[torch.Tensor] = None,
+    smooth: bool = False,
     extrap: Optional[Dict] = None,
 ) -> "RQSpline":
 
@@ -37,6 +36,11 @@ def make_rq_spline_field(
     corresponds to the knot positions and derivatives. This allows the function
     to handle batches of inputs and other dimensional structures in the feature
     map.
+
+    It is possible to fix the knots x and/or y values. It is also possible to
+    use smooth derivatives. Otherwise, everything is extraced from feature_map.
+
+    The following description is valid for the default case `smooth=False`.
 
     The number of channels in `feature_map` should be `3m - 2` unless `knots_x`
     or `knots_y` is predefined. Here, `m` is the number of knots in the spline.
@@ -70,21 +74,21 @@ def make_rq_spline_field(
             The feature map, which can be the output tensor from a neural
             network, used to construct the spline.
         xlim (Tuple[float, float], optional):
-            The x-axis limits for the spline transformation. Defaults to
-            (0, 1).
+            The x-axis limits for the spline transformation. Default is (0, 1).
         ylim (Tuple[float, float], optional):
-            The y-axis limits for the spline transformation. Defaults to
-            (0, 1).
+            The y-axis limits for the spline transformation. Default is (0, 1).
         knots_axis (int, optional):
             The axis along which knots are computed in the feature map.
             Defaults to -1.
-        knots_x (Optional[torch.Tensor], optional):
+        knots_x (torch.Tensor, optional):
             Predefined knot positions along the x-axis. If `None`, they
             are inferred.
-        knots_y (Optional[torch.Tensor], optional):
+        knots_y (torch.Tensor, optional):
             Predefined knot positions along the y-axis. If `None`, they
             are inferred.
-        extrap (Optional[Dict[str, str]], optional):
+        smooth (bool, optional):
+            If True, uses smooth derivatives. Default is False.
+        extrap (Dict[str, str], optional):
             A dictionary specifying the extrapolation behavior, e.g.,
             `{'left': 'anti', 'right': 'linear'}`. Defaults to `None`.
 
@@ -130,7 +134,22 @@ def make_rq_spline_field(
 
     n = feature_map.shape[knots_axis]
 
-    if knots_x is None and knots_y is None:
+    if smooth and knots_x is None and knots_y is None:
+        m = n // 2
+        x_, y_ = feature_map.split((m, m), dim=knots_axis)
+        knots_x = to_coord(x_) * xwidth + xlim[0]
+        knots_y = to_coord(y_) * ywidth + ylim[0]
+        knots_d = None
+
+    elif smooth and knots_x is not None and knots_y is None:
+        knots_y = to_coord(feature_map) * ywidth + ylim[0]
+        knots_d = None
+
+    elif smooth and knots_x is None and knots_y is not None:
+        knots_x = to_coord(feature_map) * xwidth + xlim[0]
+        knots_d = None
+
+    elif knots_x is None and knots_y is None:
         m = (n + 2) // 3
         x_, y_, d_ = feature_map.split((m-1, m-1, m), dim=knots_axis)
         knots_x = to_coord(x_) * xwidth + xlim[0]
@@ -196,11 +215,10 @@ class SplineTemplate:
         shape = lambda a, b: (a.shape != b.shape and a.ndim > 1 and b.ndim > 1)
 
         if shape(knots_x, knots_y):
-            raise Exception("x & y must be the same shape unless one is 1 dim.")
+            raise Exception("x & y must have same shape unless one is 1 dim.")
 
         if knots_d is None:
             # NOT supported if knots_x.shape != knots_y.shape
-            # Todo: remove this option altogether!
             knots_d = self.smooth_derivatives(knots_x, knots_y, knots_axis)
 
         if shape(knots_d, knots_x) or shape(knots_d, knots_y):
@@ -254,7 +272,7 @@ class SplineTemplate:
         squeezed : bool, optional
             If False, the input `x` must have the same number of dimensions of
             `knots_shape`. It is also required that for all axes but
-            `knots_axis` the size of the input `x` agree with and `knots_shape`.
+            `knots_axis` the size of the input `x` agree with `knots_shape`.
 
             If squeezed is set to True, it is assumed that `x` does not have
             any dimensions corresponding to `knots_axis`; so, this method first
@@ -283,10 +301,7 @@ class SplineTemplate:
         """For the internal knots, returns the average of the slopes of the
         left and right segments. For the boundary knots, returns the slope
         of the nearby segment if `bc_type` is not 'ones', otherwise returns 1.
-
         """
-        # Todo: MUST BE REMOVED completely.
-
         # Note that for n knots there are only n-1 segments
         knots_len = knots_x.shape[knots_axis]
         knot_ind = torch.arange(knots_len, device=knots_x.device)
@@ -321,7 +336,9 @@ class SplineTemplate:
         else:
             view_x_sorted = torch.movedim(x_sorted, axis, -1)
             view_x = torch.movedim(x, axis, -1)
-            view_ind = torch.searchsorted(view_x_sorted.contiguous(), view_x.contiguous())
+            view_ind = torch.searchsorted(
+                view_x_sorted.contiguous(), view_x.contiguous()
+            )
             return torch.movedim(view_ind, -1, axis)
 
     def clamp(self, x):
@@ -359,12 +376,14 @@ class Pade22Spline(SplineTemplate):
         squeezer = lambda y: y.squeeze(axis) if squeezed else y
 
         def g_0(theta):
-            return y0 + (y1 - y0) * theta * (m * theta + d0 * (1 - theta)) \
-                     / (m + (d1 + d0 - 2*m) * theta * (1 - theta))
+            return (y0 + (y1 - y0) * theta * (m * theta + d0 * (1 - theta))
+                    / (m + (d1 + d0 - 2*m) * theta * (1 - theta))
+                    )
 
         def g_1(theta):
-            return m**2 * (d0 + 2 * (m - d0) * theta + (d1+d0-2*m) * theta**2) \
-                     / (m + (d1 + d0 - 2*m) * theta * (1 - theta))**2
+            return (m**2 * (d0 + 2 * (m - d0) * theta + (d1+d0-2*m) * theta**2)
+                    / (m + (d1 + d0 - 2*m) * theta * (1 - theta))**2
+                    )
 
         def func(x):
             theta = (x - x0)/(x1 - x0)
@@ -430,8 +449,9 @@ class Pade22Spline(SplineTemplate):
             return theta
 
         def g_1(theta):
-            return m**2 * (d0 + 2 * (m - d0) * theta + (d1+d0-2*m) * theta**2) \
-                     / (m + (d1 + d0 - 2*m) * theta * (1 - theta))**2
+            return (m**2 * (d0 + 2 * (m - d0) * theta + (d1+d0-2*m) * theta**2)
+                    / (m + (d1 + d0 - 2*m) * theta * (1 - theta))**2
+                    )
 
         def inv_func(y):
             eta = (y - y0)/(y1 - y0)
@@ -466,8 +486,9 @@ class Pade11Spline(SplineTemplate):
         if bc_type == 'natural':
             n = 2 * ((knots_len-1)//2)  # segm_len = knots_len - 1
             d0 = torch.prod(
-                select(m, knot_ind[1:n:2])/select(m, knot_ind[:n:2]), dim=knots_axis
-                ).unsqueeze(knots_axis) * 0 + 1
+                select(m, knot_ind[1:n:2])/select(m, knot_ind[:n:2]),
+                dim=knots_axis
+            ).unsqueeze(knots_axis) * 0 + 1
         else:
             raise Exception("bc_type is not know")
         d_list = [d0]
@@ -564,8 +585,8 @@ class AugmentKnots:
     def __call__(self, left=None, right=None):
         """
         left: str, optional
-            The extrapolation to the left points are based on the function obtained
-            for the first segment, unless `left` is set to:
+            The extrapolation to the left points are based on the function
+            obtained for the first segment, unless `left` is set to:
             1. `linear`:
                 uses a linear function patched to the first segment;
             2. `periodic`:
@@ -610,11 +631,13 @@ class AugmentKnots:
         elif (left == 'linear') or (right == 'linear'):
             self.takecare_linear(left, right)
             if left is None or right is None:
-                return  # (left, right) are (None, 'linear') or ('linear', None)
+                # (left, right) are (None, 'linear') or ('linear', None)
+                return
         self.takecare_rest(left, right)
 
     def takecare_linear(self, left, right):
-        x, y, d, axis = self.knots_x, self.knots_y, self.knots_d, self.knots_axis
+        axis = self.knots_axis
+        x, y, d = self.knots_x, self.knots_y, self.knots_d
         n = x.shape[axis]
 
         ind = torch.tensor([0, n-1], device=x.device)
@@ -644,7 +667,8 @@ class AugmentKnots:
         self.knots_d = self.cat([d_fiducial_left, d, d_fiducial_right], axis)
 
     def takecare_rest(self, left, right):
-        x, y, d, axis = self.knots_x, self.knots_y, self.knots_d, self.knots_axis
+        axis = self.knots_axis
+        x, y, d = self.knots_x, self.knots_y, self.knots_d
         n = x.shape[axis]
 
         knot_ind = torch.arange(n, device=x.device)
@@ -660,7 +684,7 @@ class AugmentKnots:
         elif left == "periodic":
             # first check if derivative @ boundary is zero
             if not sum(torch.index_select(d, axis, knot_ind[:1]) == 0):
-                raise Exception("Oops: derivative at periodic bc must be zero.")
+                raise Exception("Oops: derivative at periodic bc must be 0.")
             x_fiducial_left = 2 * select_0(x) - selectflip(x, knot_ind[1:])
             y_fiducial_left = selectflip(y, knot_ind[1:])
             d_fiducial_left = - selectflip(d, knot_ind[1:])
@@ -676,7 +700,7 @@ class AugmentKnots:
         elif right == "periodic":
             # first check if derivative @ boundary is zero
             if not sum(torch.index_select(d, axis, knot_ind[-1:]) == 0):
-                raise Exception("Oops: derivative at periodic bc must be zero.")
+                raise Exception("Oops: derivative at periodic bc must be 0.")
             x_fiducial_right = 2 * select_1(x) - selectflip(x, knot_ind[:-1])
             y_fiducial_right = selectflip(y, knot_ind[:-1])
             d_fiducial_right = - selectflip(d, knot_ind[:-1])
@@ -708,10 +732,11 @@ def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
 
     knots_x = torch.sort(torch.rand((5, knots_len))).values
     knots_y = torch.sort(torch.rand((5, knots_len))).values
-    # knots_d = None if smooth else torch.sort(torch.rand((5, knots_len))).values
     knots_d = None if smooth else torch.rand((5, knots_len))
 
-    spline_kwargs.update(dict(knots_x=knots_x, knots_y=knots_y, knots_d=knots_d))
+    spline_kwargs.update(
+        {'knots_x': knots_x, 'knots_y': knots_y, 'knots_d': knots_d}
+    )
     x = torch.sort(torch.rand((5, 1000))).values * 2 - 0.5
     spline = Pade22Spline(**spline_kwargs)
     y = spline(x)
@@ -721,7 +746,9 @@ def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
     for n in range(5):
         plt.plot(x.to('cpu')[n], y.to('cpu')[n], color=color[n])
     for n in range(5):
-        plt.plot(knots_x.to('cpu')[n], knots_y.to('cpu')[n], 's', color=color[n])
+        plt.plot(
+            knots_x.to('cpu')[n], knots_y.to('cpu')[n], 's', color=color[n]
+        )
 
     if test_pade11:
         y = Pade11Spline(**spline_kwargs)(x)
