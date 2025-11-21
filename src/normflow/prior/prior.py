@@ -60,15 +60,23 @@ class Prior(ABC):
 
 
 class UniformPrior(Prior):
-    """Creates a uniform distribution parameterized by low and high;
-    uniform in [low, hight].
+    """Uniform prior with parameters `low` and `high`.
+
+    If `shape` is provided, `low` and `high` may be None, scalars, or
+    broadcastable to `shape`. If `shape` is None, both must be provided
+    and have the same shape.
     """
 
     def __init__(self, low=None, high=None, shape=None, seed=None, **kwargs):
-        """If shape is None, low & high must be of similar shape."""
+        # Default values if missing
+        if low is None:
+            low = 0
+        if high is None:
+            high = 1
         if shape is not None:
-            low = torch.zeros(shape)
-            high = torch.ones(shape)
+            # Broadcast to shape
+            low = low + torch.zeros(shape)
+            high = high * torch.ones(shape)
         else:
             shape = low.shape
         dist = torch.distributions.uniform.Uniform(low, high)
@@ -90,15 +98,27 @@ class UniformPrior(Prior):
 
 
 class NormalPrior(Prior):
-    """Creates a normal distribution parameterized by loc and scale."""
+    """Normal prior with parameters `loc` and `scale`.
+
+    If `shape` is provided, `loc` and `scale` may be None, scalars, or
+    broadcastable to `shape`. If `shape` is None, both must be provided
+    and have the same shape.
+    """
 
     def __init__(self, loc=None, scale=None, shape=None, seed=None, **kwargs):
-        """If shape is None, loc & scale must be of similar shape."""
+        # Default values if missing
+        if loc is None:
+            loc = 0
+        if scale is None:
+            scale = 1
         if shape is not None:
-            loc = torch.zeros(shape)  # i.e. mean
-            scale = torch.ones(shape)  # i.e. sigma
+            # Broadcast to shape
+            loc = loc + torch.zeros(shape)
+            scale = scale * torch.ones(shape)
         else:
+            # Must already match in shape
             shape = loc.shape
+
         dist = torch.distributions.normal.Normal(loc, scale)
         super().__init__(dist, seed, **kwargs)
         self.shape = shape
