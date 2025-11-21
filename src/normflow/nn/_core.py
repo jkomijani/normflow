@@ -282,42 +282,63 @@ class ModuleList_(torch.nn.ModuleList, Module_):
 # =============================================================================
 class MultiChannelModule_(torch.nn.ModuleList):
     """
-    A prototype class similar to `Module_` except that it handles multiple
-    channels seperately, in the sense that each channel is transformed by
-    corresponding NN. The number of input NNs must agree with the number of
-    channels.
-    """
+    Applies a separate network to each input channel.
 
+    Similar to `Module_` but handles multiple channels individually. Each
+    channel is processed by the corresponding network. Number of networks
+    must match the number of channels.
+
+    Args:
+        nets_ (list[Module]): Networks, one per channel.
+        channels_axis (int, default=1): Axis representing channels.
+        keep_channels_axis (bool, default=True): Keep channel axis in output.
+    """
     def __init__(
-        self, nets_, label=None, channels_axis=1, keep_channels_axis=True
+        self, nets_, channels_axis: int = 1, keep_channels_axis: bool = True
     ):
         super().__init__(nets_)
         self.channels_axis = channels_axis
         self.keep_channels_axis = keep_channels_axis
-        self.label = label
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    def forward(self, x, log0=0):
-        return self._map(x, [net_.forward for net_ in self], log0=log0)
+    def forward(self, x, log0=0, args=None):
+        """Apply each channel's network to the corresponding input."""
+        return self._map(x, [n_.forward for n_ in self], log0=log0, args=args)
 
-    def reverse(self, x, log0=0):
-        return self._map(x, [net_.reverse for net_ in self], log0=log0)
+    def reverse(self, x, log0=0, args=None):
+        """Apply each channel's network in reverse."""
+        return self._map(x, [n_.reverse for n_ in self], log0=log0, args=args)
 
-    def _map(self, x, f_, log0=0):
+    def _map(self, x, f_, log0=0, args=None):
+        """
+        Apply each function in `f_` to corresponding element in input `x`.
+
+        Splits input along channels_axis if keep_channels_axis, else unbinds.
+        Recombines outputs and sums log-determinants.
+        """
+        # Split input into channels
         if self.keep_channels_axis:
             x = x.split(1, dim=self.channels_axis)
         else:
             x = x.unbind(dim=self.channels_axis)
 
-        assert len(x) == len(f_), "mismatch in channels of input & network."
+        assert len(x) == len(f_), "Mismatch in channels and network."
 
-        out = [fj_(xj) for fj_, xj in zip(f_, x)]
+        # Apply each function to its channel
+        if args is None:
+            out = [fj_(xj) for fj_, xj in zip(f_, x)]
+        else:
+            out = [fj_(xj, args=args) for fj_, xj in zip(f_, x)]
+
+        # Recombine outputs
         if self.keep_channels_axis:
             x = torch.cat([o[0] for o in out], dim=self.channels_axis)
         else:
             x = torch.stack([o[0] for o in out], dim=self.channels_axis)
+
+        # Sum log-determinants
         logj = sum([o[1] for o in out])
 
         return x, log0 + logj
@@ -332,11 +353,27 @@ class MultiChannelModule_(torch.nn.ModuleList):
 
 # =============================================================================
 class MultiOutChannelModule_(MultiChannelModule_):
+    """
+    Applies multiple networks to the entire input, then concatenates outputs.
 
-    def _map(self, x, f_, log0=0):
+    Unlike `MultiChannelModule_`, each network sees the full input rather than
+    a single channel.
+    """
 
-        out = [fj_(x) for fj_ in f_]
+    def _map(self, x, f_, log0=0, args=None):
+        """
+        Apply each function in `f_` to the input `x` and concatenate outputs.
+        """
+        # Apply each function to the full input
+        if args is None:
+            out = [fj_(x) for fj_ in f_]
+        else:
+            out = [fj_(x, args=args) for fj_ in f_]
+
+        # Concatenate outputs along channels axis
         x = torch.cat([o[0] for o in out], dim=self.channels_axis)
+
+        # Sum log-determinants
         logj = sum([o[1] for o in out])
 
         return x, log0 + logj
