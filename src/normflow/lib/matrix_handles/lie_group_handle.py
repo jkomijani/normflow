@@ -16,6 +16,7 @@ import numpy as np
 from .ordering import ZeroSumOrder
 from ..linalg import eigh_
 from ..linalg import eigu_
+from ..linalg import inverse_eigh_
 from ..linalg import inverse_eign_
 
 
@@ -105,7 +106,7 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
             logj2 = 0
 
         # 1) Reconstruct matrix from eigendecomposition
-        matrix, logj3 = inverse_eign_(eigvals, eigvecs)
+        matrix, logj3 = inverse_eigh_(eigvals, eigvecs)
 
         # 0) Extrac coefficients from matrix if in coordinate representation
         if self.coordinate_representation:

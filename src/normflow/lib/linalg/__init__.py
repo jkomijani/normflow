@@ -18,6 +18,7 @@ from .eig_decomposition_ import inverse_eign
 
 from .eig_decomposition_ import eigh_
 from .eig_decomposition_ import eigu_
+from .eig_decomposition_ import inverse_eigh_
 from .eig_decomposition_ import inverse_eign_
 
 

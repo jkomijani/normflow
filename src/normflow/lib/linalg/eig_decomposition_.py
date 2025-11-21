@@ -4,12 +4,15 @@
 
 """This module has utilities for eigenvalue decomposition."""
 
+# pylint: disable=invalid-name
+
 import torch
 
 try:
     from lattice_ml.linalg import eigh
     from lattice_ml.linalg import eigu
     from lattice_ml.linalg import inverse_eign
+    from lattice_ml.linalg import inverse_eigh
 except:
     from torch.linalg import eigh
     from torch.linalg import eig as eigu
@@ -17,7 +20,7 @@ except:
 
 
 # =============================================================================
-class Eigd_:  # pylint: disable=invalid-name
+class Eigd_:
     """
     A class for performing eigenvalue decomposition on diagonalizable matrices.
 
@@ -71,22 +74,22 @@ class Eigd_:  # pylint: disable=invalid-name
         return (eigvals, eigvecs), log_jacobian
 
 
-class Eign_(Eigd_):  # pylint: disable=invalid-name
+class Eign_(Eigd_):
     """A (dummy) subclass of `Eigd_` for normal matrices."""
     pass
 
 
-class Eigh_(Eigd_):  # pylint: disable=invalid-name
+class Eigh_(Eigd_):
     """A subclass of `Eigd_` specialized for Hermitian matrices."""
     eig = eigh
 
 
-class Eigu_(Eigd_):  # pylint: disable=invalid-name
+class Eigu_(Eigd_):
     """A subclass of `Eigd_` specialized for unitary matrices."""
     eig = eigu
 
 
-class InverseEign_:  # pylint: disable=invalid-name
+class InverseEign_:
     """
     A class for matrix recomposition from eigenvalues and eigencectors, where
     the matrix of the eigenvectors is unitary. (Therefore, the constructed
@@ -120,12 +123,29 @@ class InverseEign_:  # pylint: disable=invalid-name
         return matrix, log_jacobian
 
 
+class InverseEigh_:
+    """Similar to `InverseEign_`, but specialized for Hermitian matrices."""
+
+    def __call__(self, eigvals, eigvecs):
+
+        # Construct the matrix with inverse_eign, valid for normal matrices.
+        matrix = inverse_eigh(eigvals, eigvecs)
+
+        # Compute the logarithm of the Jacobian (summed over non-batched axes)
+        log_jacobian = sum_density(calc_log_conjugacy_vol(eigvals))
+
+        # Return the constructed matrix and the log-jacobian term
+        return matrix, log_jacobian
+
+
 # =============================================================================
 # We now make instances of the above classes
 
 eigh_ = Eigh_()  # for Hermitian matrices
 
 eigu_ = Eigu_()  # for unitary matrices
+
+inverse_eigh_ = InverseEigh_()  # for Hermitian matrices
 
 inverse_eign_ = InverseEign_()  # for normal (including Hermitian & unitray)
 
