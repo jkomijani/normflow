@@ -29,7 +29,7 @@ class UnitaryAlgebra2Group_(torch.nn.Module, ABC):
 
         U = e^{i \sum_a \theta_a T_a}
 
-    where :math:`T_a` are the generators of a (special) unitary Lie aglebra.
+    where :math:`T_a` are the generators of the Lie group normalized to 1.
 
     In addition to the group-valued matrix, this class calculates the logarithm
     of the Jacobian of the transformation.
@@ -196,7 +196,7 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
 
         U = e^{i \sum_a \theta_a T_a}
 
-    where :math:`T_a` are the generators of SU(2) group.
+    where :math:`T_a` are the generators of SU(2) group normalized to 1.
     """
 
     @staticmethod
@@ -223,7 +223,7 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
         matrix[..., 1, 0] = coeffs[..., 0] + 1j * coeffs[..., 1]
         matrix[..., 0, 1] = matrix[..., 1, 0].conj()
 
-        return matrix
+        return matrix / 2 ** 0.5
 
     @staticmethod
     def extract_generators_coeffs(matrix):
@@ -247,7 +247,7 @@ class SU2Algebra2Group_(UnitaryAlgebra2Group_):
         coeffs[..., 1] = matrix[..., 1, 0].imag
         coeffs[..., 2] = matrix[..., 0, 0].real
 
-        return coeffs
+        return coeffs * 2**0.5
 
     @staticmethod
     def map2principal_forward(zero_sum_sorted_phase):
@@ -273,7 +273,7 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
 
         U = e^{i \sum_a \theta_a T_a}
 
-    where :math:`T_a` are the generators of SU(3) group.
+    where :math:`T_a` are the generators of SU(2) group normalized to 1.
     """
 
     @staticmethod
@@ -307,7 +307,7 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
         matrix[..., 0, 2] = matrix[..., 2, 0].conj()
         matrix[..., 1, 2] = matrix[..., 2, 1].conj()
 
-        return matrix
+        return matrix / 2**0.5
 
     @staticmethod
     def extract_generators_coeffs(matrix):
@@ -338,7 +338,7 @@ class SU3Algebra2Group_(UnitaryAlgebra2Group_):
         coeffs[..., 5] = matrix[..., 2, 1].real
         coeffs[..., 6] = matrix[..., 2, 1].imag
 
-        return coeffs
+        return coeffs * 2**0.5
 
     def map2principal_forward(self, zero_sum_sorted_phase):
         """
