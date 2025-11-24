@@ -7,14 +7,13 @@ import torch
 
 
 class MatrixAction:
-    """Matrix action defined as `S = β ReTr[f(x g)]` for an n×n matrix x.
+    """Matrix action defined as `S = -(β/n) ReTr[f(x g)]` for an n×n matrix x.
 
     Args:
         beta (float): Coupling constant `β` in the action.
         staples_matrix (torch.Tensor): Constant matrix `g`.
         func (callable, optional): Function `f` applied to the matrix product.
     """
-    # Matrix action used to be `S = - (β/n) ReTr[f(x g)]`.
 
     def __init__(self, beta, staples_matrix=None, func=None):
         self.beta = beta
@@ -33,19 +32,20 @@ class MatrixAction:
         if self.func is not None:
             x = self.func(x)
 
-        trace = calc_trace(x)
+        reduced_trace = calc_reduced_trace(x)
 
         # Sum over trace, except on batch, if multi-point models are present
-        if trace.ndim > 1:
-            trace = torch.sum(trace, dim=tuple(range(1, trace.ndim)))
+        if reduced_trace.ndim > 1:
+            dim = tuple(range(1, reduced_trace.ndim))
+            reduced_trace = torch.sum(reduced_trace, dim=dim)
 
-        return self.beta * torch.real(trace)
+        return -self.beta * torch.real(reduced_trace)
 
     def log_prob(self, x, action_logz=0):
         """Return log probability up to an additive constant."""
         return -self.action(x) - action_logz
 
 
-def calc_trace(x):
-    """Compute trace of x."""
-    return torch.sum(torch.diagonal(x, dim1=-2, dim2=-1), dim=-1)
+def calc_reduced_trace(x):
+    """Compute the reduced trace of x."""
+    return torch.mean(torch.diagonal(x, dim1=-2, dim2=-1), dim=-1)
