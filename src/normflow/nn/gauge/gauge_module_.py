@@ -7,6 +7,7 @@ and the trailing underscore implies that the associated forward and reverse
 methods handle the Jacobians of the transformation.
 """
 
+# pylint: disable=invalid-name, relative-beyond-top-level
 
 import torch
 
@@ -508,7 +509,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 
         return x, logJ
 
-    def _hack(self, x, forward=True):
+    def _hack(self, x, forward=True, unbind_vector_axis=True):
         """Similar to the forward method, but returns intermediate parts."""
 
         if unbind_vector_axis:
@@ -516,7 +517,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 
         x_mu = x[self.mu]
 
-        staples = self.staples_handle.calc_staples(
+        staples_object = self.staples_handle.calc_staples(
             x, mu=self.mu, nu_list=self.nu_list,
             staples_coeff=self.staples_coeff
         )
@@ -548,17 +549,6 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         stack["x_mu_final"] = x_mu
 
         return stack
-
-    def transfer(self, **kwargs):
-        return self.__class__(
-                self.param_net_.transfer(**kwargs),
-                mu=self.mu,
-                nu_list=self.nu_list,
-                mask=self.mask,
-                staples_handle=self.staples_handle,
-                matrix_handle=self.matrix_handle,
-                label=self.label
-                )
 
 
 # =============================================================================
