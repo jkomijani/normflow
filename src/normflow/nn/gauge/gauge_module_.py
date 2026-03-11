@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2025 Javad Komijani
 
 """This module contains new neural networks for transforming gauge fields.
 
@@ -63,10 +63,10 @@ class GaugeModule_(Module_):
     Parameters
     ----------
     mu : int
-        specifies the direction of links that are going to be changed
+        specifies the direction of links that are going to be changed.
 
     nu_list : list of int
-        (in combination w/ mu) specifies the plane of staples to be calculated
+        (in combination w/ mu) specifies the plane of staples to be calculated.
 
     staple_handle: class instance
         to calculate staples and use them.
@@ -95,11 +95,17 @@ class GaugeModule_(Module_):
 
     def __init__(
         self,
-        *, mu, nu_list, staples_handle, matrix_handle, param_net_,
-        dual_param_net_=None, eigangs_net_=None, eigvecs_net_=None,
-        staples_kwargs={}, label="gauge_"
+        mu,
+        nu_list,
+        staples_handle,
+        matrix_handle,
+        param_net_,
+        dual_param_net_=None,
+        eigangs_net_=None,
+        eigvecs_net_=None,
+        staples_kwargs=None
     ):
-        super().__init__(label=label)
+        super().__init__()
         self.mu = mu
         self.nu_list = nu_list
         self.param_net_ = param_net_
@@ -109,8 +115,10 @@ class GaugeModule_(Module_):
         self.matrix_handle = matrix_handle
         self.staples_handle = staples_handle
         if self.unbounded_vector_axis:
-            # swtich "vector_axis" of self.staples_handle to 0
+            # switch "vector_axis" of self.staples_handle to 0
             self.staples_handle.vector_axis = 0
+        if staples_kwargs is None:
+            staples_kwargs = {}
         self.staples_kwargs = staples_kwargs
 
     def forward(self, x, log0=0):
