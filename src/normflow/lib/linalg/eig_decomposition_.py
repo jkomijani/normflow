@@ -8,15 +8,11 @@
 
 import torch
 
-try:
-    from lattice_ml.linalg import eigh
-    from lattice_ml.linalg import eigu
-    from lattice_ml.linalg import inverse_eign
-    from lattice_ml.linalg import inverse_eigh
-except:
-    from torch.linalg import eigh
-    from torch.linalg import eig as eigu
-    inverse_eign = lambda u, v: v @ (u.unsqueeze(-1) * v.adjoint())
+
+from lattice_ml.linalg import eigh
+from lattice_ml.linalg import eigu
+from lattice_ml.linalg import inverse_eign
+from lattice_ml.linalg import inverse_eigh
 
 
 # =============================================================================

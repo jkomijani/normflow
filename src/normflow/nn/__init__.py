@@ -42,9 +42,6 @@ from .gauge.gauge_param_dual_couplings_ import SU2RQSplineDualCoupling_
 from .gauge.gauge_param_dual_couplings_ import SU3RQSplineDualCoupling_
 
 
-try:
-    from .gauge.trivializing_map_ import WilsonTrivMap_
-    from .gauge.unitary_flow_ import ModalMatrixFlow_
-    from .gauge.modal_commutator_odeflow_ import ModalCommutatorFlow_
-except:
-    pass
+from .gauge.trivializing_map_ import WilsonTrivMap_
+from .gauge.unitary_flow_ import ModalMatrixFlow_
+from .gauge.modal_commutator_odeflow_ import ModalCommutatorFlow_

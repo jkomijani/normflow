@@ -5,11 +5,7 @@
 
 import torch
 
-
-try:
-    from lattice_ml.linalg import svd
-except:
-    from torch.linalg import svd
+from lattice_ml.linalg import svd
 
 
 from .eig_decomposition_ import eigh
