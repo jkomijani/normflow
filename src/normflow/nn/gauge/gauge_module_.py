@@ -92,11 +92,12 @@ class GaugeModule_(Module_):
 
     unbounded_vector_axis = True  # "vector_axis" of inputs is supposed to be 0
 
-    def __init__(self,
-            *, mu, nu_list, staples_handle, matrix_handle, param_net_,
-            dual_param_net_=None, eigangs_net_=None, eigvecs_net_=None,
-            staples_kwargs={}, label="gauge_"
-            ):
+    def __init__(
+        self,
+        *, mu, nu_list, staples_handle, matrix_handle, param_net_,
+        dual_param_net_=None, eigangs_net_=None, eigvecs_net_=None,
+        staples_kwargs={}, label="gauge_"
+    ):
         super().__init__(label=label)
         self.mu = mu
         self.nu_list = nu_list
@@ -114,8 +115,8 @@ class GaugeModule_(Module_):
     def forward(self, x, log0=0):
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
-                )
+            x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
+        )
 
         x_mu = self.get_x_mu(x)
 
@@ -123,10 +124,11 @@ class GaugeModule_(Module_):
 
         new_slink, logJ = self._apply_slink_transform(slink, staples_object)
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation = new_slink @ slink.adjoint(),
-                staples_object = staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu,
+            slink_rotation=new_slink @ slink.adjoint(),
+            staples_object=staples_object
+        )
 
         x = self.set_x_mu(x, x_mu)
 
@@ -135,20 +137,21 @@ class GaugeModule_(Module_):
     def reverse(self, x, log0=0):
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
-                )
+            x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
+        )
 
         x_mu = self.get_x_mu(x)
 
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         new_slink, logJ = \
-                self._apply_slink_reverse_transform(slink, staples_object)
+            self._apply_slink_reverse_transform(slink, staples_object)
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation = new_slink @ slink.adjoint(),
-                staples_object = staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu,
+            slink_rotation=new_slink @ slink.adjoint(),
+            staples_object=staples_object
+        )
 
         x = self.set_x_mu(x, x_mu)
 
@@ -168,10 +171,10 @@ class GaugeModule_(Module_):
             param, logJ_par2par = self.param_net_(param)
             if self.dual_param_net_ is not None:
                 param, logJ_par2par = self.dual_param_net_(
-                        param,
-                        staples_object.get_dual_param(eigvecs),
-                        log0=logJ_par2par
-                        )
+                    param,
+                    staples_object.get_dual_param(eigvecs),
+                    log0=logJ_par2par
+                )
             eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
             logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
 
@@ -179,20 +182,16 @@ class GaugeModule_(Module_):
         # Part 2: transform the eigenvalues directly
         if self.eigangs_net_ is not None:
             eigangs, logJ_ang2ang = self.eigangs_net_(
-                    eigangs,
-                    eigvecs = eigvecs,
-                    staples_object = staples_object
-                    )
+                eigangs, eigvecs=eigvecs, staples_object=staples_object
+            )
             logJ += logJ_ang2ang
 
         # ======
         # Part 3: transform the eigenvectors
         if self.eigvecs_net_ is not None:
             eigvecs, logJ_vec2vec = self.eigvecs_net_(
-                    eigvecs,
-                    eigangs = eigangs,
-                    staples_object = staples_object
-                    )
+                eigvecs, eigangs=eigangs, staples_object=staples_object
+            )
             logJ += logJ_vec2vec
             self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
 
@@ -215,10 +214,8 @@ class GaugeModule_(Module_):
         # Part inverse-3: inverse-transform the eigenvectors
         if self.eigvecs_net_ is not None:
             eigvecs, logJ_vec2vec = self.eigvecs_net_.reverse(
-                    eigvecs,
-                    eigangs = eigangs,
-                    staples_object = staples_object
-                    )
+                eigvecs, eigangs=eigangs, staples_object=staples_object
+            )
             logJ += logJ_vec2vec
             self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
 
@@ -226,10 +223,8 @@ class GaugeModule_(Module_):
         # Part inverse-2: inverse-transform the eigenvalues directly
         if self.eigangs_net_ is not None:
             eigangs, logJ_ang2ang = self.eigangs_net_.reverse(
-                    eigangs,
-                    eigvecs = eigvecs,
-                    staples_object = staples_object
-                    )
+                eigangs, eigvecs=eigvecs, staples_object=staples_object
+            )
             logJ += logJ_ang2ang
 
         # Part inverse-1: inverse-transform the parameters
@@ -237,8 +232,8 @@ class GaugeModule_(Module_):
             param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
             if self.dual_param_net_ is not None:
                 param, logJ_par2par = self.dual_param_net_.reverse(
-                        param, staples_object.get_dual_param(eigvecs)
-                        )
+                    param, staples_object.get_dual_param(eigvecs)
+                )
             else:
                 logJ_par2par = 0
             log0 = logJ_par2par
@@ -292,10 +287,11 @@ class _GaugeModule_(MatrixModule_):
 
     unbounded_vector_axis = True
 
-    def __init__(self, param_net_,
-            *, mu, nu_list, staples_handle, matrix_handle,
-            staples_coeff=None, label="gauge_"
-            ):
+    def __init__(
+        self, param_net_,
+        *, mu, nu_list, staples_handle, matrix_handle,
+        staples_coeff=None, label="gauge_"
+    ):
         super().__init__(param_net_, matrix_handle=matrix_handle)
         self.mu = mu
         self.nu_list = nu_list
@@ -312,18 +308,18 @@ class _GaugeModule_(MatrixModule_):
             x_mu = x[:, self.mu]
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
 
         # slink: stapled link
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().forward(slink, log0=log0, reduce_=True)
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
 
         if self.unbounded_vector_axis:
             x[self.mu] = x_mu
@@ -339,17 +335,17 @@ class _GaugeModule_(MatrixModule_):
             x_mu = x[:, self.mu]
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
 
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().reverse(slink, log0=log0, reduce_=True)
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
 
         if self.unbounded_vector_axis:
             x[self.mu] = x_mu
@@ -367,9 +363,9 @@ class _GaugeModule_(MatrixModule_):
         x_mu = x[self.mu]
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         if forward:
@@ -378,17 +374,17 @@ class _GaugeModule_(MatrixModule_):
             slink_rotation, logJ = super().reverse(slink, reduce_=True)
 
         stack = dict(
-                x_mu_initial = x_mu,
-                staples_object = staples_object,
-                slink = slink,
-                slink_rotation = slink_rotation,
-                logJ = logJ,
-                super_hack = super()._hack(slink, forward, reduce_=True)
-                )
+            x_mu_initial=x_mu,
+            staples_object=staples_object,
+            slink=slink,
+            slink_rotation=slink_rotation,
+            logJ=logJ,
+            super_hack=super()._hack(slink, forward, reduce_=True)
+        )
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
         stack["x_mu_final"] = x_mu
 
         return stack
@@ -439,10 +435,11 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 
     unbounded_vector_axis = True
 
-    def __init__(self, dual_param_net_, param_net_,
-            *, mu, nu_list, staples_handle, matrix_handle,
-            staples_coeff=None, label="gauge_", **kwargs
-            ):
+    def __init__(
+        self, dual_param_net_, param_net_,
+        *, mu, nu_list, staples_handle, matrix_handle,
+        staples_coeff=None, label="gauge_", **kwargs
+    ):
         super().__init__(
             dual_param_net_, param_net_, matrix_handle=matrix_handle, **kwargs
             )
@@ -461,20 +458,20 @@ class _SVDGaugeModule_(StapledMatrixModule_):
             x_mu = x[:, self.mu]
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
 
         # slink: stapled link
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().forward(
-                slink, log0=log0, singv=staples_object.singv, reduce_=True
-                )
+            slink, log0=log0, singv=staples_object.singv, reduce_=True
+        )
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
 
         if self.unbounded_vector_axis:
             x[self.mu] = x_mu
@@ -490,19 +487,19 @@ class _SVDGaugeModule_(StapledMatrixModule_):
             x_mu = x[:, self.mu]
 
         staples_object = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
 
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         slink_rotation, logJ = super().reverse(
-                slink, log0=log0, singv=staples_object.singv, reduce_=True
-                )
+            slink, log0=log0, singv=staples_object.singv, reduce_=True
+        )
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
 
         if self.unbounded_vector_axis:
             x[self.mu] = x_mu
@@ -520,34 +517,34 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         x_mu = x[self.mu]
 
         staples = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list,
-                staples_coeff=self.staples_coeff
-                )
+            x, mu=self.mu, nu_list=self.nu_list,
+            staples_coeff=self.staples_coeff
+        )
         slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
 
         if forward:
             slink_rotation, logJ = super().forward(
-                    slink, singv=staples_object.singv, reduce_=True
-                    )
+                slink, singv=staples_object.singv, reduce_=True
+            )
         else:
             slink_rotation, logJ = super().reverse(
-                    slink, singv=staples_object.singv, reduce_=True
-                    )
+                slink, singv=staples_object.singv, reduce_=True
+            )
 
         stack = dict(
-                x_mu_initial = x_mu,
-                staples_object = staples_object,
-                slink = slink,
-                slink_rotation = slink_rotation,
-                logJ = logJ,
-                super_hack = super()._hack(slink,
-                    singv=staples_object.singv, forward=forward, reduce_=True
-                    )
-                )
+            x_mu_initial=x_mu,
+            staples_object=staples_object,
+            slink=slink,
+            slink_rotation=slink_rotation,
+            logJ=logJ,
+            super_hack=super()._hack(
+               slink, singv=staples_object.singv, forward=forward, reduce_=True
+            )
+        )
 
-        x_mu = self.staples_handle.push2link(x_mu,
-                slink_rotation=slink_rotation, staples_object=staples_object
-                )
+        x_mu = self.staples_handle.push2link(
+            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
+        )
         stack["x_mu_final"] = x_mu
 
         return stack
@@ -569,9 +566,9 @@ class PolyakovGaugeModule_(MatrixModule_):
 
     unbounded_vector_axis = True
 
-    def __init__(self, param_net_,
-            *, mu, nu_list, staples_handle, matrix_handle, parity
-            ):
+    def __init__(
+        self, param_net_, *, mu, nu_list, staples_handle, matrix_handle, parity
+    ):
         super().__init__(param_net_, matrix_handle=matrix_handle)
         self.mu = mu
         self.nu_list = nu_list
@@ -585,20 +582,20 @@ class PolyakovGaugeModule_(MatrixModule_):
         mu, x_mu = self.mu, x[self.mu]
         loop_dim = 1 + mu  # 1 is for the batch axis
 
-        polyakov_loop = matrix_product(torch.unbind(x_mu, dim = loop_dim))
+        polyakov_loop = matrix_product(torch.unbind(x_mu, dim=loop_dim))
 
         staples = self.staples_handle.calc_staples(
-                x, mu=mu, nu_list=self.nu_list
-                )
+            x, mu=mu, nu_list=self.nu_list
+        )
 
         polyakov_staples = matrix_product(
-                torch.unbind(staples, dim = loop_dim), right_product=False
-                )
+            torch.unbind(staples, dim=loop_dim), right_product=False
+        )
 
         # slink: stapled link
         sploop, svd_ = self.staples_handle.staple(
-                polyakov_loop, staples=polyakov_staples
-                )
+            polyakov_loop, staples=polyakov_staples
+        )
 
         rotation, logJ = super().forward(sploop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, loop_dim, 0)
@@ -606,8 +603,8 @@ class PolyakovGaugeModule_(MatrixModule_):
         svd_.Vh = select_embed(x_mu.shape, svd_.Vh, loop_dim, 0)
 
         x[mu] = self.staples_handle.push2link(
-                x_mu, slink_rotation=rotation, svd_=svd_
-                )
+            x_mu, slink_rotation=rotation, svd_=svd_
+        )
 
         return x, log0 + logJ
 
@@ -616,20 +613,20 @@ class PolyakovGaugeModule_(MatrixModule_):
         mu, x_mu = self.mu, x[self.mu]
         loop_dim = 1 + mu  # 1 is for the batch axis
 
-        polyakov_loop = matrix_product(torch.unbind(x_mu, dim = loop_dim))
+        polyakov_loop = matrix_product(torch.unbind(x_mu, dim=loop_dim))
 
         staples = self.staples_handle.calc_staples(
-                x, mu=self.mu, nu_list=self.nu_list
-                )
+            x, mu=self.mu, nu_list=self.nu_list
+        )
 
         polyakov_staples = matrix_product(
-                torch.unbind(staples, dim = loop_dim), right_product=False
-                )
+            torch.unbind(staples, dim=loop_dim), right_product=False
+        )
 
         # slink: stapled link
         sploop, svd_ = self.staples_handle.staple(
-                polyakov_loop, staples=polyakov_staples
-                )
+            polyakov_loop, staples=polyakov_staples
+        )
 
         rotation, logJ = super().reverse(sploop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, loop_dim, 0)
@@ -637,8 +634,8 @@ class PolyakovGaugeModule_(MatrixModule_):
         svd_.Vh = select_embed(x_mu.shape, svd_.Vh, loop_dim, 0)
 
         x[mu] = self.staples_handle.push2link(
-                x_mu, slink_rotation=rotation, svd_=svd_
-                )
+            x_mu, slink_rotation=rotation, svd_=svd_
+        )
 
         return x, log0 + logJ
 
@@ -647,7 +644,7 @@ class PolyakovGaugeModule_(MatrixModule_):
         mu, x_mu = self.mu, x[self.mu]
         dim = 1 + mu  # 1 is for the batch axis
 
-        polyakov_loop = matrix_product(torch.unbind(x_mu, dim = dim))
+        polyakov_loop = matrix_product(torch.unbind(x_mu, dim=dim))
         rotation, logJ = super().forward(polyakov_loop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, dim, 0)
 
@@ -659,7 +656,7 @@ class PolyakovGaugeModule_(MatrixModule_):
         mu, x_mu = self.mu, x[self.mu]
         dim = 1 + mu  # 1 is for the batch axis
 
-        polyakov_loop = matrix_product(torch.unbind(x_mu, dim = dim))
+        polyakov_loop = matrix_product(torch.unbind(x_mu, dim=dim))
         rotation, logJ = super().reverse(polyakov_loop, reduce_=True)
         rotation = select_embed(x_mu.shape, rotation, dim, 0)
 
