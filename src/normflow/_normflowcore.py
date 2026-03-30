@@ -77,9 +77,8 @@ class Model:
 
         # Components for training
         self.trainer = Trainer(self)
-        self.train = self.trainer.execute
+        self.train = self.trainer.run_training
         self.fit = self.train  # Alias for `train`
-        self.execute_ddp_training = self.trainer.execute_ddp_training
 
         # Components for sampling
         self.posterior = Posterior(self)
@@ -498,10 +497,38 @@ class Trainer(SuperclassTrainer):
         if path_gradient_autodiff is not None:
             self.path_gradient_autodiff = path_gradient_autodiff
 
-    def execute(
+    def run_training(self, n_epochs: int, batch_size: int, **config):
+        """Run the training workflow (distributed or non-distributed).
+
+        This method performs the following steps:
+        - Selects between single-process and Distributed Data Parallel (DDP)
+          execution based on the current environment.
+        - Loads a checkpoint if a `load_checkpoint_path` is provided.
+        - Sets up the optimizer, scheduler, and other training components.
+        - Runs the training loop for the specified number of epochs.
+        - Saves a checkpoint after training if a `save_checkpoint_path` is
+          provided (only on the main process when using distributed training).
+
+        Args:
+            n_epochs (int): Number of epochs to train for.
+            batch_size (int): Batch size.
+            **config: Optional training configuration. These parameters update
+               or replace any configuration provided at initialization time
+               (e.g. optimizer, scheduler, hyperparameters, logging name).
+        """
+        t_0 = time.time()
+        if self.device_handler.world_size == 1:
+            self._run_training(n_epochs, batch_size, **config)
+        else:
+            self._run_ddp_training(n_epochs, batch_size, **config)
+
+        if self.is_main_process:
+            logging.info("Training completed in %.1f sec.", time.time() - t_0)
+
+    def _run_training(
         self,
-        n_epochs: int = 100,
-        batch_size: int = 64,
+        n_epochs: int,
+        batch_size: int,
         load_checkpoint_path: str | None = None,
         save_checkpoint_path: str | None = None,
         **setup_kwargs
@@ -564,12 +591,14 @@ class Trainer(SuperclassTrainer):
         if save_checkpoint_path is not None and device_handler.is_main_process:
             self.model.save_checkpoint(save_checkpoint_path)
 
-    def execute_ddp_training(
+    def _run_ddp_training(
         self,
+        n_epochs: int,
+        batch_size: int,
         load_checkpoint_path: str | None = None,
         save_checkpoint_path: str | None = None,
         seeds_list: tuple | None = None,
-        **train_kwargs
+        **setup_kwargs
     ):
         """
         Execute distributed training using Distributed Data Parallel (DDP).
@@ -601,7 +630,7 @@ class Trainer(SuperclassTrainer):
         logging.info("Process group initialized and model wrapped with DDP.")
 
         # Execute training
-        self.execute(**train_kwargs)
+        self._run_training(n_epochs, batch_size, **setup_kwargs)
 
         # Save model (only on rank 0)
         if save_checkpoint_path is not None and self.is_main_process:
@@ -612,7 +641,8 @@ class Trainer(SuperclassTrainer):
 
         # Cleanup
         self.device_handler.destroy_process_group()
-        logging.info("Process group destroyed.")
+        if self.is_main_process:
+            logging.info("Process group destroyed.")
 
     def _train(self, n_epochs: int, batch_size: int, debug: bool = False):
         """Train the model.
