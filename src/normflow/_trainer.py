@@ -451,6 +451,8 @@ class DeviceHandler:
             return tuple(z.to(self.training_device) for z in x)
         if isinstance(x, torch.nn.Module):
             return x.to(self.training_device, dtype=None)
+        if hasattr(x, "to"):
+            return x.to(self.training_device)
         raise ValueError("Only Tensor, list, tuple are supported.")
 
     def print_device_info(self):
