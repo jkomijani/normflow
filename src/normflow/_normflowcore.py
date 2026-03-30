@@ -14,7 +14,7 @@ import numpy as np
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
 from .lib.combo import fmt_val_err
-from .device import ModelDeviceHandler
+from ._trainer import Trainer as SuperclassTrainer
 
 
 # =============================================================================
@@ -66,10 +66,6 @@ class Model:
     blocked_mcmc : BlockedMCMCSampler
         An instance of the BlockedMCMCSampler class, providing blockwise
         MCMC sampling for improved sampling efficiency.
-
-    device_handler : ModelDeviceHandler
-        Manages the device (CPU/GPU) for model training and inference, ensuring
-        seamless operation across hardware setups.
     """
 
     def __init__(self, *, prior, net_, action, load_checkpoint_path=None):
@@ -89,9 +85,6 @@ class Model:
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
         self.blocked_mcmc = BlockedMCMCSampler(self)
-
-        # Components for device handling and loading saved models
-        self.device_handler = ModelDeviceHandler(self)
 
         if load_checkpoint_path is not None:
             self.load_checkpoint(load_checkpoint_path)
@@ -160,7 +153,6 @@ class Model:
             self.prior.load_state_dict(state['prior_state_dict'])
             self.action.load_state_dict(state['action_state_dict'])
             self.trainer.load_state_dict(state['train_state_dict'])
-
 
 
 # =============================================================================
@@ -283,7 +275,7 @@ class Posterior:
 
 
 # =============================================================================
-class Trainer:
+class Trainer(SuperclassTrainer):
     """
     A class responsible for training a model, handling optimization, loss
     computation, and scheduling tasks.
@@ -388,7 +380,7 @@ class Trainer:
         model : Model
             The model to be trained.
         """
-        self._model = model
+        super().__init__(model)
 
         # Initialize training history tracking
         self.train_history = \
@@ -477,7 +469,7 @@ class Trainer:
         # (Re)initialize the optimizer if flagged
         if initiate_optimizer_flag:
             # For initiating optimizer, get model parameters (grouped or flat)
-            net_ = self._model.net_
+            net_ = self.model.net_
             if '_groups' in net_.__dict__.keys():
                 params = net_.grouped_parameters()
             else:
@@ -557,8 +549,10 @@ class Trainer:
             - checkpoint_dict
         """
         if load_checkpoint_path is not None:
-            self._model.load_checkpoint(load_checkpoint_path)
+            self.model.load_checkpoint(load_checkpoint_path)
 
+        self.device_handler.to_training_device(self.model.net_)
+        self.device_handler.to_training_device(self.model.prior)
         self.setup_optimizer_and_components(**setup_kwargs)
 
         # Begin training if n_epochs > 0
@@ -566,9 +560,9 @@ class Trainer:
             self._train(n_epochs, batch_size)
 
         # Save model (only on rank 0)
-        device_handler = self._model.device_handler
+        device_handler = self.device_handler
         if save_checkpoint_path is not None and device_handler.is_main_process:
-            self._model.save_checkpoint(save_checkpoint_path)
+            self.model.save_checkpoint(save_checkpoint_path)
 
     def execute_ddp_training(
         self,
@@ -590,16 +584,19 @@ class Trainer:
         7. Synchronize all processes.
         8. Destroy the process group to free resources.
         """
-        device_handler = self._model.device_handler
-
         # Initialize distributed backend
-        device_handler.init_process_group(backend="nccl")
+        self.device_handler.init_process_group(backend="nccl")
 
         if load_checkpoint_path is not None:
-            self._model.load_checkpoint(load_checkpoint_path)
+            self.model.load_checkpoint(load_checkpoint_path)
 
-        device_handler.ddp_wrapper()
-        device_handler.set_seed(seeds_list)
+        self.model.net_ = self.device_handler.model_ddp_wrapper(
+            self.model.net_
+        )
+        self.model.prior.to(
+            device=self.device_handler.training_device, dtype=None
+        )
+        self.device_handler.set_seed(seeds_list)
 
         logging.info("Process group initialized and model wrapped with DDP.")
 
@@ -607,14 +604,14 @@ class Trainer:
         self.execute(**train_kwargs)
 
         # Save model (only on rank 0)
-        if save_checkpoint_path is not None and device_handler.is_main_process:
-            self._model.save_checkpoint(save_checkpoint_path)
+        if save_checkpoint_path is not None and self.is_main_process:
+            self.model.save_checkpoint(save_checkpoint_path)
 
         # Synchronize all processes after training
         torch.distributed.barrier()
 
         # Cleanup
-        device_handler.destroy_process_group()
+        self.device_handler.destroy_process_group()
         logging.info("Process group destroyed.")
 
     def _train(self, n_epochs: int, batch_size: int, debug: bool = False):
@@ -634,15 +631,13 @@ class Trainer:
         self.train_history['logp'].extend([None] * n_epochs)
         self.train_history['logqp'].extend([None] * n_epochs)
 
-        is_main_process = self._model.device_handler.is_main_process
-
         last_epoch = self.train_history['epoch']
         report_progress = self.checkpoint_dict['print_every'] is not None
 
         if last_epoch == 0:
             self._checkpoint(last_epoch, None, None)
 
-        if is_main_process and report_progress:
+        if self.is_main_process and report_progress:
             print(f">>> Training started for {n_epochs} epochs <<<")
             t_1 = time.time()
 
@@ -657,15 +652,15 @@ class Trainer:
             if self.alpha_scheduler is not None:
                 self.alpha_scheduler.step()
 
-        if is_main_process and report_progress:
+        if self.is_main_process and report_progress:
             t_2 = time.time()
             print(f">>> Training finished ({loss.device});", end='')
             print(f" TIME = {t_2 - t_1:.3g} sec <<<")
 
         if debug:
-            param = list(self._model.net_.parameters())[-1]
+            param = list(self.model.net_.parameters())[-1]
             print((
-                f"rank = {self._model.device_handler.rank} | "
+                f"rank = {self.device_handler.rank} | "
                 f"loss = {loss.item():.4f} | "
                 f"param = {param.ravel()[0].item():.14e} | "
                 f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
@@ -686,7 +681,7 @@ class Trainer:
         transformed outputs, evaluates loss based on log-probabilities, and
         optimizes the model using backpropagation.
         """
-        model = self._model
+        model = self.model
         prior = model.prior
 
         # Sample inputs from the prior
@@ -756,7 +751,7 @@ class Trainer:
             return
 
         # Update the training history if on rank 0
-        if self._model.device_handler.is_main_process:
+        if self.is_main_process:
             loss, ess, logqp, logp = out
             self.train_history['epoch'] = epoch
             self.train_history['ess'][epoch - 1] = ess
@@ -812,17 +807,17 @@ class Trainer:
         """
         # Sample logq and logp if `batch_size` is provided
         if batch_size is not None:
-            _, logq, logp = self._model.posterior.sample__(batch_size)
+            _, logq, logp = self.model.posterior.sample__(batch_size)
 
         elif (logq is None or logp is None):
             return None
 
         # Gather logq and logp across devices for distributed setups
-        logq = self._model.device_handler.all_gather_into_tensor(logq)
-        logp = self._model.device_handler.all_gather_into_tensor(logp)
+        logq = self.device_handler.all_gather_into_tensor(logq)
+        logp = self.device_handler.all_gather_into_tensor(logp)
 
         # Terminate if not on zero rank
-        if not self._model.device_handler.is_main_process:
+        if not self.device_handler.is_main_process:
             return None
 
         # Compute metrics
