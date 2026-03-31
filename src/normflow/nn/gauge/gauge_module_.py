@@ -19,27 +19,74 @@ from ..matrix.stapled_matrix_module_ import StapledMatrixModule_
 
 # =============================================================================
 class GaugeModuleList_(ModuleList_):
-    """A subclass of ModuleList_ for a list of instances of GaugeModule_."""
+    """
+    Container for a sequence of `GaugeModule_` transformations.
 
-    vector_axis = 1  # The vector axis of inputs to forward & reverse are 1
+    Applies gauge updates sequentially along a chosen link axis.
 
-    unbind_vector_axis = True  # "vector_axis" will be switched to 0 internally
+    Attributes
+    ----------
+    unbind_link_axis : bool
+        If True, the input is split along `link_axis` into a list of tensors
+        before applying the modules, and stacked back afterward. This lets each
+        `GaugeModule_` operate on a single link direction (internally assuming
+        link_axis = 0).
+        If False, the full tensor is passed directly to each module.
+    """
+
+    unbind_link_axis = True  # internally switch link_axis to 0
+
+    def __init__(
+        self,
+        list_of_gauge_modules_,
+        sites_before_link: bool = True
+    ):
+        """
+        Initialize the module list.
+
+        Parameters
+        ----------
+        list_of_gauge_modules_ : list[GaugeModule_]
+            Sequence of gauge update modules.
+        sites_before_link : bool, optional
+            If True, site dimensions precede the link axis in `x`;
+            otherwise the link axis comes earlier.
+        """
+        super().__init__(list_of_gauge_modules_)
+        self.sites_before_link = sites_before_link
+
+    @property
+    def link_axis(self):
+        """
+        Axis corresponding to link directions in the input tensor.
+        """
+        return -3 if self.sites_before_link else 1
 
     def forward(self, x, log0=0):
-        """Forward pass: loop over instances of GaugeModule_."""
-        if self.unbind_vector_axis:
-            x = list(torch.unbind(x, self.vector_axis))
+        """
+        Apply forward transformations sequentially.
+
+        Splits and recombines along `link_axis` if `unbind_link_axis` is
+        enabled. Returns updated `x` and accumulated log-Jacobian.
+        """
+        if self.unbind_link_axis:
+            x = list(torch.unbind(x, self.link_axis))
             x, log0 = super().forward(x, log0)
-            return torch.stack(x, dim=self.vector_axis), log0
+            return torch.stack(x, dim=self.link_axis), log0
         else:
             return super().forward(x.clone(), log0)
 
     def reverse(self, x, log0=0):
-        """Reverse pass: loop over instances of GaugeModule_ in reverse."""
-        if self.unbind_vector_axis:
-            x = list(torch.unbind(x, self.vector_axis))
+        """
+        Apply inverse transformations in reverse order.
+
+        Mirrors `forward`, including optional splitting along `link_axis`.
+        Returns updated `x` and accumulated log-Jacobian.
+        """
+        if self.unbind_link_axis:
+            x = list(torch.unbind(x, self.link_axis))
             x, log0 = super().reverse(x, log0)
-            return torch.stack(x, dim=self.vector_axis), log0
+            return torch.stack(x, dim=self.link_axis), log0
         else:
             return super().reverse(x.clone(), log0)
 
@@ -49,11 +96,11 @@ class GaugeModuleList_(ModuleList_):
         """
         stack = [(x, log0)]
 
-        if self.unbind_vector_axis:
+        if self.unbind_link_axis:
             for net_ in self:
-                x = list(torch.unbind(x, self.vector_axis))
+                x = list(torch.unbind(x, self.link_axis))
                 x, log0 = net_(x, log0)
-                x = torch.stack(x, dim=self.vector_axis)
+                x = torch.stack(x, dim=self.link_axis)
                 stack.append([x, log0])
             return stack
         else:
@@ -101,7 +148,7 @@ class GaugeModule_(Module_):
     Transform is invertible if all networks use compatible masks.
     """
 
-    unbounded_vector_axis = True  # "vector_axis" of inputs is supposed to be 0
+    unbounded_link_axis = True  # "link_axis" of inputs is supposed to be 0
 
     def __init__(
         self,
@@ -124,9 +171,9 @@ class GaugeModule_(Module_):
         self.eigvecs_net_ = eigvecs_net_
         self.matrix_handle = matrix_handle
         self.staples_handle = staples_handle
-        if self.unbounded_vector_axis:
-            # switch "vector_axis" of self.staples_handle to 0
-            self.staples_handle.vector_axis = 0
+        if self.unbounded_link_axis:
+            # switch "link_axis" of self.staples_handle to 0
+            self.staples_handle.link_axis = 0
         if staples_kwargs is None:
             staples_kwargs = {}
         self.staples_kwargs = staples_kwargs
@@ -291,7 +338,7 @@ class GaugeModule_(Module_):
 
     def get_x_mu(self, x):
         """Extract links in direction `mu` from input tensor `x`."""
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x_mu = x[self.mu]
         else:
             x_mu = x[:, self.mu]
@@ -299,7 +346,7 @@ class GaugeModule_(Module_):
 
     def set_x_mu(self, x, x_mu):
         """Set links in direction `mu` in `x` to `x_mu`."""
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x[self.mu] = x_mu
         else:
             x[:, self.mu] = x_mu
@@ -328,7 +375,7 @@ class _GaugeModule_(MatrixModule_):
         to handle matrices as expected in the supper class `MatrixModule_`.
     """
 
-    unbounded_vector_axis = True
+    unbounded_link_axis = True
 
     def __init__(
         self, param_net_,
@@ -339,13 +386,13 @@ class _GaugeModule_(MatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
-        if self.unbounded_vector_axis:
-            self.staples_handle.vector_axis = 0
+        if self.unbounded_link_axis:
+            self.staples_handle.link_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
     def forward(self, x, log0=0):
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x_mu = x[self.mu]
         else:
             x_mu = x[:, self.mu]
@@ -364,7 +411,7 @@ class _GaugeModule_(MatrixModule_):
             x_mu, slink_rotation=slink_rotation, staples_object=staples_object
         )
 
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x[self.mu] = x_mu
         else:
             x[:, self.mu] = x_mu
@@ -372,7 +419,7 @@ class _GaugeModule_(MatrixModule_):
         return x, logJ
 
     def reverse(self, x, log0=0):
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x_mu = x[self.mu]
         else:
             x_mu = x[:, self.mu]
@@ -390,17 +437,17 @@ class _GaugeModule_(MatrixModule_):
             x_mu, slink_rotation=slink_rotation, staples_object=staples_object
         )
 
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x[self.mu] = x_mu
         else:
             x[:, self.mu] = x_mu
 
         return x, logJ
 
-    def _hack(self, x, forward=True, unbind_vector_axis=True):
+    def _hack(self, x, forward=True, unbind_link_axis=True):
         """Similar to the forward method, but returns intermediate parts."""
 
-        if unbind_vector_axis:
+        if unbind_link_axis:
             x = list(torch.unbind(x, 1))
 
         x_mu = x[self.mu]
@@ -476,7 +523,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         `param_net_` and `dual_param_net_` must be compatible.
     """
 
-    unbounded_vector_axis = True
+    unbounded_link_axis = True
 
     def __init__(
         self, dual_param_net_, param_net_,
@@ -489,13 +536,13 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
-        if self.unbounded_vector_axis:
-            self.staples_handle.vector_axis = 0
+        if self.unbounded_link_axis:
+            self.staples_handle.link_axis = 0
         self.staples_coeff = staples_coeff
         self.label = label
 
     def forward(self, x, log0=0):
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x_mu = x[self.mu]
         else:
             x_mu = x[:, self.mu]
@@ -516,7 +563,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
             x_mu, slink_rotation=slink_rotation, staples_object=staples_object
         )
 
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x[self.mu] = x_mu
         else:
             x[:, self.mu] = x_mu
@@ -524,7 +571,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
         return x, logJ
 
     def reverse(self, x, log0=0):
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x_mu = x[self.mu]
         else:
             x_mu = x[:, self.mu]
@@ -544,17 +591,17 @@ class _SVDGaugeModule_(StapledMatrixModule_):
             x_mu, slink_rotation=slink_rotation, staples_object=staples_object
         )
 
-        if self.unbounded_vector_axis:
+        if self.unbounded_link_axis:
             x[self.mu] = x_mu
         else:
             x[:, self.mu] = x_mu
 
         return x, logJ
 
-    def _hack(self, x, forward=True, unbind_vector_axis=True):
+    def _hack(self, x, forward=True, unbind_link_axis=True):
         """Similar to the forward method, but returns intermediate parts."""
 
-        if unbind_vector_axis:
+        if unbind_link_axis:
             x = list(torch.unbind(x, 1))
 
         x_mu = x[self.mu]
@@ -596,7 +643,7 @@ class _SVDGaugeModule_(StapledMatrixModule_):
 # =============================================================================
 class PolyakovGaugeModule_(MatrixModule_):
 
-    unbounded_vector_axis = True
+    unbounded_link_axis = True
 
     def __init__(
         self, param_net_, *, mu, nu_list, staples_handle, matrix_handle, parity
@@ -605,8 +652,8 @@ class PolyakovGaugeModule_(MatrixModule_):
         self.mu = mu
         self.nu_list = nu_list
         self.staples_handle = staples_handle
-        if self.unbounded_vector_axis:
-            self.staples_handle.vector_axis = 0
+        if self.unbounded_link_axis:
+            self.staples_handle.link_axis = 0
         self.parity = parity
 
     def forward(self, x, log0=0):
