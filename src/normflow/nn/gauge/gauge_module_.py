@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """This module contains new neural networks for transforming gauge fields.
 
@@ -19,12 +19,14 @@ from ..matrix.stapled_matrix_module_ import StapledMatrixModule_
 
 # =============================================================================
 class GaugeModuleList_(ModuleList_):
+    """A subclass of ModuleList_ for a list of instances of GaugeModule_."""
 
     vector_axis = 1  # The vector axis of inputs to forward & reverse are 1
 
     unbind_vector_axis = True  # "vector_axis" will be switched to 0 internally
 
     def forward(self, x, log0=0):
+        """Forward pass: loop over instances of GaugeModule_."""
         if self.unbind_vector_axis:
             x = list(torch.unbind(x, self.vector_axis))
             x, log0 = super().forward(x, log0)
@@ -33,6 +35,7 @@ class GaugeModuleList_(ModuleList_):
             return super().forward(x.clone(), log0)
 
     def reverse(self, x, log0=0):
+        """Reverse pass: loop over instances of GaugeModule_ in reverse."""
         if self.unbind_vector_axis:
             x = list(torch.unbind(x, self.vector_axis))
             x, log0 = super().reverse(x, log0)
@@ -60,6 +63,13 @@ class GaugeModuleList_(ModuleList_):
 # =============================================================================
 class GaugeModule_(Module_):
     """
+    Gauge-equivariant link update module.
+
+    Applies an invertible transformation to links in direction `mu` using
+    staple information in planes defined by `nu_list`. The update is performed
+    via spectral decomposition (eigen-angles/vectors) and optional neural
+    networks acting on parameters, eigen-angles, and eigenvectors.
+
     Parameters
     ----------
     mu : int
@@ -86,9 +96,9 @@ class GaugeModule_(Module_):
         a network to change the eigen-vectors of the stapled links.
         (Default is None.)
 
-    IMPORTANT NOTE:
-        in order to have an invertible forward method, the masks used in
-        `param_net_` and other networs must be compatible.
+    Notes
+    -----
+    Transform is invertible if all networks use compatible masks.
     """
 
     unbounded_vector_axis = True  # "vector_axis" of inputs is supposed to be 0
@@ -122,7 +132,12 @@ class GaugeModule_(Module_):
         self.staples_kwargs = staples_kwargs
 
     def forward(self, x, log0=0):
+        """
+        Apply forward link transformation.
 
+        Computes staples, transforms stapled links, and updates `x`.
+        Returns updated `x` and accumulated log-Jacobian.
+        """
         staples_object = self.staples_handle.calc_staples(
             x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
         )
@@ -144,7 +159,12 @@ class GaugeModule_(Module_):
         return x, log0 + logJ
 
     def reverse(self, x, log0=0):
+        """
+        Apply inverse link transformation.
 
+        Reverses the forward update using inverse network operations.
+        Returns updated `x` and accumulated log-Jacobian.
+        """
         staples_object = self.staples_handle.calc_staples(
             x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
         )
@@ -167,6 +187,12 @@ class GaugeModule_(Module_):
         return x, log0 + logJ
 
     def _apply_slink_transform(self, slink, staples_object):
+        """
+        Transform a stapled link via spectral decomposition.
+
+        Applies parameter, eigen-angle, and eigenvector networks.
+        Returns transformed link and log-Jacobian.
+        """
         # slink: stapled link
         # ======
         # Spectral decomposition of the input matrix
@@ -212,6 +238,12 @@ class GaugeModule_(Module_):
         return new_slink, logJ
 
     def _apply_slink_reverse_transform(self, slink, staples_object):
+        """
+        Inverse transform of a stapled link.
+
+        Reverses eigenvector, eigen-angle, and parameter transforms.
+        Returns transformed link and log-Jacobian.
+        """
         # slink: stapled link
         # ======
         # Part 0: Spectral decomposition of the input matrix
@@ -258,6 +290,7 @@ class GaugeModule_(Module_):
         return new_slink, logJ
 
     def get_x_mu(self, x):
+        """Extract links in direction `mu` from input tensor `x`."""
         if self.unbounded_vector_axis:
             x_mu = x[self.mu]
         else:
@@ -265,6 +298,7 @@ class GaugeModule_(Module_):
         return x_mu
 
     def set_x_mu(self, x, x_mu):
+        """Set links in direction `mu` in `x` to `x_mu`."""
         if self.unbounded_vector_axis:
             x[self.mu] = x_mu
         else:
