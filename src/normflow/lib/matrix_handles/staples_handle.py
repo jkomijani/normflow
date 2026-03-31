@@ -72,13 +72,13 @@ class FixedStaplesHandle:
 # =============================================================================
 class WilsonStaplesHandle(TemplateStaplesHandle):
 
-    vector_axis = 1
+    link_axis = 1
 
     def calc_staples_sum(self, *args, **kwargs):
         return self.calc_staples(*args, **kwargs).staples_sum
 
-    def makesure_correct_vector_axis(self, vector_axis):
-        assert self.vector_axis == vector_axis, "vector axis?"
+    def makesure_correct_link_axis(self, link_axis):
+        assert self.link_axis == link_axis, "vector axis?"
 
     def calc_staples(self, links, *, mu, nu_list, staples_coeff=None,
             mixed_staples_coeff=None):
@@ -142,7 +142,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         #                f|   |d
         #                 --e--
 
-        if self.vector_axis == 0:
+        if self.link_axis == 0:
             x_mu = links[mu]
             x_nu = links[nu]
         else:
