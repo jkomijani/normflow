@@ -200,10 +200,9 @@ class Trainer:
 
         for self.current_epoch in progress:
             loss, logq, logp, ess = self.training_epoch(batch_size)
-            lnqbp = (logq - logp).mean()  # ln(q/p)
             self.logger.log_epoch(
                 self.current_epoch,
-                {'loss': loss, 'ess': ess, 'lnq/p': lnqbp, 'logp': logp.mean()}
+                {'loss': loss, 'ess': ess, 'logp': logp.mean()}
             )
 
             if self.lr_scheduler is not None:
