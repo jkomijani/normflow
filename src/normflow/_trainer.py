@@ -9,8 +9,6 @@ import time
 import logging
 import torch
 import torch.distributed as dist
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 import numpy as np
@@ -39,10 +37,6 @@ class Trainer:
         - Pluggable logging backend with sensible defaults
         - Deterministic and reproducible training via seed management
 
-    Design assumptions:
-        - The model implements a `training_step(batch) -> loss` method
-        - The training dataloader yields batches compatible with the model
-
     Device selection:
         Single- or multi-GPU execution is determined automatically based on the
         runtime environment and launch method. When the script is launched via
@@ -62,8 +56,8 @@ class Trainer:
         >>> model = MyModel()
         >>> trainer = Trainer(model)
         >>> trainer.run_training(
-        ...     training_dataloader=train_loader,
         ...     n_epochs=10,
+        ...     batch_size=8,
         ...     optimizer_class=torch.optim.AdamW,
         ...     hyperparam={"lr": 3e-4},
         ...     save_checkpoint_path="model.pt",
@@ -90,7 +84,12 @@ class Trainer:
             logger (LoggerLike or None): If None, uses the default `CSVLogger`.
             **training_config: Additional kweword arguments, including:
                 optimizer_class: Callable = torch.optim.AdamW
-                scheduler_class: Callable | None = None
+                lr_scheduler_class: Callable | None = None
+                path_gradient_autodiff: bool = True
+                    A flag indicating whether gradient autodiff is used.
+                alpha_tmax: int | None = None
+                    If provided, activates `AlphaScheduler` for interpolation
+                    between the prior and target distributions.
                 hyperparam: Dict = {}
 
         Notes:
@@ -108,7 +107,8 @@ class Trainer:
         self.device_handler = DeviceHandler()
         self.logger = logger or CSVLogger()
         self.optimizer = None
-        self.scheduler = None
+        self.lr_scheduler = None
+        self.alpha_scheduler = None
         self.config = TrainingConfiguration(**training_config)
 
     def configure_optimizers(self, **kwargs):
@@ -120,16 +120,27 @@ class Trainer:
 
         self.config.update(**kwargs)
 
-        parameters = self.model.parameters()
+        # For initiating optimizer, get model parameters (grouped or flat)
+        if '_groups' in self.model.net_.__dict__.keys():
+            parameters = self.model.net_.grouped_parameters()
+        else:
+            parameters = self.model.net_.parameters()
         hyperparam = self.config.hyperparam
         self.optimizer = self.config.optimizer_class(parameters, **hyperparam)
 
-        if self.config.scheduler_class is None:
-            self.scheduler = None
+        # Setup lr scheduler if the corresponding class is provided
+        if self.config.lr_scheduler_class is None:
+            self.lr_scheduler = None
         else:
-            self.scheduler = self.config.scheduler_class(self.optimizer)
+            self.lr_scheduler = self.config.lr_scheduler_class(self.optimizer)
 
-    def run_training(self, training_dataloader, n_epochs: int, **config):
+        # Setup alpha scheduler if alpha_tmax is provided
+        if self.config.alpha_tmax is None:
+            self.alpha_scheduler = None
+        else:
+            self.alpha_scheduler = AlphaScheduler(self.config.alpha_tmax)
+
+    def run_training(self, n_epochs: int, batch_size: int, **config):
         """Run the training workflow (distributed or non-distributed).
 
         This method performs the following steps:
@@ -142,25 +153,25 @@ class Trainer:
           provided (only on the main process when using distributed training).
 
         Args:
-            training_dataloader: DataLoader providing training batches.
             n_epochs (int): Number of epochs to train for.
+            batch_size (int): Batch size.
             **config: Optional training configuration. These parameters update
                or replace any configuration provided at initialization time
                (e.g. optimizer, scheduler, hyperparameters, logging name).
         """
         t_0 = time.time()
         if self.device_handler.world_size == 1:
-            self._run_training(training_dataloader, n_epochs, **config)
+            self._run_training(n_epochs, batch_size, **config)
         else:
-            self._run_ddp_training(training_dataloader, n_epochs, **config)
+            self._run_ddp_training(n_epochs, batch_size, **config)
 
         if self.is_main_process:
             logging.info("Training completed in %.1f sec.", time.time() - t_0)
 
     def _run_training(
         self,
-        training_dataloader,
         n_epochs: int,
+        batch_size: int,
         load_checkpoint_path: str | None = None,
         save_checkpoint_path: str | None = None,
         **config
@@ -175,12 +186,12 @@ class Trainer:
           provided (only on the main process when using distributed training).
         """
         self.load_checkpoint(load_checkpoint_path)
-        self.device_handler.to_training_device(self.model)
+        self.device_handler.to_training_device(self.model.net_)
+        self.device_handler.to_training_device(self.model.prior)
         self.configure_optimizers(**config)
-        self.training_dataloader = training_dataloader
 
         self.device_handler.print_device_info()
-        print_model_info(self.model)
+        print_model_info(self.model.net_)
 
         progress = tqdm(
             range(1 + self.current_epoch, 1 + self.current_epoch + n_epochs),
@@ -188,28 +199,25 @@ class Trainer:
         )
 
         for self.current_epoch in progress:
-            # -----------------------------
-            # If using DistributedSampler, we must call `set_epoch(epoch)` at
-            # the start of each epoch. Otherwise, all ranks shuffle the dataset
-            # identically across epochs, reducing statistical diversity.
-            sampler = self.training_dataloader.sampler
-            if isinstance(sampler, torch.utils.data.DistributedSampler):
-                sampler.set_epoch(self.current_epoch)
-            # -----------------------------
+            loss, logq, logp, ess = self.training_epoch(batch_size)
+            lnqbp = (logq - logp).mean()  # ln(q/p)
+            self.logger.log_epoch(
+                self.current_epoch,
+                {'loss': loss, 'ess': ess, 'lnq/p': lnqbp, 'logp': logp.mean()}
+            )
 
-            loss = self.training_epoch()
-            self.logger.log_epoch(self.current_epoch, {'loss': loss})
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
 
-            if self.scheduler is not None:
-                if not self.config.scheduler_per_batch:
-                    self.scheduler.step()
+            if self.alpha_scheduler is not None:
+                self.alpha_scheduler.step()
 
         self.save_checkpoint(save_checkpoint_path)
 
     def _run_ddp_training(
         self,
-        training_dataloader,
         n_epochs: int,
+        batch_size: int,
         load_checkpoint_path: str | None = None,
         save_checkpoint_path: str | None = None,
         seeds_list: tuple | None = None,
@@ -230,23 +238,16 @@ class Trainer:
         # Initialize distributed backend
         self.device_handler.init_process_group(backend="nccl")
         self.load_checkpoint(load_checkpoint_path)
-        self.model = self.device_handler.model_ddp_wrapper(self.model)
+        net_ = self.model.net_
+        self.model.net_ = self.device_handler.model_ddp_wrapper(net_)
         self.device_handler.set_seed(seeds_list)
 
         if self.is_main_process:
             logging.info("Process group initialized & model wrapped with DDP.")
 
-        distributed_dataloader = DataLoader(
-            training_dataloader.dataset,
-            batch_size=training_dataloader.batch_size,
-            num_workers=training_dataloader.num_workers,
-            pin_memory=training_dataloader.pin_memory,
-            sampler=DistributedSampler(training_dataloader.dataset)
-        )
-
         try:
             # Execute training
-            self._run_training(distributed_dataloader, n_epochs, **config)
+            self._run_training(n_epochs, batch_size, **config)
             self.save_checkpoint(save_checkpoint_path)
 
             # Synchronize all processes after training
@@ -258,35 +259,59 @@ class Trainer:
             if self.is_main_process:
                 logging.info("Process group destroyed.")
 
-    def training_epoch(self) -> torch.Tensor:
-        """Perform an epoch of training and return average training loss."""
+    def training_epoch(self, batch_size: int):
+        """
+        Perform a single training step with a batch of size `batch_size`.
 
-        loss_sum = 0
-        n_samples = 0
+        Note that:
+        - The alpha scheduler controls the interpolation between the action
+          term and the prior during training.
+        - If `path_gradient_autodiff` is enabled, the forward pass uses the
+          `forward_with_path_gradient_ad` method of `Module_` to adjust
+          autmatic differentiation.
 
-        for batch in self.training_dataloader:
-            batch = self.device_handler.to_training_device(batch)
-            loss = self.model.training_step(batch)
+        This method samples inputs from the prior distribution, computes
+        transformed outputs, evaluates loss based on log-probabilities, and
+        optimizes the model using backpropagation.
+        """
+        net_ = self.model.net_
+        prior = self.model.prior
+        action = self.model.action
 
-            if torch.isnan(loss):
-                raise RuntimeError("Stopping due to NaN loss")
+        # Sample inputs from the prior
+        x, logr = prior.sample_(batch_size)
 
-            self.optimizer.zero_grad()  # clears old gradients from last steps
-            loss.backward()
+        # Forward pass through the neural network
+        y, logj = net_.forward(x)
 
-            if self.config.clip_grad_norm:
-                clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        # Compute the log-probability of the transformed data `y`
+        logq = logr - logj
 
-            self.optimizer.step()
+        if self.config.path_gradient_autodiff:
+            logq += adjustment_for_path_gradient_autodiff(y, net_, prior)
 
-            if self.scheduler is not None and self.config.scheduler_per_batch:
-                self.scheduler.step()
+        # Compute target log-probability
+        if self.alpha_scheduler is None:
+            logp = - action(y)
+        else:
+            alpha = self.alpha_scheduler.alpha
+            logp = - alpha * action(y) + (1 - alpha) * prior.log_prob(y)
 
-            bsize = batch[0].shape[0]
-            loss_sum += bsize * loss.detach()
-            n_samples += bsize
+        # Compute Loss
+        loss = self.config.loss_fn(logq, logp)
 
-        return loss_sum / n_samples
+        if torch.isnan(loss):
+            raise RuntimeError("Stopping due to NaN loss")
+
+        self.optimizer.zero_grad()  # clears old gradients from last steps
+        loss.backward()
+
+        if self.config.clip_grad_norm:
+            clip_grad_norm_(net_.parameters(), max_norm=1.0)
+
+        self.optimizer.step()
+
+        return loss, logq, logp, Metrics.calc_ess(logq, logp)
 
     @property
     def is_main_process(self):
@@ -298,9 +323,9 @@ class Trainer:
         if fname is None or not self.is_main_process:
             return
         if self.device_handler.world_size == 1:
-            torch.save(self.model.state_dict(), fname)
+            torch.save(self.model.net_.state_dict(), fname)
         else:
-            torch.save(self.model.module.state_dict(), fname)
+            torch.save(self.model.net_.module.state_dict(), fname)
 
     def load_checkpoint(self, fname: str, map_location=torch.device('cpu')):
         """Load a model checkpoint into the current instance of the model."""
@@ -310,18 +335,140 @@ class Trainer:
         if fname is None:
             return
         state = torch.load(fname, map_location=map_location, weights_only=True)
-        self.model.load_state_dict(state)
+        self.model.net_.load_state_dict(state)
+
+
+# =============================================================================
+def adjustment_for_path_gradient_autodiff(y, net_, prior):
+    """
+    Compute the path gradient adjustment for statistical stability.
+
+    In KL divergence minimization, the total derivative of the loss decomposes
+    into a partial derivative with respect to parameters and the transformed
+    variable `y`. The partial derivative contribution statistically vanishes,
+    making it preferable to remove these terms using a reverse flow correction.
+    The technique follows Vaitl et al., "Gradients should stay on Path: Better
+    Estimators of the Reverse- and Forward KL Divergence for Normalizing Flows"
+    [arXiv:2207.08219].
+
+    Args:
+        y (Tensor): Transformed variable obtained from the normalizing flow.
+        net_ (Module): For applying the reverse flow on `y` to obtain `x`.
+        prior: For computing the log probability of the `x`.
+
+    Returns:
+        Tensor: Adjustment to `logq` of `y`.
+    """
+    # Note that `y` is obtained through the forward transformation:
+    # `y, logj = net_.forward(x)`
+
+    # Compute the reverse transformation on detached `y` to calculate
+    # the partial gradient w.r.t. only the parameters of the reverse path
+    x, minus_logj = net_.reverse(y.detach())
+    # Note that, basically, `minus_logj = -logj`
+
+    # Adjust the log-Jacobian for statistical stability by removing the
+    # parameter-related contributions to the gradient log-Jacobian
+    d_logj = minus_logj - minus_logj.detach()
+    # Note that, d_logj is zero, but its gradeint is the partial derivative of
+    # logj w.r.t. the parameters
+
+    # Compute the log-probability of `x` with adjustment for stability
+    d_logr = - (prior.log_prob(x) - prior.log_prob(x).detach())
+
+    d_logq = d_logr - d_logj
+
+    return d_logq
+
+
+# =============================================================================
+class AlphaScheduler:
+    """
+    A class that introduces a parameter `alpha` and a scheduler to increment
+    its value over time. The value of `alpha` starts at 0 and increases
+    gradually towards 1 based on a given maximum number of steps (`t_max`).
+    The value of `alpha` is updated in each step, and it never exceeds 1.
+    """
+
+    def __init__(self, t_max: int):
+        """
+        Initializes the AlphaScheduler with a maximum number of steps (`t_max`)
+        over which `alpha` increases from 0 to 1.
+        """
+        self.alpha = 0
+        self.t_max = t_max
+
+    def step(self):
+        """
+        Increments the value of `alpha` by `1 / t_max`. The value of `alpha` is
+        clamped to a maximum of 1.
+        """
+        self.alpha = min(1, self.alpha + 1 / self.t_max)
+
+
+# =============================================================================
+class Metrics:
+    """Define various metrics"""
+
+    @staticmethod
+    def calc_kl_mean(logq, logp):
+        """Return Kullback-Leibler divergence estimated from logq and logp."""
+        return (logq - logp).mean()  # KL, assuming samples from q
+
+    @staticmethod
+    def calc_kl_var(logq, logp):
+        """Return the variance of logq and logp difference."""
+        return (logq - logp).var()
+
+    @staticmethod
+    def calc_corrcoef(logq, logp):
+        """Return coreelation between logq and logp."""
+        return torch.corrcoef(torch.stack([logq, logp]))[0, 1]
+
+    @staticmethod
+    def calc_direct_kl_mean(logq, logp):
+        """Return direct KL divergence estimated from logq and logp."""
+        logpq = logp - logq
+        logz = torch.logsumexp(logpq, dim=0) - np.log(logp.shape[0])
+        logpq = logpq - logz  # p is now normalized
+        p_by_q = torch.exp(logpq)
+        return (p_by_q * logpq).mean()
+
+    @staticmethod
+    def calc_minus_logz(logq, logp):
+        """Return minus log of :math:`Z` estimated from logq and logp."""
+        logz = torch.logsumexp(logp - logq, dim=0) - np.log(logp.shape[0])
+        return -logz
+
+    @staticmethod
+    def calc_ess(logq, logp):
+        """Rerturn effective sample size (ESS)."""
+        logqp = logq - logp
+        log_ess = 2*torch.logsumexp(-logqp, dim=0) \
+            - torch.logsumexp(-2*logqp, dim=0)
+        ess = torch.exp(log_ess) / len(logqp)  # normalized
+        return ess
+
+    @staticmethod
+    def calc_minus_logess(logq, logp):
+        """Return logarith of inverse of effective sample size."""
+        logqp = logq - logp
+        log_ess = 2*torch.logsumexp(-logqp, dim=0) \
+            - torch.logsumexp(-2*logqp, dim=0)
+        return - log_ess + np.log(len(logqp))  # normalized
 
 
 # =============================================================================
 class TrainingConfiguration(pydantic.BaseModel):
     """Training Configuration."""
 
+    loss_fn: Callable = Metrics.calc_kl_mean
     optimizer_class: Callable = torch.optim.AdamW
-    scheduler_class: Callable | None = None
+    lr_scheduler_class: Callable | None = None
+    alpha_tmax: int | None = None
+    path_gradient_autodiff: bool = True
     hyperparam: Dict = {}
     clip_grad_norm: bool = False
-    scheduler_per_batch: bool = False  # True/False: step every batch/epoch
 
     def update(self, **kwargs):
         """Update the attributes."""

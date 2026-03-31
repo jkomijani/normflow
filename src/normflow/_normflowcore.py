@@ -76,7 +76,7 @@ class Model:
         self.action = action
 
         # Components for training
-        self.trainer = Trainer(self)
+        self.trainer = SuperclassTrainer(self)
         self.train = self.trainer.run_training
         self.fit = self.train  # Alias for `train`
 
