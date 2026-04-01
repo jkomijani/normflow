@@ -1,8 +1,6 @@
 # List of supported actions
 
-from .gauge_action import WilsonGaugeAction, U1WilsonGaugeAction
-GaugeAction = WilsonGaugeAction  # alias for legacy, will be removed later
-U1GaugeAction = U1WilsonGaugeAction  # alias for lagacy, will be removed later
+from lattice_ml.gauge_tools import WilsonGaugeAction, WilsonU1GaugeAction
 
 # from .schwinger_action import SchwingerAction
 
