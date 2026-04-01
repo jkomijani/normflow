@@ -199,7 +199,11 @@ class Trainer:
         )
 
         for self.current_epoch in progress:
-            loss, logq, logp, ess = self.training_epoch(batch_size)
+            loss, logq, logp = self.training_epoch(batch_size)
+
+            logq = self.device_handler.all_gather_into_tensor(logq)
+            logp = self.device_handler.all_gather_into_tensor(logp)
+            ess = Metrics.calc_ess(logq, logp).item()
             self.logger.log_epoch(
                 self.current_epoch,
                 {'loss': loss, 'ess': ess, 'logp': logp.mean()}
@@ -310,7 +314,7 @@ class Trainer:
 
         self.optimizer.step()
 
-        return loss, logq, logp, Metrics.calc_ess(logq, logp)
+        return loss, logq, logp
 
     @property
     def is_main_process(self):
