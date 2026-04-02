@@ -59,8 +59,8 @@ class UNet_(Module_):
     ):
         super().__init__()
         self.encoder_ = UNetEncoder_(encoder_layers, downsampler)
-        self.decoder_ = UNetDecoder_(decoder_layers, downsampler)
         self.bottleneck_ = bottleneck_
+        self.decoder_ = UNetDecoder_(decoder_layers, downsampler)
 
     def forward(self, data: torch.Tensor, log0=0):
         """
@@ -115,7 +115,7 @@ class UNetEncoder_(Module_):
     """
     def __init__(self, layers, downsampler):
         super().__init__()
-        self.layers = layers
+        self.layers = torch.nn.ModuleList(layers)
         self.downsampler = downsampler
 
     def forward(self, data: torch.Tensor, log0=0):
