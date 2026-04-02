@@ -2,6 +2,8 @@ from ._core import Module_, ModuleList_
 from ._core import MultiChannelModule_, MultiOutChannelModule_
 from ._core import InvisibilityMaskWrapperModule_
 
+from .unet_ import *
+
 from .scalar.modules import *
 
 from .scalar.modules_ import *
