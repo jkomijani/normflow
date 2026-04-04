@@ -258,8 +258,10 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
     y, logj = net_(x)
     x_hat, minus_logj = net_.reverse(y)
 
-    def mean(z):
-        return z.abs().mean().item()
+    jac_product = torch.exp(logj + minus_logj).cpu().numpy()
+    diff = (x - x_hat).abs().reshape(n_samples, -1).sum(dim=1).cpu().numpy()
+    norm = x.abs().reshape(n_samples, -1).sum(dim=1).cpu().numpy()
 
-    print("reverse mode is OK if following values vanish (up to round off):")
-    print(f"{mean(x - x_hat):g} & {mean(torch.exp(logj + minus_logj) - 1):g}")
+    print(f"The test is performed on {n_samples} samples:")
+    print("Jac_{f} x Jac_{f⁻¹} = 1 +", jac_product - 1)
+    print("|x - f⁻¹f(x)| / |x| =", diff / norm)
