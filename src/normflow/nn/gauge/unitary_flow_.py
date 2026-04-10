@@ -67,7 +67,7 @@ class ModalMatrixFlow_(Module_):
         return eigvecs, logJ
 
     def tau_net(self, **kwargs):  # this is just the default self.tau_net
-        return 0.02 * torch.nn.functional.softplus(self.tau_par)
+        return torch.nn.functional.softplus(self.tau_par) / (4 * np.pi)**2
 
 
 class SUnSpectralFlow_(Module_):
