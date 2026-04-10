@@ -263,5 +263,7 @@ def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
     norm = x.abs().reshape(n_samples, -1).sum(dim=1).cpu().numpy()
 
     print(f"The test is performed on {n_samples} samples:")
-    print("Jac_{f} x Jac_{f⁻¹} = 1 +", jac_product - 1)
     print("|x - f⁻¹f(x)| / |x| =", diff / norm)
+    print("log ({J_f}⁻¹)       =", -logj.cpu().numpy())
+    print("log (J_{f⁻¹})       =", minus_logj.cpu().numpy())
+    print("J_f * J_{f⁻¹}   = 1 +", jac_product - 1)
