@@ -149,6 +149,7 @@ class GaugeModule_(Module_):
     """
 
     unbounded_link_axis = True  # "link_axis" of inputs is supposed to be 0
+    sites_before_link = True  # It is irrelavant if unbounded_link_axis is True
 
     def __init__(
         self,
@@ -172,8 +173,11 @@ class GaugeModule_(Module_):
         self.matrix_handle = matrix_handle
         self.staples_handle = staples_handle
         if self.unbounded_link_axis:
-            # switch "link_axis" of self.staples_handle to 0
-            self.staples_handle.link_axis = 0
+            link_axis = 0
+        else:
+            link_axis = -3 if self.sites_before_link else 1
+        # Now change the link_axis in staples_handle accordingly
+        self.staples_handle.link_axis = links_axis
         if staples_kwargs is None:
             staples_kwargs = {}
         self.staples_kwargs = staples_kwargs
@@ -340,16 +344,20 @@ class GaugeModule_(Module_):
         """Extract links in direction `mu` from input tensor `x`."""
         if self.unbounded_link_axis:
             x_mu = x[self.mu]
-        else:
+        elif not self.sites_before_link:
             x_mu = x[:, self.mu]
+        else:
+            x_mu = x[..., self.mu, :, :]
         return x_mu
 
     def set_x_mu(self, x, x_mu):
         """Set links in direction `mu` in `x` to `x_mu`."""
         if self.unbounded_link_axis:
             x[self.mu] = x_mu
-        else:
+        elif not self.sites_before_link:
             x[:, self.mu] = x_mu
+        else:
+            x[..., self.mu, :, :] = x_mu
         return x
 
 
