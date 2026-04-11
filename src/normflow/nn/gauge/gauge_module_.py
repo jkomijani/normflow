@@ -177,7 +177,7 @@ class GaugeModule_(Module_):
         else:
             link_axis = -3 if self.sites_before_link else 1
         # Now change the link_axis in staples_handle accordingly
-        self.staples_handle.link_axis = links_axis
+        self.staples_handle.link_axis = link_axis
         if staples_kwargs is None:
             staples_kwargs = {}
         self.staples_kwargs = staples_kwargs
