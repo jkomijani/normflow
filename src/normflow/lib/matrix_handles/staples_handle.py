@@ -168,7 +168,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
     contributions over mu-nu plaquettes.
     """
 
-    link_axis = 1
+    link_axis = -3  # indicates the site axes are before the link axis
 
     def calc_staples_sum(self, *args, **kwargs):
         """
@@ -180,12 +180,6 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             Sum of staples over all specified planes.
         """
         return self.calc_staples(*args, **kwargs).staples_sum
-
-    def makesure_correct_link_axis(self, link_axis):
-        """
-        Validate that the provided link axis matches the expected one.
-        """
-        assert self.link_axis == link_axis, "link axis?"
 
     def calc_staples(
         self, links, *, mu, nu_list,
@@ -280,10 +274,13 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         if self.link_axis == 0:
             x_mu = links[mu]
             x_nu = links[nu]
-        else:
-            # then assume it is 1
+        elif self.link_axis == 1:
             x_mu = links[:, mu]
             x_nu = links[:, nu]
+        else:
+            # then assume it is -3
+            x_mu = links[..., mu, :, :]
+            x_nu = links[..., nu, :, :]
 
         u = x_mu  # U in the above graph
         c = x_nu
