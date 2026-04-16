@@ -106,6 +106,84 @@ class GaugeModuleList_(ModuleList_):
         else:
             return None
 
+    def load_state_dict(self, state_dict, strict=True):
+        """Load state_dict with backward compatibility for legacy checkpoints.
+
+        Automatically remaps old key structure if needed.
+        """
+        # Try normal loading first
+        try:
+            return super().load_state_dict(state_dict, strict=strict)
+
+        except RuntimeError:
+            print("Fallback: attempt legacy remapping")
+
+            # Fallback: attempt legacy remapping
+            state_dict = _remap_legacy_state_dict(self, state_dict)
+            return super().load_state_dict(state_dict, strict=strict)
+
+
+def _remap_legacy_state_dict(self, state_dict):
+    """
+    Remap legacy GaugeModule_ keys inside a ModuleList.
+
+    Handles keys like:
+        "0.param_net_.*" → "0.spectral_state_transform.ops.{i}.param_net.*"
+    """
+
+    new_state_dict = {}
+
+    for key, value in state_dict.items():
+
+        parts = key.split(".", 1)
+        if len(parts) == 2 and parts[0].isdigit():
+            idx, rest = parts
+            module = self[int(idx)]
+
+            # Build op mapping for this module
+            op_map = {}
+            for i, op in enumerate(module.spectral_state_transform.ops):
+                op_map[type(op).__name__] = i
+
+            # Apply remapping to the rest of the key
+            new_rest = rest
+
+            if rest.startswith("param_net_"):
+                iop = op_map["ParamTransformOp"]
+                new_rest = rest.replace(
+                    "param_net_",
+                    f"spectral_state_transform.ops.{iop}.param_net_"
+                )
+
+            elif rest.startswith("dual_param_net_"):
+                iop = op_map["ParamTransformOp"]
+                new_rest = rest.replace(
+                    "dual_param_net_",
+                    f"spectral_state_transform.ops.{iop}.dual_param_net_"
+                )
+
+            elif rest.startswith("eigangs_net_"):
+                iop = op_map["EigAngTransformOp"]
+                new_rest = rest.replace(
+                    "eigangs_net_", f"spectral_state_transform.ops.{iop}.net_"
+                )
+
+            elif rest.startswith("eigvecs_net_"):
+                iop = op_map["EigVecTransformOp"]
+                new_rest = rest.replace(
+                    "eigvecs_net_", f"spectral_state_transform.ops.{iop}.net_"
+                )
+
+            new_key = f"{idx}.{new_rest}"
+
+        else:
+            # keys not belonging to submodules
+            new_key = key
+
+        new_state_dict[new_key] = value
+
+    return new_state_dict
+
 
 # =============================================================================
 class GaugeModule_(Module_):
@@ -174,12 +252,12 @@ class GaugeModule_(Module_):
         self.mu = mu
         self.nu_list = nu_list
 
-        print("For now the networs are saved here to be consistent.")
-        print("Later they must all got to self.spectral_state_transform")
-        self.param_net_ = param_net_
-        self.dual_param_net_ = dual_param_net_
-        self.eigangs_net_ = eigangs_net_
-        self.eigvecs_net_ = eigvecs_net_
+        # print("For now the networs are saved here to be consistent.")
+        # print("Later they must all got to self.spectral_state_transform")
+        # self.param_net_ = param_net_
+        # self.dual_param_net_ = dual_param_net_
+        # self.eigangs_net_ = eigangs_net_
+        # self.eigvecs_net_ = eigvecs_net_
 
         self.matrix_handle = matrix_handle
         self.matrix_handle = matrix_handle
@@ -374,7 +452,7 @@ class SpectralStateTransform(torch.nn.Module):
             Ordered list of invertible transformation operators.
         """
         super().__init__()
-        self.ops = ops
+        self.ops = torch.nn.ModuleList(ops)
 
     def forward(self, state, staples_ctx):
         """
@@ -544,7 +622,7 @@ class EigAngTransformOp(torch.nn.Module):
         Returns:
             SpectralState: Updated spectral state after inverse transformation.
         """
-        eigangs, logJ = self.net_.reverse(
+        eigangs, logj = self.net_.reverse(
             state.eigangs, eigvecs=state.eigvecs, staples_object=staples_ctx
         )
 
