@@ -69,12 +69,12 @@ class GaugeModuleList_(ModuleList_):
         Splits and recombines along `link_axis` if `unbind_link_axis` is
         enabled. Returns updated `x` and accumulated log-Jacobian.
         """
-        if self.unbind_link_axis:
-            x = list(torch.unbind(x, self.link_axis))
-            x, log0 = super().forward(x, log0)
-            return torch.stack(x, dim=self.link_axis), log0
-        else:
+        if not self.unbind_link_axis:
             return super().forward(x.clone(), log0)
+
+        x = list(torch.unbind(x, self.link_axis))
+        x, log0 = super().forward(x, log0)
+        return torch.stack(x, dim=self.link_axis), log0
 
     def reverse(self, x, log0=0):
         """
@@ -83,12 +83,12 @@ class GaugeModuleList_(ModuleList_):
         Mirrors `forward`, including optional splitting along `link_axis`.
         Returns updated `x` and accumulated log-Jacobian.
         """
-        if self.unbind_link_axis:
-            x = list(torch.unbind(x, self.link_axis))
-            x, log0 = super().reverse(x, log0)
-            return torch.stack(x, dim=self.link_axis), log0
-        else:
+        if not self.unbind_link_axis:
             return super().reverse(x.clone(), log0)
+
+        x = list(torch.unbind(x, self.link_axis))
+        x, log0 = super().reverse(x, log0)
+        return torch.stack(x, dim=self.link_axis), log0
 
     def hack(self, x, log0=0):
         """Similar to the forward method, except that returns the output of
@@ -96,15 +96,15 @@ class GaugeModuleList_(ModuleList_):
         """
         stack = [(x, log0)]
 
-        if self.unbind_link_axis:
-            for net_ in self:
-                x = list(torch.unbind(x, self.link_axis))
-                x, log0 = net_(x, log0)
-                x = torch.stack(x, dim=self.link_axis)
-                stack.append([x, log0])
-            return stack
-        else:
+        if not self.unbind_link_axis:
             return None
+
+        for net_ in self:
+            x = list(torch.unbind(x, self.link_axis))
+            x, log0 = net_(x, log0)
+            x = torch.stack(x, dim=self.link_axis)
+            stack.append([x, log0])
+        return stack
 
     def load_state_dict(self, state_dict, strict=True):
         """Load state_dict with backward compatibility for legacy checkpoints.
