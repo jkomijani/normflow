@@ -24,7 +24,7 @@ class TemplateStaplesHandle:
 
     onesided = True
 
-    def staple(self, link, *, staples_object):
+    def staple(self, link, staples_object):
         """
         Staple a link by attaching the staple contribution to it.
 
@@ -59,7 +59,7 @@ class TemplateStaplesHandle:
 
         return slink
 
-    def unstaple(self, slink, *, staples_object):
+    def unstaple(self, slink, staples_object):
         """
         Recover the original link from a stapled link.
 
@@ -92,7 +92,7 @@ class TemplateStaplesHandle:
 
         return link
 
-    def push2link(self, link, *, slink_rotation, staples_object):
+    def push2link(self, link, slink_rotation, staples_object):
         """
         Apply a rotation in stapled-link space back to the original link.
 
