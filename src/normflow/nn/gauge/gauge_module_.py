@@ -166,21 +166,24 @@ class GaugeModule_(Module_):
         super().__init__()
         self.mu = mu
         self.nu_list = nu_list
+
         self.param_net_ = param_net_
         self.dual_param_net_ = dual_param_net_
         self.eigangs_net_ = eigangs_net_
         self.eigvecs_net_ = eigvecs_net_
+
         self.matrix_handle = matrix_handle
+
         self.staples_handle = staples_handle
-        if self.unbounded_link_axis:
-            link_axis = 0
-        else:
-            link_axis = -3 if self.sites_before_link else 1
-        # Now change the link_axis in staples_handle accordingly
-        self.staples_handle.link_axis = link_axis
-        if staples_kwargs is None:
-            staples_kwargs = {}
-        self.staples_kwargs = staples_kwargs
+        self.staples_kwargs = staples_kwargs or {}
+
+        self.link_axis = self._resolve_link_axis()
+        # Change the link_axis in staples_handle accordingly
+        self.staples_handle.link_axis = self.link_axis
+
+    # -------------------------------------------------------------------------
+    # public API
+    # -------------------------------------------------------------------------
 
     def forward(self, x, log0=0):
         """
@@ -189,25 +192,7 @@ class GaugeModule_(Module_):
         Computes staples, transforms stapled links, and updates `x`.
         Returns updated `x` and accumulated log-Jacobian.
         """
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
-        )
-
-        x_mu = self.get_x_mu(x)
-
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        new_slink, logJ = self._apply_slink_transform(slink, staples_object)
-
-        x_mu = self.staples_handle.push2link(
-            x_mu,
-            slink_rotation=new_slink @ slink.adjoint(),
-            staples_object=staples_object
-        )
-
-        x = self.set_x_mu(x, x_mu)
-
-        return x, log0 + logJ
+        return self._update_links(x, log0, reverse=False)
 
     def reverse(self, x, log0=0):
         """
@@ -216,28 +201,71 @@ class GaugeModule_(Module_):
         Reverses the forward update using inverse network operations.
         Returns updated `x` and accumulated log-Jacobian.
         """
-        staples_object = self.staples_handle.calc_staples(
+        return self._update_links(x, log0, reverse=True)
+
+    # -------------------------------------------------------------------------
+    # core pipeline
+    # -------------------------------------------------------------------------
+
+    def _update_links(self, x, log0, reverse):
+        """
+        Apply a forward or inverse update to links in direction `mu`.
+
+        The update proceeds by:
+        1. Computing staples around each link.
+        2. Forming the "stapled link" (slink) by attaching a projected staple
+           contribution via SVD (see `staples_handle.staple`).
+        3. Applying an invertible transformation to the slink.
+        4. Converting the transformed slink into a rotation and pushing it
+           back onto the original link.
+        5. Writing the updated links back into `x`.
+
+        Parameters
+        ----------
+        x : tensor-like
+            Input gauge field.
+        log0 : scalar
+            Initial log-Jacobian accumulator.
+        reverse : bool
+            If True, applies the inverse transformation.
+
+        Returns
+        -------
+        x : tensor-like
+            Updated gauge field.
+        logj : scalar
+            Accumulated log-Jacobian.
+        """
+        staples_ctx = self._compute_staples(x)  # staple context: data &helpers
+
+        x_mu = self._get_x_mu(x)
+        slink = self._build_slink(x_mu, staples_ctx)
+
+        if reverse:
+            new_slink, logj = self._apply_transform_reverse(slink, staples_ctx)
+        else:
+            new_slink, logj = self._apply_transform_forward(slink, staples_ctx)
+
+        x_mu = self._push_back(x_mu, slink, new_slink, staples_ctx)
+        x = self._set_x_mu(x, x_mu)
+
+        return x, log0 + logj
+
+    def _compute_staples(self, x):
+        """Return staple context (data and helpers) for link update."""
+        return self.staples_handle.calc_staples(
             x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
         )
 
-        x_mu = self.get_x_mu(x)
+    def _build_slink(self, x_mu, staples_ctx):
+        return self.staples_handle.staple(x_mu, staples_ctx)
 
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        new_slink, logJ = \
-            self._apply_slink_reverse_transform(slink, staples_object)
-
-        x_mu = self.staples_handle.push2link(
-            x_mu,
-            slink_rotation=new_slink @ slink.adjoint(),
-            staples_object=staples_object
+    def _push_back(self, x_mu, slink, new_slink, staples_ctx):
+        return self.staples_handle.push2link(
+            x_mu, new_slink @ slink.adjoint(), staples_ctx,
         )
 
-        x = self.set_x_mu(x, x_mu)
-
-        return x, log0 + logJ
-
-    def _apply_slink_transform(self, slink, staples_object):
+    def _apply_transform_forward(self, slink, staples_object):
         """
         Transform a stapled link via spectral decomposition.
 
@@ -288,7 +316,7 @@ class GaugeModule_(Module_):
 
         return new_slink, logJ
 
-    def _apply_slink_reverse_transform(self, slink, staples_object):
+    def _apply_transform_reverse(self, slink, staples_object):
         """
         Inverse transform of a stapled link.
 
@@ -340,7 +368,16 @@ class GaugeModule_(Module_):
 
         return new_slink, logJ
 
-    def get_x_mu(self, x):
+    # ------------------------------------------------------------------
+    # indexing helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_link_axis(self):
+        if self.unbounded_link_axis:
+            return 0
+        return -3 if self.sites_before_link else 1
+
+    def _get_x_mu(self, x):
         """Extract links in direction `mu` from input tensor `x`."""
         if self.unbounded_link_axis:
             x_mu = x[self.mu]
@@ -350,7 +387,7 @@ class GaugeModule_(Module_):
             x_mu = x[..., self.mu, :, :]
         return x_mu
 
-    def set_x_mu(self, x, x_mu):
+    def _set_x_mu(self, x, x_mu):
         """Set links in direction `mu` in `x` to `x_mu`."""
         if self.unbounded_link_axis:
             x[self.mu] = x_mu
