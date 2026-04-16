@@ -14,7 +14,9 @@ import torch
 from .._core import Module_
 from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
-from ..matrix.stapled_matrix_module_ import StapledMatrixModule_
+
+
+__all__ = ["GaugeModuleList_", "GaugeModule_"]
 
 
 # =============================================================================
@@ -252,13 +254,6 @@ class GaugeModule_(Module_):
         self.mu = mu
         self.nu_list = nu_list
 
-        # print("For now the networs are saved here to be consistent.")
-        # print("Later they must all got to self.spectral_state_transform")
-        # self.param_net_ = param_net_
-        # self.dual_param_net_ = dual_param_net_
-        # self.eigangs_net_ = eigangs_net_
-        # self.eigvecs_net_ = eigvecs_net_
-
         self.matrix_handle = matrix_handle
         self.matrix_handle = matrix_handle
 
@@ -285,10 +280,6 @@ class GaugeModule_(Module_):
 
         self.spectral_state_transform = SpectralStateTransform(ops)
 
-    # -------------------------------------------------------------------------
-    # public API
-    # -------------------------------------------------------------------------
-
     def forward(self, x, log0=0):
         """Apply forward link update."""
         return self._update_links(x, log0, reverse=False)
@@ -296,10 +287,6 @@ class GaugeModule_(Module_):
     def reverse(self, x, log0=0):
         """Apply inverse link update."""
         return self._update_links(x, log0, reverse=True)
-
-    # -------------------------------------------------------------------------
-    # core pipeline
-    # -------------------------------------------------------------------------
 
     def _update_links(self, x, log0, reverse):
         """
@@ -682,294 +669,7 @@ class EigVecTransformOp(torch.nn.Module):
 
 
 # =============================================================================
-class _GaugeModule_(MatrixModule_):
-    """
-    Parameters
-    ----------
-    param_net_: instance of Module_ or ModuleList_
-        a core network to change a set of parameters corresponding to the
-        stapled links as specified in the supper class `MatrixModule_`.
-
-    mu : int
-        specifies the direction of links that are going to be changed
-
-    nu_list : list of int
-        (in combination w/ mu) specifies the plane of staples to be calculated
-
-    staple_handle: class instance
-        to calculate staples and use them.
-
-    matrix_handle: class instance
-        to handle matrices as expected in the supper class `MatrixModule_`.
-    """
-
-    unbounded_link_axis = True
-
-    def __init__(
-        self, param_net_,
-        *, mu, nu_list, staples_handle, matrix_handle,
-        staples_coeff=None, label="gauge_"
-    ):
-        super().__init__(param_net_, matrix_handle=matrix_handle)
-        self.mu = mu
-        self.nu_list = nu_list
-        self.staples_handle = staples_handle
-        if self.unbounded_link_axis:
-            self.staples_handle.link_axis = 0
-        self.staples_coeff = staples_coeff
-        self.label = label
-
-    def forward(self, x, log0=0):
-        if self.unbounded_link_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-
-        # slink: stapled link
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        slink_rotation, logJ = super().forward(slink, log0=log0, reduce_=True)
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-
-        if self.unbounded_link_axis:
-            x[self.mu] = x_mu
-        else:
-            x[:, self.mu] = x_mu
-
-        return x, logJ
-
-    def reverse(self, x, log0=0):
-        if self.unbounded_link_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        slink_rotation, logJ = super().reverse(slink, log0=log0, reduce_=True)
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-
-        if self.unbounded_link_axis:
-            x[self.mu] = x_mu
-        else:
-            x[:, self.mu] = x_mu
-
-        return x, logJ
-
-    def _hack(self, x, forward=True, unbind_link_axis=True):
-        """Similar to the forward method, but returns intermediate parts."""
-
-        if unbind_link_axis:
-            x = list(torch.unbind(x, 1))
-
-        x_mu = x[self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        if forward:
-            slink_rotation, logJ = super().forward(slink, reduce_=True)
-        else:
-            slink_rotation, logJ = super().reverse(slink, reduce_=True)
-
-        stack = dict(
-            x_mu_initial=x_mu,
-            staples_object=staples_object,
-            slink=slink,
-            slink_rotation=slink_rotation,
-            logJ=logJ,
-            super_hack=super()._hack(slink, forward, reduce_=True)
-        )
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-        stack["x_mu_final"] = x_mu
-
-        return stack
-
-    def transfer(self, **kwargs):
-        return self.__class__(
-                self.param_net_.transfer(**kwargs),
-                mu=self.mu,
-                nu_list=self.nu_list,
-                staples_handle=self.staples_handle,
-                matrix_handle=self.matrix_handle,
-                label=self.label
-                )
-
-
-# =============================================================================
-class _SVDGaugeModule_(StapledMatrixModule_):
-    """
-    Similar to GaugeModule_ but uses singular values of the staples for
-    processing too.
-
-    Parameters
-    ----------
-    dual_param_net_: instance of Module_ or ModuleList_
-        a core network to change a set of parameters corresponding to the
-        stapled links as specified in the supper class `StapledMatrixModule_`.
-
-    param_net_: instance of Module_ or ModuleList_
-        a core network to change a set of parameters corresponding to the
-        stapled links as specefied in the supper class `StapledMatrixModule_`.
-
-    mu : int
-        specifies the direction of links that are going to be changed
-
-    nu_list : list of int
-        (in combination w/ mu) specifies the plane of staples to be calculated
-
-    staple_handle: class instance
-        to calculate staples and use them.
-
-    matrix_handle: class instance
-        to handle matrices as expected in the supper class `MatrixModule_`.
-
-    IMPORTANT NOTE:
-        in order to have an invertible forward method, the masks used in
-        `param_net_` and `dual_param_net_` must be compatible.
-    """
-
-    unbounded_link_axis = True
-
-    def __init__(
-        self, dual_param_net_, param_net_,
-        *, mu, nu_list, staples_handle, matrix_handle,
-        staples_coeff=None, label="gauge_", **kwargs
-    ):
-        super().__init__(
-            dual_param_net_, param_net_, matrix_handle=matrix_handle, **kwargs
-            )
-        self.mu = mu
-        self.nu_list = nu_list
-        self.staples_handle = staples_handle
-        if self.unbounded_link_axis:
-            self.staples_handle.link_axis = 0
-        self.staples_coeff = staples_coeff
-        self.label = label
-
-    def forward(self, x, log0=0):
-        if self.unbounded_link_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-
-        # slink: stapled link
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        slink_rotation, logJ = super().forward(
-            slink, log0=log0, singv=staples_object.singv, reduce_=True
-        )
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-
-        if self.unbounded_link_axis:
-            x[self.mu] = x_mu
-        else:
-            x[:, self.mu] = x_mu
-
-        return x, logJ
-
-    def reverse(self, x, log0=0):
-        if self.unbounded_link_axis:
-            x_mu = x[self.mu]
-        else:
-            x_mu = x[:, self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        slink_rotation, logJ = super().reverse(
-            slink, log0=log0, singv=staples_object.singv, reduce_=True
-        )
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-
-        if self.unbounded_link_axis:
-            x[self.mu] = x_mu
-        else:
-            x[:, self.mu] = x_mu
-
-        return x, logJ
-
-    def _hack(self, x, forward=True, unbind_link_axis=True):
-        """Similar to the forward method, but returns intermediate parts."""
-
-        if unbind_link_axis:
-            x = list(torch.unbind(x, 1))
-
-        x_mu = x[self.mu]
-
-        staples_object = self.staples_handle.calc_staples(
-            x, mu=self.mu, nu_list=self.nu_list,
-            staples_coeff=self.staples_coeff
-        )
-        slink = self.staples_handle.staple(x_mu, staples_object=staples_object)
-
-        if forward:
-            slink_rotation, logJ = super().forward(
-                slink, singv=staples_object.singv, reduce_=True
-            )
-        else:
-            slink_rotation, logJ = super().reverse(
-                slink, singv=staples_object.singv, reduce_=True
-            )
-
-        stack = dict(
-            x_mu_initial=x_mu,
-            staples_object=staples_object,
-            slink=slink,
-            slink_rotation=slink_rotation,
-            logJ=logJ,
-            super_hack=super()._hack(
-               slink, singv=staples_object.singv, forward=forward, reduce_=True
-            )
-        )
-
-        x_mu = self.staples_handle.push2link(
-            x_mu, slink_rotation=slink_rotation, staples_object=staples_object
-        )
-        stack["x_mu_final"] = x_mu
-
-        return stack
-
-
-# =============================================================================
-class PolyakovGaugeModule_(MatrixModule_):
+class _PolyakovGaugeModule_(MatrixModule_):
 
     unbounded_link_axis = True
 
@@ -985,6 +685,7 @@ class PolyakovGaugeModule_(MatrixModule_):
         self.parity = parity
 
     def forward(self, x, log0=0):
+        """Forward pass"""
 
         mu, x_mu = self.mu, x[self.mu]
         loop_dim = 1 + mu  # 1 is for the batch axis
@@ -1016,6 +717,7 @@ class PolyakovGaugeModule_(MatrixModule_):
         return x, log0 + logJ
 
     def reverse(self, x, log0=0):
+        """Reverse pass"""
 
         mu, x_mu = self.mu, x[self.mu]
         loop_dim = 1 + mu  # 1 is for the batch axis
@@ -1087,8 +789,8 @@ def matrix_product(tuple_, right_product=True):
     """Return the matrix product of the matrices in the input tuple."""
     if len(tuple_) == 0:
         return 1
-    else:
-        product = tuple_[0]
+
+    product = tuple_[0]
 
     for x in tuple_[1:]:
         if right_product:
