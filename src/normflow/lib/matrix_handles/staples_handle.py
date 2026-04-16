@@ -6,7 +6,7 @@ import torch
 from lattice_ml.functions import naive_project_onto_su3
 from ..linalg import special_svd
 
-mul = torch.matmul
+matmul = torch.matmul
 
 
 # =============================================================================
@@ -24,7 +24,7 @@ class TemplateStaplesHandle:
 
     onesided = True
 
-    def staple(self, link, staples_object):
+    def staple(self, link, staples_ctx):
         """
         Staple a link by attaching the staple contribution to it.
 
@@ -35,7 +35,7 @@ class TemplateStaplesHandle:
         ----------
         link : tensor-like
             Gauge link matrix (typically SU(n)).
-        staples_object : StaplesObject
+        staples_ctx : StaplesContext
             Object containing the staples sum and associated metadata.
 
         Returns
@@ -45,12 +45,12 @@ class TemplateStaplesHandle:
 
         Notes
         -----
-        - The SVD of the staples is cached in `staples_object.svd_`.
+        - The SVD of the staples is cached in `staples_ctx.svd_`.
         - For `onesided=True`:  slink = link @ (SVD projection)
         - For `onesided=False`: slink = Vh @ link @ U
         """
-        svd_ = special_svd(staples_object.data())
-        staples_object.svd_ = svd_
+        svd_ = special_svd(staples_ctx.data())
+        staples_ctx.svd_ = svd_
 
         if self.onesided:
             slink = link @ svd_.sUVh  # slink stands for stapled link
@@ -59,18 +59,18 @@ class TemplateStaplesHandle:
 
         return slink
 
-    def unstaple(self, slink, staples_object):
+    def unstaple(self, slink, staples_ctx):
         """
         Recover the original link from a stapled link.
 
         This is the inverse operation of `staple`, using the cached SVD stored
-        in `staples_object`.
+        in `staples_ctx`.
 
         Parameters
         ----------
         slink : tensor-like
             Stapled link.
-        staples_object : StaplesObject
+        staples_ctx : StaplesContext
             Object containing the cached SVD.
 
         Returns
@@ -83,7 +83,7 @@ class TemplateStaplesHandle:
         For pushing the changes in `slink` to corresponding `link` use the
         `push2link` method.
         """
-        svd_ = staples_object.svd_
+        svd_ = staples_ctx.svd_
 
         if self.onesided:
             link = slink @ svd_.sUVh.adjoint()
@@ -92,7 +92,7 @@ class TemplateStaplesHandle:
 
         return link
 
-    def push2link(self, link, slink_rotation, staples_object):
+    def push2link(self, link, slink_rotation, staples_ctx):
         """
         Apply a rotation in stapled-link space back to the original link.
 
@@ -102,7 +102,7 @@ class TemplateStaplesHandle:
             Original gauge link.
         slink_rotation : tensor-like
             Rotation (update) computed in stapled-link space.
-        staples_object : StaplesObject
+        staples_ctx : StaplesContext
             Object containing SVD data for consistency.
 
         Returns
@@ -116,7 +116,7 @@ class TemplateStaplesHandle:
         - For SU(3), a projection is applied to maintain group structure.
         """
         if not self.onesided:
-            svd_ = staples_object.svd_
+            svd_ = staples_ctx.svd_
             slink_rotation = svd_.Vh.adjoint() @ slink_rotation @ svd_.Vh
 
         if link.shape[-1] == 3:
@@ -170,20 +170,8 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
 
     link_axis = -3  # indicates the site axes are before the link axis
 
-    def calc_staples_sum(self, *args, **kwargs):
-        """
-        Convenience method returning only the staples sum.
-
-        Returns
-        -------
-        tensor-like
-            Sum of staples over all specified planes.
-        """
-        return self.calc_staples(*args, **kwargs).staples_sum
-
-    def calc_staples(
-        self, links, *, mu, nu_list,
-        staples_coeff=None, mixed_staples_coeff=None
+    def compute_directional_staples_ctx(
+        self, links, mu, nu_list, staples_coeff=None, mixed_staples_coeff=None
     ):
         """
         Compute the sum of Wilson staples for links in direction `mu`.
@@ -215,34 +203,33 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
 
         Returns
         -------
-        StaplesObject
+        StaplesContext
             Object containing the computed staples and metadata.
         """
 
         if staples_coeff is None:
-            staples_sum = sum(
+            staples = sum(
               [self.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
             )
-            kwargs = dict(mu=mu, mixed_staples_coeff=mixed_staples_coeff)
-            return StaplesObject(staples_sum, **kwargs)
 
         else:
-            all_staples = [None] * (2 * len(nu_list))
+            staples = [None] * (2 * len(nu_list))
             for k, nu in enumerate(nu_list):
-                all_staples[2*k] = self.calc_planar_staples(
+                staples[2*k] = self.calc_planar_staples(
                     links, mu=mu, nu=nu, up_only=True
-                    )
-                all_staples[2*k + 1] = self.calc_planar_staples(
+                )
+                staples[2*k + 1] = self.calc_planar_staples(
                     links, mu=mu, nu=nu, down_only=True
-                    )
+                )
 
-            range_ = range(len(all_staples))
-            staples = sum([all_staples[j] * staples_coeff[j] for j in range_])
-            return StaplesObject(staples)
+        staples_ctx = StaplesContext(
+            staples, mu, staples_coeff, mixed_staples_coeff
+        )
+        return staples_ctx
 
     def calc_planar_staples(
-            self, links, *, mu, nu, up_only=False, down_only=False
-            ):
+        self, links, *, mu, nu, up_only=False, down_only=False
+    ):
         """
         Compute staples in a single mu-nu plane.
 
@@ -310,7 +297,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         #   --b--
         #  c|   |a
         #   @ U @
-        return mul(a, mul(c, b).adjoint())
+        return matmul(a, matmul(c, b).adjoint())
 
     @staticmethod
     def staple2_rule(d, e, f):
@@ -318,33 +305,16 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         #   @ U @
         #  f|   |d
         #   --e--
-        return mul(mul(e, d).adjoint(), f)
+        return matmul(matmul(e, d).adjoint(), f)
 
 
 # =============================================================================
 class U1WilsonStaplesHandle(WilsonStaplesHandle):
-    """Properties and methods are chosen to be consistent with SU(n)."""
-
-    def __init__(self):
-        pass  # not ready
-
-    def staple(self):
-        pass  # not ready
-
-    def unstaple(self):
-        pass  # not ready
-
-    @staticmethod
-    def staple1_rule(a, b, c):
-        return a * torch.conj(b * c)
-
-    @staticmethod
-    def staple2_rule(d, e, f):
-        return torch.conj(e * d) * f
+    """Note Ready."""
 
 
 # =============================================================================
-class StaplesObject:
+class StaplesContext:
     """
     Container for staples and related derived quantities.
 
@@ -355,8 +325,15 @@ class StaplesObject:
     """
     svd_ = None
 
-    def __init__(self, staples_sum, mu=None, mixed_staples_coeff=None):
-        self.staples_sum = staples_sum
+    def __init__(
+        self,
+        staples,
+        mu=None,
+        staples_coeff=None,
+        mixed_staples_coeff=None
+    ):
+        self.staples = staples
+        self.staples_coeff = staples_coeff
         self.mixed_staples_coeff = mixed_staples_coeff
         self.mu = mu
 
@@ -371,13 +348,19 @@ class StaplesObject:
         tensor-like
             Effective staples matrix.
         """
-        coeff = self.mixed_staples_coeff
-        if coeff is None:
-            return self.staples_sum
-        else:
-            mixed = self.mixedstaples()
-            return self.staples_sum + coeff['1'] * mixed['1'] \
-                    + coeff['2'] * mixed['2'] + coeff['3'] * mixed['3']
+        data = self.staples
+
+        if self.staples_coeff is not None:
+            data = sum(
+                [c * data[j] for j, c in enumerate(self.staples_coeff)]
+            )
+
+        if self.mixed_staples_coeff is not None:
+            c = self.mixed_staples_coeff
+            m = self.mixedstaples()
+            data = data + c['1'] * m['1'] + c['2'] * m['2'] + c['3'] * m['3']
+
+        return data
 
     def mixedstaples(self):
         """
@@ -389,7 +372,7 @@ class StaplesObject:
             Dictionary with keys '1', '2', '3' corresponding to different
             loop structures.
         """
-        gamma = self.staples_sum
+        gamma = self.staples
         gamma2 = gamma.adjoint() @ gamma
         loop_left = torch.roll(gamma @ gamma.adjoint(), 1, dims=1 + self.mu)
         loop_right = torch.roll(gamma2, -1, dims=1 + self.mu)
@@ -415,7 +398,7 @@ class StaplesObject:
         #  |    !   !    |
         #  --L--@ U @--R--
         #
-        gamma = self.staples_sum
+        gamma = self.staples
         loop_left = torch.roll(gamma @ link, 1, dims=1 + self.mu)
         loop_right = torch.roll(link @ gamma, -1, dims=1 + self.mu)
         out_dict = {
@@ -455,6 +438,9 @@ class StaplesObject:
             alpha = svd_.rdet_angle.unsqueeze(-1)
             dual = torch.cat([sigma, torch.cos(alpha), torch.sin(alpha)], -1)
         return dual
+
+
+StaplesObject = StaplesContext  # for legacy
 
 
 # =============================================================================

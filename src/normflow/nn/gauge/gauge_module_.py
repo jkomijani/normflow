@@ -339,7 +339,7 @@ class GaugeModule_(Module_):
 
     def _compute_staples(self, x):
         """Return staple context (data and helpers) for link update."""
-        return self.staples_handle.calc_staples(
+        return self.staples_handle.compute_directional_staples_ctx(
             x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
         )
 
