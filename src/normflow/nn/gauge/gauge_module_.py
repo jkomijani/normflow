@@ -110,42 +110,49 @@ class GaugeModuleList_(ModuleList_):
 # =============================================================================
 class GaugeModule_(Module_):
     """
-    Gauge-equivariant link update module.
+    Gauge-equivariant link update via an invertible spectral transformation.
 
-    Applies an invertible transformation to links in direction `mu` using
-    staple information in planes defined by `nu_list`. The update is performed
-    via spectral decomposition (eigen-angles/vectors) and optional neural
-    networks acting on parameters, eigen-angles, and eigenvectors.
+    For links in direction `mu`, the module:
+        1. Builds a "stapled link" (slink) using local staple information.
+        2. Applies an invertible transformation in spectral space.
+        3. Converts the result into a rotation and updates the original links.
+
+    The spectral transform operates on eigen-angles and eigenvectors and may
+    include learned components (param/eigang/eigvec networks).
 
     Parameters
     ----------
     mu : int
-        specifies the direction of links that are going to be changed.
+        Direction of links to update.
 
-    nu_list : list of int
-        (in combination w/ mu) specifies the plane of staples to be calculated.
+    nu_list : list[int]
+        Directions defining planes (with mu) used to construct staples.
 
-    staple_handle: class instance
-        to calculate staples and use them.
+    staples_handle : object
+        Provides staple computation, slink construction, and push-back.
 
-    matrix_handle: class instance
-        to handle parametrization of the matrices.
+    matrix_handle : object
+        Handles spectral decomposition and reconstruction of matrices.
 
-    param_net_: instance of Module_ or ModuleList_
-        a core network to change a set of parameters corresponding to the
-        stapled links.
+    param_net_ : Module_ or None
+        Network acting in parameter space (via eigang ↔ param mapping).
 
-    eigangs_net_: instance of Module_ or ModuleList_ (optional)
-        a network to change the eigen-anlges of the stapled links.
-        (Default is None.)
+    dual_param_net_ : Module_ or None
+        Optional secondary network conditioned on dual parameters.
 
-    eigvals_net_: instance of Module_ or ModuleList_ (optional)
-        a network to change the eigen-vectors of the stapled links.
-        (Default is None.)
+    eigangs_net_ : Module_ or None
+        Network acting directly on eigen-angles.
+
+    eigvecs_net_ : Module_ or None
+        Network acting on eigen-vectors.
+
+    staples_kwargs : dict or None
+        Extra arguments forwarded to staple computation.
 
     Notes
     -----
-    Transform is invertible if all networks use compatible masks.
+    The transformation is invertible if all constituent networks are invertible
+    and use compatible masking.
     """
 
     unbounded_link_axis = True  # "link_axis" of inputs is supposed to be 0
@@ -167,40 +174,49 @@ class GaugeModule_(Module_):
         self.mu = mu
         self.nu_list = nu_list
 
+        print("For now the networs are saved here to be consistent.")
+        print("Later they must all got to self.spectral_state_transform")
         self.param_net_ = param_net_
         self.dual_param_net_ = dual_param_net_
         self.eigangs_net_ = eigangs_net_
         self.eigvecs_net_ = eigvecs_net_
 
         self.matrix_handle = matrix_handle
+        self.matrix_handle = matrix_handle
 
         self.staples_handle = staples_handle
         self.staples_kwargs = staples_kwargs or {}
 
+        # Resolve and set link axis convention
         self.link_axis = self._resolve_link_axis()
-        # Change the link_axis in staples_handle accordingly
         self.staples_handle.link_axis = self.link_axis
+
+        # Build spectral transformation pipeline
+        ops = []
+
+        if param_net_ is not None or dual_param_net_ is not None:
+            ops.append(
+                ParamTransformOp(matrix_handle, param_net_, dual_param_net_)
+            )
+
+        if eigangs_net_ is not None:
+            ops.append(EigAngTransformOp(eigangs_net_))
+
+        if eigvecs_net_ is not None:
+            ops.append(EigVecTransformOp(eigvecs_net_))
+
+        self.spectral_state_transform = SpectralStateTransform(ops)
 
     # -------------------------------------------------------------------------
     # public API
     # -------------------------------------------------------------------------
 
     def forward(self, x, log0=0):
-        """
-        Apply forward link transformation.
-
-        Computes staples, transforms stapled links, and updates `x`.
-        Returns updated `x` and accumulated log-Jacobian.
-        """
+        """Apply forward link update."""
         return self._update_links(x, log0, reverse=False)
 
     def reverse(self, x, log0=0):
-        """
-        Apply inverse link transformation.
-
-        Reverses the forward update using inverse network operations.
-        Returns updated `x` and accumulated log-Jacobian.
-        """
+        """Apply inverse link update."""
         return self._update_links(x, log0, reverse=True)
 
     # -------------------------------------------------------------------------
@@ -211,45 +227,50 @@ class GaugeModule_(Module_):
         """
         Apply a forward or inverse update to links in direction `mu`.
 
-        The update proceeds by:
-        1. Computing staples around each link.
-        2. Forming the "stapled link" (slink) by attaching a projected staple
-           contribution via SVD (see `staples_handle.staple`).
-        3. Applying an invertible transformation to the slink.
-        4. Converting the transformed slink into a rotation and pushing it
-           back onto the original link.
-        5. Writing the updated links back into `x`.
+        Pipeline:
+            staples → slink → spectral transform → update slink → updat link
 
-        Parameters
-        ----------
-        x : tensor-like
-            Input gauge field.
-        log0 : scalar
-            Initial log-Jacobian accumulator.
-        reverse : bool
-            If True, applies the inverse transformation.
+        Args:
+            x (tensor-like): Input gauge field.
+            log0 (tensor-link): Initial log-Jacobian accumulator.
+            reverse (bool): If True, applies the inverse transformation.
 
-        Returns
-        -------
-        x : tensor-like
-            Updated gauge field.
-        logj : scalar
-            Accumulated log-Jacobian.
+        Returns:
+            x (tensor-like): Updated gauge field
+            logj (tensor-like): Accumulated log-Jacobian.
         """
-        staples_ctx = self._compute_staples(x)  # staple context: data &helpers
+        # Compute staple context (data + cached helpers)
+        staples_ctx = self._compute_staples(x)
 
+        # Extract links in direction mu
         x_mu = self._get_x_mu(x)
+
+        # Build stapled link (link + projected staple contribution)
         slink = self._build_slink(x_mu, staples_ctx)
 
-        if reverse:
-            new_slink, logj = self._apply_transform_reverse(slink, staples_ctx)
-        else:
-            new_slink, logj = self._apply_transform_forward(slink, staples_ctx)
+        # Spectral representation
+        state = self._decompose_slink(slink)
 
+        # Apply invertible spectral transform
+        if reverse:
+            state = self.spectral_state_transform.reverse(state, staples_ctx)
+        else:
+            state = self.spectral_state_transform.forward(state, staples_ctx)
+
+        # Reconstruct transformed slink
+        new_slink, logj = self._recompose_slink(state)
+
+        # Convert slink update into a rotation and push back to link
         x_mu = self._push_back(x_mu, slink, new_slink, staples_ctx)
+
+        # Write updated links back into full field
         x = self._set_x_mu(x, x_mu)
 
         return x, log0 + logj
+
+    # -------------------------------------------------------------------------
+    # helpers
+    # -------------------------------------------------------------------------
 
     def _compute_staples(self, x):
         """Return staple context (data and helpers) for link update."""
@@ -258,119 +279,36 @@ class GaugeModule_(Module_):
         )
 
     def _build_slink(self, x_mu, staples_ctx):
+        """Construct stapled link from link and staple projection."""
         return self.staples_handle.staple(x_mu, staples_ctx)
 
     def _push_back(self, x_mu, slink, new_slink, staples_ctx):
+        """Push transformed slink back onto original link.
+
+        Uses the relative rotation `new_slink @ slink.adjoint()`.
+        """
         return self.staples_handle.push2link(
-            x_mu, new_slink @ slink.adjoint(), staples_ctx,
+            x_mu, new_slink @ slink.adjoint(), staples_ctx
         )
 
-    def _apply_transform_forward(self, slink, staples_object):
-        """
-        Transform a stapled link via spectral decomposition.
+    def _decompose_slink(self, slink):
+        """Spectral decomposition of slink.
 
-        Applies parameter, eigen-angle, and eigenvector networks.
-        Returns transformed link and log-Jacobian.
+        Returns a SpectralState containing eigen-angles, eigenvectors,
+        and the associated log-Jacobian.
         """
-        # slink: stapled link
-        # ======
-        # Spectral decomposition of the input matrix
-        eigangs, logJ_mat2ang = self.matrix_handle.matrix2eigang_(slink)
+        eigangs, logj = self.matrix_handle.matrix2eigang_(slink)
         eigvecs = self.matrix_handle.eigvecs
-        logJ = logJ_mat2ang
+        return SpectralState(eigangs, eigvecs, logj)
 
-        # Part 1: parametrize the eigenangles and transform the parameters
-        if self.param_net_ is not None:
-            param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
-            param, logJ_par2par = self.param_net_(param)
-            if self.dual_param_net_ is not None:
-                param, logJ_par2par = self.dual_param_net_(
-                    param,
-                    staples_object.get_dual_param(eigvecs),
-                    log0=logJ_par2par
-                )
-            eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
-            logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
+    def _recompose_slink(self, state):
+        """Reconstruct slink from spectral state.
 
-        # ======
-        # Part 2: transform the eigenvalues directly
-        if self.eigangs_net_ is not None:
-            eigangs, logJ_ang2ang = self.eigangs_net_(
-                eigangs, eigvecs=eigvecs, staples_object=staples_object
-            )
-            logJ += logJ_ang2ang
-
-        # ======
-        # Part 3: transform the eigenvectors
-        if self.eigvecs_net_ is not None:
-            eigvecs, logJ_vec2vec = self.eigvecs_net_(
-                eigvecs, eigangs=eigangs, staples_object=staples_object
-            )
-            logJ += logJ_vec2vec
-            self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
-
-        # ======
-        # Finally, put all pieces together
-        new_slink, logJ_ang2mat = self.matrix_handle.eigang2matrix_(eigangs)
-        logJ += logJ_ang2mat
-
-        return new_slink, logJ
-
-    def _apply_transform_reverse(self, slink, staples_object):
+        Accumulates log-Jacobian from reconstruction.
         """
-        Inverse transform of a stapled link.
-
-        Reverses eigenvector, eigen-angle, and parameter transforms.
-        Returns transformed link and log-Jacobian.
-        """
-        # slink: stapled link
-        # ======
-        # Part 0: Spectral decomposition of the input matrix
-        eigangs, logJ_mat2ang = self.matrix_handle.matrix2eigang_(slink)
-        eigvecs = self.matrix_handle.eigvecs
-        logJ = logJ_mat2ang
-
-        # ======
-        # Part inverse-3: inverse-transform the eigenvectors
-        if self.eigvecs_net_ is not None:
-            eigvecs, logJ_vec2vec = self.eigvecs_net_.reverse(
-                eigvecs, eigangs=eigangs, staples_object=staples_object
-            )
-            logJ += logJ_vec2vec
-            self.matrix_handle.set_eigvecs(eigvecs)  # save the new eigvecs
-
-        # ======
-        # Part inverse-2: inverse-transform the eigenvalues directly
-        if self.eigangs_net_ is not None:
-            eigangs, logJ_ang2ang = self.eigangs_net_.reverse(
-                eigangs, eigvecs=eigvecs, staples_object=staples_object
-            )
-            logJ += logJ_ang2ang
-
-        # Part inverse-1: inverse-transform the parameters
-        if self.param_net_ is not None:
-            param, logJ_ang2par = self.matrix_handle.eigang2param_(eigangs)
-            if self.dual_param_net_ is not None:
-                param, logJ_par2par = self.dual_param_net_.reverse(
-                    param, staples_object.get_dual_param(eigvecs)
-                )
-            else:
-                logJ_par2par = 0
-            log0 = logJ_par2par
-            param, logJ_par2par = self.param_net_.reverse(param, log0=log0)
-            eigangs, logJ_par2ang = self.matrix_handle.param2eigang_(param)
-            logJ += (logJ_ang2par + logJ_par2par + logJ_par2ang)
-
-        # ======
-        # Finally, put all pieces together
-        new_slink, logJ_ang2mat = self.matrix_handle.eigang2matrix_(eigangs)
-        logJ += logJ_ang2mat
-
-        return new_slink, logJ
-
-    # ------------------------------------------------------------------
-    # indexing helpers
-    # ------------------------------------------------------------------
+        self.matrix_handle.set_eigvecs(state.eigvecs)
+        new_slink, logj = self.matrix_handle.eigang2matrix_(state.eigangs)
+        return new_slink, logj + state.logj
 
     def _resolve_link_axis(self):
         if self.unbounded_link_axis:
@@ -396,6 +334,273 @@ class GaugeModule_(Module_):
         else:
             x[..., self.mu, :, :] = x_mu
         return x
+
+
+# =============================================================================
+class SpectralState:
+    """
+    Container for spectral variables flowing through the transform pipeline.
+    """
+
+    __slots__ = ("eigangs", "eigvecs", "logj")
+
+    def __init__(self, eigangs, eigvecs, logj):
+        self.eigangs = eigangs
+        self.eigvecs = eigvecs
+        self.logj = logj
+
+
+class SpectralStateTransform(torch.nn.Module):
+    """
+    Applies a fixed sequence of invertible transformations to a SpectralState.
+
+    This module is a *pure composition engine*:
+        - It does not define what each transform means.
+        - It only enforces ordering and invertibility structure.
+
+    Each operator in `ops` must implement:
+
+        forward(state, staples_ctx) -> state
+        reverse(state, staples_ctx) -> state
+
+    The transform is invertible if and only if all ops are invertible.
+    """
+
+    def __init__(self, ops):
+        """
+        Parameters
+        ----------
+        ops : list
+            Ordered list of invertible transformation operators.
+        """
+        super().__init__()
+        self.ops = ops
+
+    def forward(self, state, staples_ctx):
+        """
+        Apply forward composed transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after transformation.
+        """
+        # Sequentially apply all forward transforms
+        for op in self.ops:
+            state = op.forward(state, staples_ctx)
+
+        return state
+
+    def reverse(self, state, staples_ctx):
+        """
+        Apply inverse composed transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after inverse transformation.
+        """
+        # Reverse order is required for correct inverse composition
+        for op in reversed(self.ops):
+            state = op.reverse(state, staples_ctx)
+
+        return state
+
+
+class ParamTransformOp(torch.nn.Module):
+    """
+    Handles transformation between eigen-angle space and parameter space.
+
+    This stage:
+        1. maps eigen-angles → parameters
+        2. applies learned parameter transformation
+        3. optionally applies dual conditioning from staples context
+        4. maps back to eigen-angle space
+    """
+
+    def __init__(self, matrix_handle, param_net_, dual_param_net_=None):
+        super().__init__()
+        self.matrix_handle = matrix_handle
+        self.param_net_ = param_net_
+        self.dual_param_net_ = dual_param_net_
+
+    def forward(self, state, staples_ctx):
+        """
+        Apply forward transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after transformation.
+        """
+        if self.param_net_ is None and self.dual_param_net_ is None:
+            return state
+
+        eigangs = state.eigangs
+        eigvecs = state.eigvecs
+
+        param, logj_ang2par = self.matrix_handle.eigang2param_(eigangs)
+
+        if self.param_net_ is not None:
+            param, logj_par2par = self.param_net_(param)
+        else:
+            logj_par2par = 0
+
+        if self.dual_param_net_ is not None:
+            param, logj_par2par = self.dual_param_net_(
+                param, staples_ctx.get_dual_param(eigvecs), log0=logj_par2par
+            )
+
+        eigangs, logj_par2ang = self.matrix_handle.param2eigang_(param)
+
+        state.eigangs = eigangs
+        state.logj += (logj_ang2par + logj_par2par + logj_par2ang)
+        return state
+
+    def reverse(self, state, staples_ctx):
+        """
+        Apply inverse transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after inverse transformation.
+        """
+
+        if self.param_net_ is None and self.dual_param_net_ is None:
+            return state
+
+        eigangs = state.eigangs
+        eigvecs = state.eigvecs
+
+        param, logj_ang2par = self.matrix_handle.eigang2param_(eigangs)
+
+        if self.dual_param_net_ is not None:
+            param, logj_par2par = self.dual_param_net_.reverse(
+                param, staples_ctx.get_dual_param(eigvecs)
+            )
+        else:
+            logj_par2par = 0
+
+        if self.param_net_ is not None:
+            param, logj_par2par = self.param_net_.reverse(
+                param, log0=logj_par2par
+            )
+
+        eigangs, logj_par2ang = self.matrix_handle.param2eigang_(param)
+
+        state.eigangs = eigangs
+        state.logj += (logj_ang2par + logj_par2par + logj_par2ang)
+        return state
+
+
+class EigAngTransformOp(torch.nn.Module):
+    """
+    Direct transformation on eigen-angles conditioned on eigen-vectors
+    and staple context.
+
+    Note: This was introduce for tests only.
+    """
+
+    def __init__(self, eigangs_net_):
+        super().__init__()
+        self.net_ = eigangs_net_
+
+    def forward(self, state, staples_ctx):
+        """
+        Apply forward transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after transformation.
+        """
+        eigangs, logj = self.net_(
+            state.eigangs, eigvecs=state.eigvecs, staples_object=staples_ctx
+        )
+
+        state.eigangs = eigangs
+        state.logj += logj
+        return state
+
+    def reverse(self, state, staples_ctx):
+        """
+        Apply inverse transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after inverse transformation.
+        """
+        eigangs, logJ = self.net_.reverse(
+            state.eigangs, eigvecs=state.eigvecs, staples_object=staples_ctx
+        )
+
+        state.eigangs = eigangs
+        state.logj += logj
+        return state
+
+
+class EigVecTransformOp(torch.nn.Module):
+    """
+    Transformation of eigen-vectors (basis rotation / deformation).
+    """
+
+    def __init__(self, eigvecs_net_):
+        super().__init__()
+        self.net_ = eigvecs_net_
+
+    def forward(self, state, staples_ctx):
+        """
+        Apply forward transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after transformation.
+        """
+        eigvecs, logj = self.net_.forward(
+            state.eigvecs, eigangs=state.eigangs, staples_object=staples_ctx
+        )
+
+        state.eigvecs = eigvecs
+        state.logj += logj
+
+        return state
+
+    def reverse(self, state, staples_ctx):
+        """
+        Apply inverse transformation.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Staple context (cached decompositions).
+
+        Returns:
+            SpectralState: Updated spectral state after inverse transformation.
+        """
+        eigvecs, logj = self.net_.reverse(
+            state.eigvecs, eigangs=state.eigangs, staples_object=staples_ctx
+        )
+
+        state.eigvecs = eigvecs
+        state.logj += logj
+
+        return state
 
 
 # =============================================================================
