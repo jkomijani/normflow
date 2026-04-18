@@ -2,9 +2,10 @@
 
 """This module has utilities to handle staples related to gauge links."""
 
+from dataclasses import dataclass, field
 import torch
 from lattice_ml.functions import naive_project_onto_su3
-from ..linalg import special_svd
+from ..linalg import compute_svd
 
 matmul = torch.matmul
 
@@ -45,17 +46,16 @@ class TemplateStaplesHandle:
 
         Notes
         -----
-        - The SVD of the staples is cached in `staples_ctx.svd_`.
+        - The SVD of the staples is cached in `staples_ctx.svd_result`.
         - For `onesided=True`:  slink = link @ (SVD projection)
         - For `onesided=False`: slink = Vh @ link @ U
         """
-        svd_ = special_svd(staples_ctx.data())
-        staples_ctx.svd_ = svd_
+        svd_result = staples_ctx.svd_result
 
         if self.onesided:
-            slink = link @ svd_.sUVh  # slink stands for stapled link
+            slink = link @ svd_result.special_unitary_factor
         else:
-            slink = svd_.Vh @ link @ svd_.sU
+            slink = svd_result.Vh @ link @ svd_result.sU  # not updated for .sU
 
         return slink
 
@@ -83,12 +83,12 @@ class TemplateStaplesHandle:
         For pushing the changes in `slink` to corresponding `link` use the
         `push2link` method.
         """
-        svd_ = staples_ctx.svd_
+        svd_result = staples_ctx.svd_result
 
         if self.onesided:
-            link = slink @ svd_.sUVh.adjoint()
+            link = slink @ svd_result.special_unitary_factor.adjoint()
         else:
-            link = svd_.Vh.adjoint() @ slink @ svd_.sU.adjoint()
+            link = svd_result.Vh.adjoint() @ slink @ svd_result.sU.adjoint()
 
         return link
 
@@ -116,8 +116,8 @@ class TemplateStaplesHandle:
         - For SU(3), a projection is applied to maintain group structure.
         """
         if not self.onesided:
-            svd_ = staples_ctx.svd_
-            slink_rotation = svd_.Vh.adjoint() @ slink_rotation @ svd_.Vh
+            Vh = staples_ctx.svd_result.Vh
+            slink_rotation = Vh.adjoint() @ slink_rotation @ Vh
 
         if link.shape[-1] == 3:
             # Projection to SU(3) to correct numerical deviations
@@ -142,21 +142,20 @@ class FixedStaplesHandle:
         staples : tensor-like
             Precomputed staples sum used to define the transformation.
         """
-        self.svd_ = special_svd(staples)
-        self.suvh = svd_.sU @ svd_.Vh
+        self.svd_result = compute_svd(staples)
 
     def staple(self, link):
         """
         Apply the fixed staple transformation to a link.
         """
-        slink = link @ self.suvh  # slink stands for stapled link
-        return slink, self.svd_
+        slink = link @ self.svd_result.special_unitary_factor
+        return slink
 
     def unstaple(self, slink):
         """
         Invert the staple transformation.
         """
-        return slink @ self.suvh.adjoint()
+        return slink @ self.svd_result.special_unitary_factor
 
 
 # =============================================================================
@@ -314,6 +313,7 @@ class U1WilsonStaplesHandle(WilsonStaplesHandle):
 
 
 # =============================================================================
+@dataclass
 class StaplesContext:
     """
     Container for staples and related derived quantities.
@@ -323,7 +323,8 @@ class StaplesContext:
     - optional mixed (higher-order) staples
     - cached SVD for transformations
     """
-    svd_ = None
+
+    _svd_result: torch.Tensor = field(default=None, init=False, repr=False)
 
     def __init__(
         self,
@@ -337,7 +338,14 @@ class StaplesContext:
         self.mixed_staples_coeff = mixed_staples_coeff
         self.mu = mu
 
-    def data(self):
+    @property
+    def svd_result(self):
+        """Compute the singular value decomposition of the data."""
+        if self._svd_result is None:
+            self._svd_result = compute_svd(self._get_data())
+        return self._svd_result
+
+    def _get_data(self):
         """
         Return the effective staples used for SVD.
 
@@ -411,32 +419,31 @@ class StaplesContext:
     @property
     def singv(self):
         """Return singular values"""
-        try:
-            svd_ = self.svd_
-        except:
-            raise NameError()
 
-        if svd_.S.shape[-1] == 2:
-            singv = svd_.S[..., :1]
+        svd_result = self.svd_result
+
+        if svd_result.S.shape[-1] == 2:
+            singv = svd_result.S[..., :1]
         else:
-            singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
+            print("OOPS: not updatd for new SVDResult!")
+            singv = None
+            # singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
         return singv
 
     def get_dual_param(self, eigvecs):
         """Return singular values"""
-        try:
-            svd_ = self.svd_
-        except:
-            raise NameError()
+        svd_result = self.svd_result
 
-        if svd_.S.shape[-1] == 2:
-            dual = svd_.S[..., :1]
+        if svd_result.S.shape[-1] == 2:
+            dual = svd_result.S[..., :1]
         else:
-            sigma = torch.linalg.diagonal(
-                eigvecs.adjoint() @ svd_.Sigma @ eigvecs
-                ).real
-            alpha = svd_.rdet_angle.unsqueeze(-1)
-            dual = torch.cat([sigma, torch.cos(alpha), torch.sin(alpha)], -1)
+            print("OOPS: not updatd for new SVDResult!")
+            dual = None
+            # sigma = torch.linalg.diagonal(
+            #     eigvecs.adjoint() @ svd_.Sigma @ eigvecs
+            #     ).real
+            # alpha = svd_.rdet_angle.unsqueeze(-1)
+            # dual = torch.cat([sigma, torch.cos(alpha), torch.sin(alpha)], -1)
         return dual
 
 
