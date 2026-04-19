@@ -12,7 +12,4 @@ from .lie_group_handle import SU3Algebra2Group_
 
 from .su3_eigenphase import *
 
-try:
-    from .flow_handle import UnitaryFlow_
-except:
-    pass
+from .flow_handle import *
