@@ -591,7 +591,7 @@ class EigAngTransformOp(torch.nn.Module):
             SpectralState: Updated spectral state after transformation.
         """
         eigangs, logj = self.net_(
-            state.eigangs, eigvecs=state.eigvecs, staples_object=staples_ctx
+            state.eigangs, eigvecs=state.eigvecs, staples_ctx=staples_ctx
         )
 
         state.eigangs = eigangs
@@ -610,7 +610,7 @@ class EigAngTransformOp(torch.nn.Module):
             SpectralState: Updated spectral state after inverse transformation.
         """
         eigangs, logj = self.net_.reverse(
-            state.eigangs, eigvecs=state.eigvecs, staples_object=staples_ctx
+            state.eigangs, eigvecs=state.eigvecs, staples_ctx=staples_ctx
         )
 
         state.eigangs = eigangs
@@ -639,7 +639,7 @@ class EigVecTransformOp(torch.nn.Module):
             SpectralState: Updated spectral state after transformation.
         """
         eigvecs, logj = self.net_.forward(
-            state.eigvecs, eigangs=state.eigangs, staples_object=staples_ctx
+            state.eigvecs, eigangs=state.eigangs, staples_ctx=staples_ctx
         )
 
         state.eigvecs = eigvecs
@@ -659,7 +659,7 @@ class EigVecTransformOp(torch.nn.Module):
             SpectralState: Updated spectral state after inverse transformation.
         """
         eigvecs, logj = self.net_.reverse(
-            state.eigvecs, eigangs=state.eigangs, staples_object=staples_ctx
+            state.eigvecs, eigangs=state.eigangs, staples_ctx=staples_ctx
         )
 
         state.eigvecs = eigvecs
