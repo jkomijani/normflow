@@ -9,6 +9,8 @@ from ..linalg import compute_svd
 
 matmul = torch.matmul
 
+__all__ = ["WilsonStaplesHandle"]
+
 
 # =============================================================================
 class TemplateStaplesHandle:
@@ -416,44 +418,21 @@ class StaplesContext:
             }
         return out_dict
 
-    @property
-    def singv(self):
-        """Return singular values"""
-
-        svd_result = self.svd_result
-
-        if svd_result.S.shape[-1] == 2:
-            singv = svd_result.S[..., :1]
-        else:
-            print("OOPS: not updatd for new SVDResult!")
-            singv = None
-            # singv = torch.cat([svd_.S, svd_.rdet_angle.unsqueeze(-1)], -1)
-        return singv
-
     def get_dual_param(self, eigvecs):
-        """Return singular values"""
+        """
+        Return the dual parameters: coefficient of eigenvalues in the action.
+        """
         svd_result = self.svd_result
 
         if svd_result.S.shape[-1] == 2:
             dual = svd_result.S[..., :1]
         else:
-            print("OOPS: not updatd for new SVDResult!")
-            dual = None
-            # sigma = torch.linalg.diagonal(
-            #     eigvecs.adjoint() @ svd_.Sigma @ eigvecs
-            #     ).real
-            # alpha = svd_.rdet_angle.unsqueeze(-1)
-            # dual = torch.cat([sigma, torch.cos(alpha), torch.sin(alpha)], -1)
+            sigma = svd_result.sigma_matrix_factor
+            # `Σ = H + i λ I`, where H is Hermitian & λ is constant.
+            dual = torch.view_as_real(
+                torch.linalg.diagonal(eigvecs.adjoint() @ sigma @ eigvecs)
+            ).reshape(*sigma.shape[:-2], -1)
         return dual
 
 
 StaplesObject = StaplesContext  # for legacy
-
-
-# =============================================================================
-def calc_trace(x):
-    return torch.sum(torch.diagonal(x, dim1=-2, dim2=-1), dim=-1)
-
-
-def calc_reduced_trace(x):  # reduced trace = 1/n trace()
-    return torch.mean(torch.diagonal(x, dim1=-2, dim2=-1), dim=-1)
