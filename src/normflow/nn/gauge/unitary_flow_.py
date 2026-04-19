@@ -7,20 +7,56 @@ trailing underscore implies that the associated forward and reverse methods
 handle the Jacobians of the transformation.
 """
 
+# pylint: disable=invalid-name, relative-beyond-top-level
+
 import torch
 import numpy as np
 
 from .._core import Module_
 from ...lib.matrix_handles import UnitaryFlow_
-from ...lib.matrix_handles import flow_handle
+from ...lib.matrix_handles import transform_modal2antihermitian2unitary
 
 
-class ModalMatrixFlow_(Module_):
+__all__ = ["ModalMatrixSteppedCommutatorFlow_"]
+
+
+class ModalMatrixSteppedCommutatorFlow_(Module_):
+    r"""
+    Stepped version of a commutator-based modal flow.
+
+    This is a discrete approximation of the continuous ODE acting on a
+    modal matrix X (eigenvectors):
+
+    .. math::
+
+        \frac{dX}{dt} = -a [X \Lambda X^\dagger, \Sigma] X
+
+    where:
+        - X is unitary (possibly masked),
+        - \Lambda is a traceless diagonal matrix of real eigenvalues,
+        - \Sigma is a traceless Hermitian matrix,
+        - [A, B] = AB - BA is the commutator,
+        - a is a scalar scale factor.
+
+    Discrete flow
+    -------------
+    The implementation replaces the ODE with n_steps unitary updates:
+
+        X ← F_k(X) ... F_2(X) F_1(X) X
+
+    Each step is unitary and approximates the continuous generator.
+
+    Inverse map
+    -----------
+    The inverse is not available in closed form and is computed only
+    iteratively via fixed-point refinement of the forward step.
+    """
 
     flow_ = UnitaryFlow_(
-            func = flow_handle.modal2antihermitian2unitary,
-            reverse_mode_iter = 10
-            )
+        func=transform_modal2antihermitian2unitary,
+        n_steps=1,
+        reverse_mode_iter=10
+    )
 
     def __init__(self, tau_net=None, tau_par=torch.zeros(1), mask=None):
         super().__init__()
@@ -30,12 +66,12 @@ class ModalMatrixFlow_(Module_):
         else:
             self.tau_net = tau_net
 
-    def forward(self, eigvecs, *, eigangs, staples_object):
-        alpha = staples_object.svd_.rdet_angle.unsqueeze(-1)
-        lambda_ = torch.cos(eigangs + alpha) + 0j
-        sigma = staples_object.svd_.Sigma
-        kwargs = dict(lambda_=lambda_, sigma=sigma)
-        kwargs['tau'] = self.tau_net(phase=(eigangs + alpha))
+    def forward(self, eigvecs, *, eigangs, staples_ctx):
+        """Apply the stepped modal commutator flow (forward direction)."""
+        diag_Lambda = eigangs.real + 0j
+        Sigma = staples_ctx.svd_result.sigma_matrix_factor
+        kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+        kwargs['tau'] = self.tau_net(phase=eigangs)
         if self.mask is None:
             eigvecs, logJ_density = self.flow_(eigvecs, **kwargs)
         else:
@@ -48,12 +84,12 @@ class ModalMatrixFlow_(Module_):
         logJ = self.sum_density(logJ_density)
         return eigvecs, logJ
 
-    def reverse(self, eigvecs, *, eigangs, staples_object):
-        alpha = staples_object.svd_.rdet_angle.unsqueeze(-1)
-        lambda_ = torch.cos(eigangs + alpha) + 0j
-        sigma = staples_object.svd_.Sigma
-        kwargs = dict(lambda_=lambda_, sigma=sigma)
-        kwargs['tau'] = self.tau_net(phase=(eigangs + alpha))
+    def reverse(self, eigvecs, *, eigangs, staples_ctx):
+        """Approximate inverse of the stepped modal commutator flow."""
+        diag_Lambda = eigangs.real + 0j
+        Sigma = staples_ctx.svd_result.sigma_matrix_factor
+        kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+        kwargs['tau'] = self.tau_net(phase=eigangs)
         if self.mask is None:
             eigvecs, logJ_density = self.flow_.reverse(eigvecs, **kwargs)
         else:
@@ -66,11 +102,14 @@ class ModalMatrixFlow_(Module_):
         logJ = self.sum_density(logJ_density)
         return eigvecs, logJ
 
-    def tau_net(self, **kwargs):  # this is just the default self.tau_net
+    def tau_net(self, **dummy_kwargs):
+        """Compute step size τ (learned or fixed)."""
+        # This is just the default self.tau_net
         return torch.nn.functional.softplus(self.tau_par) / (4 * np.pi)**2
 
 
 class SUnSpectralFlow_(Module_):
+    # OBSOLETE: see the version before 18/Apr/2026
     """NOT RELIABLE YET; see the `integrate` method."""
 
     def __init__(self, tau_net=None, tau_par=torch.zeros(1), mask=None):
@@ -129,7 +168,7 @@ class SUnSpectralFlow_(Module_):
         x, grad = self.exact_decoupled_solution(
             x[..., :-1], s = s[..., :-1], t = t[..., :-1] if t.ndim > 1 else t
             )
-        x = torch.cat([x, mu - torch.sum(x, dim=-1, keepdim=True)], dim =-1)
+        x = torch.cat([x, mu - torch.sum(x, dim=-1, keepdim=True)], dim=-1)
         x -= alpha
         return x, torch.sum(torch.log(grad), dim=-1)
 

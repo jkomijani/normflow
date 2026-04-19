@@ -45,5 +45,5 @@ from .gauge.gauge_param_dual_couplings_ import SU3RQSplineDualCoupling_
 
 
 from .gauge.trivializing_map_ import WilsonTrivMap_
-from .gauge.unitary_flow_ import ModalMatrixFlow_
+from .gauge.unitary_flow_ import ModalMatrixSteppedCommutatorFlow_
 from .gauge.modal_commutator_odeflow_ import ModalCommutatorFlow_
