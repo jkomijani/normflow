@@ -262,7 +262,7 @@ class Trainer:
             if self.is_main_process:
                 logging.info("Process group destroyed.")
 
-    def training_epoch(self, batch_size: int):
+    def training_epoch(self, batch_size: int, debug: bool = False):
         """
         Perform a single training step with a batch of size `batch_size`.
 
@@ -313,6 +313,15 @@ class Trainer:
             clip_grad_norm_(net_.parameters(), max_norm=1.0)
 
         self.optimizer.step()
+
+        if debug:
+            param = list(net_.parameters())[-1]
+            print((
+                f"Debug [training_epoch]: rank = {self.device_handler.rank} | "
+                f"loss = {loss.item():.4f} | "
+                f"param = {param.ravel()[0].item():.14e} | "
+                f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
+            ))
 
         return loss, logq, logp
 
