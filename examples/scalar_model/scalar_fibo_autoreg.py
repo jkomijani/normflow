@@ -48,6 +48,8 @@ from normflow.nn import (
     Module_,
     DistConvertor_,
     AffineCoupling_,
+    ModuleList_,
+    make_psd_block,
     ConvBlock
 )
 
@@ -85,7 +87,8 @@ def main(
     if debug:
         torch.manual_seed(213)
 
-    net_ = assemble_fibo_autoreg_module(lat_shape=lat_shape, **net_kwargs)
+    # net_ = assemble_fibo_autoreg_module(lat_shape=lat_shape, **net_kwargs)
+    net_ = assemble_net(lat_shape=lat_shape, **net_kwargs)
     action = ScalarPhi4Action(kappa=kappa, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 
@@ -123,9 +126,20 @@ def main(
     return model
 
 
+def assemble_net(lat_shape, **kwargs):
+
+    psd_block_ = make_psd_block(
+        lat_shape, meanfield_n_layers=4, ipsd_knots_len=10
+    )
+
+    fibo_block_ = assemble_fibo_autoreg_module(lat_shape, **kwargs)
+
+    return ModuleList_([psd_block_, fibo_block_])
+
+
 # =============================================================================
 def assemble_fibo_autoreg_module(
-    lat_shape: Tuple[int], knots_len=50, hidden_sizes: Tuple[int] = (8,)
+    lat_shape: Tuple[int], knots_len=10, hidden_sizes: Tuple[int] = (8,)
 ):
     """
     An auto-regressive model suitable for large lattices because of its
@@ -157,7 +171,7 @@ def assemble_fibo_autoreg_module(
         'kernel_size': 3,
         'conv_ndim': len(lat_shape),
         'hidden_sizes': hidden_sizes,
-        'acts': (*[torch.nn.LeakyReLU()]*len(hidden_sizes), None)
+        'acts': (*[torch.nn.SiLU()]*len(hidden_sizes), None)
     }
 
     nets_ = [None] * len(metadata_list)

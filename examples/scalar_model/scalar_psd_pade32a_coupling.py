@@ -26,6 +26,8 @@ import math
 import torch
 import normflow
 
+from torch.nn import BatchNorm2d
+
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
@@ -36,6 +38,7 @@ from normflow.nn import (
     DistConvertor_,
     make_psd_block,
     Pade32aCoupling_,
+    AvgNeighborPool,
     ConvBlock
 )
 
@@ -201,6 +204,11 @@ def assemble_net(
         act = torch.nn.Tanh() if zee2sym else torch.nn.LeakyReLU()
         acts = (*[act]*len(hidden_sizes), None)
 
+    norms = (
+        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes],
+        None
+    )
+
     conv_dict = {
         'in_channels': 1,
         'out_channels': 3,
@@ -209,6 +217,8 @@ def assemble_net(
         'padding_mode': 'circular',
         'conv_ndim': len(lat_shape),
         'acts': acts,
+        'norms': norms,
+        'pre_act': AvgNeighborPool(),
         'bias': not zee2sym
     }
 
