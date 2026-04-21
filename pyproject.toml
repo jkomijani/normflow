@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "normflow"
-version = "2.0"
+version = "2.0.0"
 description = "Normalizing flow for generating lattice field configurations"
 readme = "README.md"
 authors = [{ name = "Javad Komijani", email = "jkomijani@gmail.com" }]
