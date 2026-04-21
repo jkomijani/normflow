@@ -248,7 +248,7 @@ class GaugeModule_(Module_):
         new_slink, logj = self._recompose_slink(state)
 
         # Convert slink update into a rotation and push back to link
-        x_mu = self._push_back(x_mu, slink, new_slink, staples_ctx)
+        x_mu = self._push_back(new_slink, staples_ctx)
 
         # Write updated links back into full field
         x = self._set_x_mu(x, x_mu)
@@ -269,14 +269,9 @@ class GaugeModule_(Module_):
         """Construct stapled link from link and staple projection."""
         return self.staples_handle.staple(x_mu, staples_ctx)
 
-    def _push_back(self, x_mu, slink, new_slink, staples_ctx):
-        """Push transformed slink back onto original link.
-
-        Uses the relative rotation `new_slink @ slink.adjoint()`.
-        """
-        return self.staples_handle.push2link(
-            x_mu, new_slink @ slink.adjoint(), staples_ctx
-        )
+    def _push_back(self, new_slink, staples_ctx):
+        """Push transformed slink back onto original link."""
+        return self.staples_handle.unstaple(new_slink, staples_ctx)
 
     def _decompose_slink(self, slink):
         """Spectral decomposition of slink.
