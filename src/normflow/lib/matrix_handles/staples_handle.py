@@ -118,7 +118,7 @@ class TemplateStaplesHandle:
         - For SU(3), a projection is applied to maintain group structure.
         """
         if not self.onesided:
-            Vh = staples_ctx.svd_result.Vh
+            Vh = staples_ctx.svd_result.Vh  # pylint: disable=invalid-name
             slink_rotation = Vh.adjoint() @ slink_rotation @ Vh
 
         if link.shape[-1] == 3:
@@ -210,7 +210,7 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
 
         if staples_coeff is None:
             staples = sum(
-              [self.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list]
+                self.calc_planar_staples(links, mu=mu, nu=nu) for nu in nu_list
             )
 
         else:
@@ -276,13 +276,13 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
         if up_only:
             a = torch.roll(c, -1, dims=1 + mu)
             b = torch.roll(u, -1, dims=1 + nu)
-            return self.staple1_rule(a, b, c)
+            staple = self.staple1_rule(a, b, c)
 
         elif down_only:
             e = torch.roll(u, +1, dims=1 + nu)
             f = torch.roll(c, +1, dims=1 + nu)
             d = torch.roll(f, -1, dims=1 + mu)
-            return self.staple2_rule(d, e, f)
+            staple = self.staple2_rule(d, e, f)
 
         else:
             a = torch.roll(c, -1, dims=1 + mu)
@@ -290,7 +290,9 @@ class WilsonStaplesHandle(TemplateStaplesHandle):
             e = torch.roll(u, +1, dims=1 + nu)
             f = torch.roll(c, +1, dims=1 + nu)
             d = torch.roll(f, -1, dims=1 + mu)
-            return self.staple1_rule(a, b, c) + self.staple2_rule(d, e, f)
+            staple = self.staple1_rule(a, b, c) + self.staple2_rule(d, e, f)
+
+        return staple
 
     @staticmethod
     def staple1_rule(a, b, c):
@@ -361,9 +363,7 @@ class StaplesContext:
         data = self.staples
 
         if self.staples_coeff is not None:
-            data = sum(
-                [c * data[j] for j, c in enumerate(self.staples_coeff)]
-            )
+            data = sum(c * data[j] for j, c in enumerate(self.staples_coeff))
 
         if self.mixed_staples_coeff is not None:
             c = self.mixed_staples_coeff
