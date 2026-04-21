@@ -92,6 +92,9 @@ class TemplateStaplesHandle:
         else:
             link = svd_result.Vh.adjoint() @ slink @ svd_result.sU.adjoint()
 
+        if link.shape[-1] == 3:
+            link = naive_project_onto_su3(link)  # correct numerical deviations
+
         return link
 
     def push2link(self, link, slink_rotation, staples_ctx):
