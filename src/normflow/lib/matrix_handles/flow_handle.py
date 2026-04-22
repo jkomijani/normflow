@@ -154,15 +154,15 @@ def transform_modal2antihermitian2unitary(
     """
     Compute the unitary matrix
         U = exp(-τ [H, Σ])
-    together with its Jacobian, where H is reconstructed from its
-    eigendecomposition:
+    together with its Jacobian, where H is Hermitian reconstructed from its
+    real spectral matrix Λ and modal matrix Ω as:
         H = Ω Λ Ω†.
 
-    Here, Σ is assumed Hermitian up to an additive purely imaginary
-    scalar multiple of the identity (which does not affect the commutator).
+    Here, Σ is assumed Hermitian (up to an additive purely imaginary scalar
+    multiple of the identity, which does not affect the commutator).
 
     The mapping proceeds in three steps:
-        (Ω, Λ) → H → [H, Σ] → U = exp(i τ [H, Σ])
+        (Ω, Λ) → H → [H, Σ] → U = exp(-τ [H, Σ])
 
     and the total Jacobian is obtained via the chain rule.
 
@@ -175,8 +175,8 @@ def transform_modal2antihermitian2unitary(
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - U: Unitary matrix exp(i τ [H, Σ]) (..., n, n)
-            - jac: Jacobian of U w.r.t. the modal parameters
+            - U: Unitary matrix exp(-τ [H, Σ]) (..., n, n)
+            - J: Jacobian of U w.r.t. the modal parameters
 
     Notes:
         - The commutator [H, Σ] is skew-Hermitian, so U is unitary.
