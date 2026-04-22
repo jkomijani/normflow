@@ -12,6 +12,8 @@ handle the Jacobians of the transformation.
 import torch
 import numpy as np
 
+from .modal_commutator_odeflow_ import zero_sum_vector, hermitian_traceless
+
 from .._core import Module_
 from ...lib.matrix_handles import UnitaryFlow_
 from ...lib.matrix_handles import transform_modal2antihermitian2unitary
@@ -84,16 +86,16 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             eigvecs (torch.Tensor): Updated modal matrix.
             logJ (torch.Tensor): Log-determinant of the Jacobian.
         """
-        # Construct Λ (real diagonal encoded as a vector)
-        diag_Lambda = eigangs.real + 0j
+        # Construct Λ (real diagonal encoded as a vector, minus its mean)
+        diag_Lambda = zero_sum_vector(eigangs.real) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
-        Sigma = staples_ctx.svd_result.sigma_matrix_factor
-
-        kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+        Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
 
         # Step size τ (learned or fixed)
-        kwargs['tau'] = self.tau_net(phase=eigangs)
+        tau = self.tau_net(phase=eigangs)
+
+        kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
 
         if self.mask is None:
             eigvecs, logJ_density = self.flow_(eigvecs, **kwargs)
@@ -124,16 +126,16 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             eigvecs (torch.Tensor): Approximate pre-image under the flow.
             logJ (torch.Tensor): Log-determinant of the inverse Jacobian.
         """
-        # Construct Λ (real diagonal encoded as a vector)
-        diag_Lambda = eigangs.real + 0j
+        # Construct Λ (real diagonal encoded as a vector, minus its mean)
+        diag_Lambda = zero_sum_vector(eigangs.real) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
-        Sigma = staples_ctx.svd_result.sigma_matrix_factor
-
-        kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+        Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
 
         # Step size τ (learned or fixed)
-        kwargs['tau'] = self.tau_net(phase=eigangs)
+        tau = self.tau_net(phase=eigangs)
+
+        kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
 
         if self.mask is None:
             eigvecs, logJ_density = self.flow_.reverse(eigvecs, **kwargs)
