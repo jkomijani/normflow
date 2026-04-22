@@ -188,7 +188,7 @@ def transform_modal2antihermitian2unitary(
     # Step 2: compute commutator C = [H, Σ] and its Jacobian
     C, jac2 = commutator_and_jacobian(H, Sigma)
 
-    # Step 3: exponentiate to obtain U = exp(i τ C) and its Jacobian
+    # Step 3: exponentiate to obtain U = exp(i (i τ C)) and its Jacobian
     U, jac3 = matrix_exp1jh_and_jacobian((1j * tau) * C)
 
     # Chain rule: combine Jacobians of the three transformations

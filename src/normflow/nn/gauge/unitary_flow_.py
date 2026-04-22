@@ -52,6 +52,9 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
     iteratively via fixed-point refinement of the forward step.
     """
 
+    # Single-step unitary update constructed from an anti-Hermitian generator.
+    # reverse_mode_iter controls the number of fixed-point iterations used
+    # to approximate the inverse map.
     flow_ = UnitaryFlow_(
         func=transform_modal2antihermitian2unitary,
         n_steps=1,
@@ -67,44 +70,98 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             self.tau_net = tau_net
 
     def forward(self, eigvecs, *, eigangs, staples_ctx):
-        """Apply the stepped modal commutator flow (forward direction)."""
+        """
+        Apply the stepped commutator flow.
+
+        Args:
+            eigvecs (torch.Tensor): Current modal matrix X (unitary).
+
+            eigangs (torch.Tensor): Eigenvalue phases; we used the real parts.
+
+            staples_ctx: Context providing `svd_result.sigma_matrix_factor`.
+
+        Returns:
+            eigvecs (torch.Tensor): Updated modal matrix.
+            logJ (torch.Tensor): Log-determinant of the Jacobian.
+        """
+        # Construct Λ (real diagonal encoded as a vector)
         diag_Lambda = eigangs.real + 0j
+
+        # Σ is a Hermitian generator coming from the SVD context
         Sigma = staples_ctx.svd_result.sigma_matrix_factor
+
         kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+
+        # Step size τ (learned or fixed)
         kwargs['tau'] = self.tau_net(phase=eigangs)
+
         if self.mask is None:
             eigvecs, logJ_density = self.flow_(eigvecs, **kwargs)
         else:
+            # Apply flow only to a sub-block, then reconstruct full matrix
             x_0, x_1 = self.mask.split(eigvecs)
             x_0, logJ_density = self.flow_(x_0, **kwargs)
+
+            # Enforce mask constraints after update
             x_0 = self.mask.purify(x_0, channel=0)
             eigvecs = self.mask.cat(x_0, x_1)
+
+            # Enforce mask constraints to log-Jacobian too
             logJ_density = logJ_density.reshape(*logJ_density.shape, 1, 1)
             logJ_density = self.mask.purify(logJ_density, channel=0)
+
         logJ = self.sum_density(logJ_density)
         return eigvecs, logJ
 
     def reverse(self, eigvecs, *, eigangs, staples_ctx):
-        """Approximate inverse of the stepped modal commutator flow."""
+        """
+        Approximate inverse of the stepped commutator flow.
+
+        Uses iterative refinement (fixed-point iterations) to invert each
+        unitary step.
+
+        Returns:
+            eigvecs (torch.Tensor): Approximate pre-image under the flow.
+            logJ (torch.Tensor): Log-determinant of the inverse Jacobian.
+        """
+        # Construct Λ (real diagonal encoded as a vector)
         diag_Lambda = eigangs.real + 0j
+
+        # Σ is a Hermitian generator coming from the SVD context
         Sigma = staples_ctx.svd_result.sigma_matrix_factor
+
         kwargs = dict(diag_Lambda=diag_Lambda, Sigma=Sigma)
+
+        # Step size τ (learned or fixed)
         kwargs['tau'] = self.tau_net(phase=eigangs)
+
         if self.mask is None:
             eigvecs, logJ_density = self.flow_.reverse(eigvecs, **kwargs)
         else:
+            # Apply flow only to a sub-block, then reconstruct full matrix
             x_0, x_1 = self.mask.split(eigvecs)
             x_0, logJ_density = self.flow_.reverse(x_0, **kwargs)
+
+            # Enforce mask constraints after update
             x_0 = self.mask.purify(x_0, channel=0)
             eigvecs = self.mask.cat(x_0, x_1)
+
+            # Enforce mask constraints to log-Jacobian too
             logJ_density = logJ_density.reshape(*logJ_density.shape, 1, 1)
             logJ_density = self.mask.purify(logJ_density, channel=0)
+
         logJ = self.sum_density(logJ_density)
         return eigvecs, logJ
 
     def tau_net(self, **dummy_kwargs):
-        """Compute step size τ (learned or fixed)."""
-        # This is just the default self.tau_net
+        """
+        Default step size.
+
+        Returns a positive scalar (via softplus) scaled by (1 / 4π)^2.
+        """
+        # Note that `transform_modal2antihermitian2unitary` has a negative sign
+        # computing `exp(-τ [H, Σ])`, indicating τ is positive and the flow
+        # matches the sign convention in the continuous commutator ODE.
         return torch.nn.functional.softplus(self.tau_par) / (4 * np.pi)**2
 
 
