@@ -160,7 +160,7 @@ class FixedStaplesHandle:
         """
         Invert the staple transformation.
         """
-        return slink @ self.svd_result.special_unitary_factor
+        return slink @ self.svd_result.special_unitary_factor.adjoint()
 
 
 # =============================================================================
