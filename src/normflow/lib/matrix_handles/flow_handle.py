@@ -12,11 +12,14 @@ representations.
 
 import torch
 
-from lattice_ml.functions import eyes_like
-from lattice_ml.functions import kronecker_product
-from lattice_ml.functions import matrix_exp1jh_and_jacobian
-from lattice_ml.functions import inverse_eign_and_jacobian
-from lattice_ml.functions import commutator_and_jacobian
+from lattice_ml.functions import (
+    eyes_like,
+    kronecker_product,
+    matrix_exp1jh_and_jacobian,
+    inverse_eign_and_jacobian,
+    commutator_and_jacobian,
+    # product_to_antihermitian_and_jacobian
+)
 
 __all__ = ["UnitaryFlow_", "transform_modal2antihermitian2unitary"]
 
@@ -187,6 +190,9 @@ def transform_modal2antihermitian2unitary(
 
     # Step 2: compute commutator C = [H, Σ] and its Jacobian
     C, jac2 = commutator_and_jacobian(H, Sigma)
+
+    # Alternative formulation: The last command could be formulated as follows
+    # C, jac2 = product_to_antihermitian_and_jacobian(H, Sigma)
 
     # Step 3: exponentiate to obtain U = exp(i (i τ C)) and its Jacobian
     U, jac3 = matrix_exp1jh_and_jacobian((1j * tau) * C)
