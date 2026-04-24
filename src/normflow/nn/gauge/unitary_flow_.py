@@ -12,7 +12,7 @@ handle the Jacobians of the transformation.
 import torch
 import numpy as np
 
-from .modal_commutator_odeflow_ import zero_sum_vector, hermitian_traceless
+from .modal_commutator_odeflow_ import hermitian_traceless
 
 from .._core import Module_
 from ...lib.matrix_handles import UnitaryFlow_
@@ -87,7 +87,7 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             logJ (torch.Tensor): Log-determinant of the Jacobian.
         """
         # Construct Λ (real diagonal encoded as a vector, minus its mean)
-        diag_Lambda = zero_sum_vector(eigangs.real) + 0j
+        diag_Lambda = torch.cos(eigangs) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
         Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
@@ -127,7 +127,7 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             logJ (torch.Tensor): Log-determinant of the inverse Jacobian.
         """
         # Construct Λ (real diagonal encoded as a vector, minus its mean)
-        diag_Lambda = zero_sum_vector(eigangs.real) + 0j
+        diag_Lambda = torch.cos(eigangs) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
         Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
