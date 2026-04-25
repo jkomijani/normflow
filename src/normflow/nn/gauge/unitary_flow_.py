@@ -71,37 +71,36 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
         else:
             self.tau_net = tau_net
 
-    def forward(self, eigvecs, *, eigangs, staples_ctx):
+    def forward(self, state, staples_ctx):
         """
-        Apply the stepped commutator flow.
+        Apply the stepped commutator flow on state.eigvecs.
 
         Args:
-            eigvecs (torch.Tensor): Current modal matrix X (unitary).
-
-            eigangs (torch.Tensor): Eigenvalue phases; we used the real parts.
-
-            staples_ctx: Context providing `svd_result.sigma_matrix_factor`.
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Context providing the Sigma matrix as
+                `svd_result.sigma_matrix_factor`.
 
         Returns:
-            eigvecs (torch.Tensor): Updated modal matrix.
-            logJ (torch.Tensor): Log-determinant of the Jacobian.
+            SpectralState: Updated spectral state after transformation.
         """
         # Construct Λ (real diagonal encoded as a vector, minus its mean)
-        diag_Lambda = torch.cos(eigangs) + 0j
+        diag_Lambda = torch.cos(state.eigangs) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
         Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
 
         # Step size τ (learned or fixed)
-        tau = self.tau_net(phase=eigangs)
+        tau = self.tau_net(phase=state.eigangs)
 
         kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
+
+        eigvecs = state.eigvecs
 
         if self.mask is None:
             eigvecs, logJ_density = self.flow_(eigvecs, **kwargs)
         else:
             # Apply flow only to a sub-block, then reconstruct full matrix
-            x_0, x_1 = self.mask.split(eigvecs)
+            x_0, x_1 = self.mask.split(state.eigvecs)
             x_0, logJ_density = self.flow_(x_0, **kwargs)
 
             # Enforce mask constraints after update
@@ -113,29 +112,38 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             logJ_density = self.mask.purify(logJ_density, channel=0)
 
         logJ = self.sum_density(logJ_density)
-        return eigvecs, logJ
 
-    def reverse(self, eigvecs, *, eigangs, staples_ctx):
+        state.eigvecs = eigvecs
+        state.logj += logJ
+
+        return state
+
+    def reverse(self, state, staples_ctx):
         """
         Approximate inverse of the stepped commutator flow.
 
-        Uses iterative refinement (fixed-point iterations) to invert each
-        unitary step.
+        Uses fixed-point iterations to invert each unitary step.
+
+        Args:
+            state (SpectralState): Contains eigangs, eigvecs, and logj.
+            staples_ctx (object): Context providing the Sigma matrix as
+                `svd_result.sigma_matrix_factor`.
 
         Returns:
-            eigvecs (torch.Tensor): Approximate pre-image under the flow.
-            logJ (torch.Tensor): Log-determinant of the inverse Jacobian.
+            SpectralState: Updated spectral state after transformation.
         """
         # Construct Λ (real diagonal encoded as a vector, minus its mean)
-        diag_Lambda = torch.cos(eigangs) + 0j
+        diag_Lambda = torch.cos(state.eigangs) + 0j
 
         # Σ is a Hermitian generator coming from the SVD context
         Sigma = hermitian_traceless(staples_ctx.svd_result.sigma_matrix_factor)
 
         # Step size τ (learned or fixed)
-        tau = self.tau_net(phase=eigangs)
+        tau = self.tau_net(phase=state.eigangs)
 
         kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
+
+        eigvecs = state.eigvecs
 
         if self.mask is None:
             eigvecs, logJ_density = self.flow_.reverse(eigvecs, **kwargs)
@@ -153,7 +161,11 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
             logJ_density = self.mask.purify(logJ_density, channel=0)
 
         logJ = self.sum_density(logJ_density)
-        return eigvecs, logJ
+
+        state.eigvecs = eigvecs
+        state.logj += logJ
+
+        return state
 
     def tau_net(self, **dummy_kwargs):
         """
