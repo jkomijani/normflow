@@ -554,14 +554,7 @@ class EigVecTransformOp(torch.nn.Module):
         Returns:
             SpectralState: Updated spectral state after transformation.
         """
-        eigvecs, logj = self.net_.forward(
-            state.eigvecs, eigangs=state.eigangs, staples_ctx=staples_ctx
-        )
-
-        state.eigvecs = eigvecs
-        state.logj += logj
-
-        return state
+        return self.net_.forward(state, staples_ctx)
 
     def reverse(self, state, staples_ctx):
         """
@@ -574,14 +567,7 @@ class EigVecTransformOp(torch.nn.Module):
         Returns:
             SpectralState: Updated spectral state after inverse transformation.
         """
-        eigvecs, logj = self.net_.reverse(
-            state.eigvecs, eigangs=state.eigangs, staples_ctx=staples_ctx
-        )
-
-        state.eigvecs = eigvecs
-        state.logj += logj
-
-        return state
+        return self.net_.reverse(state, staples_ctx)
 
 
 # =============================================================================
