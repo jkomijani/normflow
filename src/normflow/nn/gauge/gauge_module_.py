@@ -142,9 +142,6 @@ class GaugeModule_(Module_):
     dual_param_net_ : Module_ or None
         Optional secondary network conditioned on dual parameters.
 
-    eigangs_net_ : Module_ or None
-        Network acting directly on eigen-angles.
-
     eigvecs_net_ : Module_ or None
         Network acting on eigen-vectors.
 
@@ -168,7 +165,6 @@ class GaugeModule_(Module_):
         matrix_handle,
         param_net_,
         dual_param_net_=None,
-        eigangs_net_=None,
         eigvecs_net_=None,
         staples_kwargs=None
     ):
@@ -192,9 +188,6 @@ class GaugeModule_(Module_):
             ops.append(
                 ParamTransformOp(matrix_handle, param_net_, dual_param_net_)
             )
-
-        if eigangs_net_ is not None:
-            ops.append(EigAngTransformOp(eigangs_net_))
 
         if eigvecs_net_ is not None:
             ops.append(EigVecTransformOp(eigvecs_net_))
@@ -480,57 +473,6 @@ class ParamTransformOp(torch.nn.Module):
 
         state.eigangs = eigangs
         state.logj += (logj_ang2par + logj_par2par + logj_par2ang)
-        return state
-
-
-class EigAngTransformOp(torch.nn.Module):
-    """
-    Direct transformation on eigen-angles conditioned on eigen-vectors
-    and staple context.
-
-    Note: This was introduce for tests only.
-    """
-
-    def __init__(self, eigangs_net_):
-        super().__init__()
-        self.net_ = eigangs_net_
-
-    def forward(self, state, staples_ctx):
-        """
-        Apply forward transformation.
-
-        Args:
-            state (SpectralState): Contains eigangs, eigvecs, and logj.
-            staples_ctx (object): Staple context (cached decompositions).
-
-        Returns:
-            SpectralState: Updated spectral state after transformation.
-        """
-        eigangs, logj = self.net_(
-            state.eigangs, eigvecs=state.eigvecs, staples_ctx=staples_ctx
-        )
-
-        state.eigangs = eigangs
-        state.logj += logj
-        return state
-
-    def reverse(self, state, staples_ctx):
-        """
-        Apply inverse transformation.
-
-        Args:
-            state (SpectralState): Contains eigangs, eigvecs, and logj.
-            staples_ctx (object): Staple context (cached decompositions).
-
-        Returns:
-            SpectralState: Updated spectral state after inverse transformation.
-        """
-        eigangs, logj = self.net_.reverse(
-            state.eigangs, eigvecs=state.eigvecs, staples_ctx=staples_ctx
-        )
-
-        state.eigangs = eigangs
-        state.logj += logj
         return state
 
 
