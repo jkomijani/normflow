@@ -271,18 +271,16 @@ class GaugeModule_(Module_):
         Returns a SpectralState containing eigen-angles, eigenvectors,
         and the associated log-Jacobian.
         """
-        eigangs, logj = self.matrix_handle.matrix2eigang_(slink)
-        eigvecs = self.matrix_handle.eigvecs
-        return SpectralState(eigangs, eigvecs, logj)
+        state = self.matrix_handle.matrix_to_spectral_state(slink)
+        return state
 
     def _recompose_slink(self, state):
         """Reconstruct slink from spectral state.
 
         Accumulates log-Jacobian from reconstruction.
         """
-        self.matrix_handle.set_eigvecs(state.eigvecs)
-        new_slink, logj = self.matrix_handle.eigang2matrix_(state.eigangs)
-        return new_slink, logj + state.logj
+        slink, logj = self.matrix_handle.spectral_state_to_matrix_(state)
+        return slink, logj
 
     def _resolve_link_axis(self):
         if self.unbounded_link_axis:
