@@ -20,12 +20,89 @@ pi = np.pi
 
 
 # =============================================================================
+class SpectralState:
+    """
+    Container for spectral variables flowing through the transform pipeline.
+    """
+
+    __slots__ = ("eigangs", "eigvecs", "logj")
+
+    def __init__(self, eigangs, eigvecs, logj):
+        self.eigangs = eigangs
+        self.eigvecs = eigvecs
+        self.logj = logj
+
+
+# =============================================================================
 class UnMatrixParametrizer:
+    """
+    Utilities for transforming unitary matrices between matrix, spectral
+    (eigenvalues/eigenvectors), and parametrized representations.
+
+    Provides forward and inverse mappings:
+        matrix ↔ eigenvalue angles ↔ parameters
+
+    The original design is stateful: intermediate quantities (eigenvectors,
+    phases, ordering) are stored on the instance to enable efficient inverse
+    transformations.
+
+    A transition toward a stateless design is in progress via `SpectralState`,
+    where spectral data is passed explicitly instead of being stored.
+    """
 
     def __init__(self):
         self.eigvecs = None
-        self.phase = None  # we save the phases/angles of the eigenvalues
-        self.order = None  # an object to sort the eigen-phases/angles
+        self.phase = None  # eigenvalue angles (phases)
+        self.order = None  # optional ordering of eigen-angles
+
+    def matrix_to_spectral_state(self, matrix: torch.Tensor) -> SpectralState:
+        """
+        Compute the spectral decomposition of a matrix.
+
+        Args:
+            matrix (torch.Tensor): Input matrix to decompose.
+
+        Returns:
+            SpectralState: Contains eigenvalue angles (`eigangs`),
+            eigenvectors (`eigvecs`), and the log-Jacobian (`logj`) of the
+            transformation to spectral variables.
+        """
+
+        eigvals, eigvecs = eigu(matrix)
+        eigangs = torch.angle(eigvals)  # angles in (-pi, pi]
+
+        # For unit-modulus eigenvalues, the eig → angle Jacobian vanishes.
+        # Only the Jacobian of the spectral decomposition contributes.
+        # The inverse of Jac. corresponds to the volume of the conjugacy class.
+        logj = -sum_density(self.calc_log_conjugacy_vol(eigvals))
+
+        return SpectralState(eigangs, eigvecs, logj)
+
+    def spectral_state_to_matrix_(self, state: SpectralState):
+        """
+        Reconstruct a matrix from a `SpectralState` and return the matrix
+        together with the accumulated log-Jacobian.
+
+        Args:
+            state (SpectralState): Spectral representation of the matrix.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - Reconstructed matrix
+                - Total log-Jacobian (forward + inverse transformations)
+        """
+
+        eigvals = torch.exp(1j * state.eigangs)
+        eigvecs = state.eigvecs
+        matrix = inverse_eign(eigvals, eigvecs)
+
+        # Jacobian of the inverse map (spectral → matrix),
+        # equal to the conjugacy class volume.
+        logj = sum_density(self.calc_log_conjugacy_vol(eigvals))
+
+        total_logj = state.logj + logj
+
+        return matrix, total_logj
 
     def free_memory(self):
         self.eigvecs = None
