@@ -2,12 +2,16 @@
 
 """This module has utilities to handle staples related to gauge links."""
 
+# pylint: disable=invalid-name
+
+
 from dataclasses import dataclass, field
 import torch
 from lattice_ml.functions import naive_project_onto_su3
 from ..linalg import compute_svd
 
 matmul = torch.matmul
+
 
 __all__ = ["WilsonStaplesHandle"]
 
@@ -57,7 +61,9 @@ class TemplateStaplesHandle:
         if self.onesided:
             slink = link @ svd_result.special_unitary_factor
         else:
-            slink = svd_result.Vh @ link @ svd_result.sU  # not updated for .sU
+            d = svd_result.diagonal_phase_factor  # diagonals of D
+            UDh = svd_result.U * d.conj().unsqueeze(-2)
+            slink = svd_result.Vh @ link @ UDh
 
         return slink
 
@@ -90,7 +96,9 @@ class TemplateStaplesHandle:
         if self.onesided:
             link = slink @ svd_result.special_unitary_factor.adjoint()
         else:
-            link = svd_result.Vh.adjoint() @ slink @ svd_result.sU.adjoint()
+            d = svd_result.diagonal_phase_factor  # diagonals of D
+            UDh = svd_result.U * d.conj().unsqueeze(-2)
+            link = svd_result.Vh.adjoint() @ slink @ UDh.adjoint()
 
         if link.shape[-1] == 3:
             link = naive_project_onto_su3(link)  # correct numerical deviations
@@ -121,7 +129,7 @@ class TemplateStaplesHandle:
         - For SU(3), a projection is applied to maintain group structure.
         """
         if not self.onesided:
-            Vh = staples_ctx.svd_result.Vh  # pylint: disable=invalid-name
+            Vh = staples_ctx.svd_result.Vh
             slink_rotation = Vh.adjoint() @ slink_rotation @ Vh
 
         if link.shape[-1] == 3:

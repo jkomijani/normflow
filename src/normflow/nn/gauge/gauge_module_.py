@@ -177,7 +177,6 @@ class GaugeModule_(Module_):
         self.nu_list = nu_list
 
         self.matrix_handle = matrix_handle
-        self.matrix_handle = matrix_handle
 
         self.staples_handle = staples_handle
         self.staples_kwargs = staples_kwargs or {}
