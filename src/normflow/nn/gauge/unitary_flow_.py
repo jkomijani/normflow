@@ -77,8 +77,7 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
 
         Args:
             state (SpectralState): Contains eigangs, eigvecs, and logj.
-            staples_ctx (object): Context providing the Sigma matrix as
-                `svd_result.sigma_matrix_factor`.
+            staples_ctx (object): Staple context (cached decompositions).
 
         Returns:
             SpectralState: Updated spectral state after transformation.
@@ -126,11 +125,10 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
 
         Args:
             state (SpectralState): Contains eigangs, eigvecs, and logj.
-            staples_ctx (object): Context providing the Sigma matrix as
-                `svd_result.sigma_matrix_factor`.
+            staples_ctx (object): Staple context (cached decompositions).
 
         Returns:
-            SpectralState: Updated spectral state after transformation.
+            SpectralState: Updated spectral state after inverse transformation.
         """
         # Construct Λ (real diagonal encoded as a vector, minus its mean)
         diag_Lambda = torch.cos(state.eigangs) + 0j
