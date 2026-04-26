@@ -16,7 +16,7 @@ from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
 
 
-__all__ = ["GaugeModuleList_", "GaugeModule_"]
+__all__ = ["GaugeModuleList_", "GaugeModule_", "SpectralStateTransform_"]
 
 
 # =============================================================================
@@ -133,17 +133,8 @@ class GaugeModule_(Module_):
     staples_handle : object
         Provides staple computation, slink construction, and push-back.
 
-    matrix_handle : object
-        Handles spectral decomposition and reconstruction of matrices.
-
-    param_net_ : Module_ or None
-        Network acting in parameter space (via eigang ↔ param mapping).
-
-    dual_param_net_ : Module_ or None
-        Optional secondary network conditioned on dual parameters.
-
-    eigvecs_net_ : Module_ or None
-        Network acting on eigen-vectors.
+    slink_transform_ : Module_
+        Pipline for transforming the slink.
 
     staples_kwargs : dict or None
         Extra arguments forwarded to staple computation.
@@ -162,17 +153,14 @@ class GaugeModule_(Module_):
         mu,
         nu_list,
         staples_handle,
-        matrix_handle,
-        param_net_,
-        dual_param_net_=None,
-        eigvecs_net_=None,
+        slink_transform_,
         staples_kwargs=None
     ):
         super().__init__()
         self.mu = mu
         self.nu_list = nu_list
 
-        self.matrix_handle = matrix_handle
+        self.slink_transform_ = slink_transform_
 
         self.staples_handle = staples_handle
         self.staples_kwargs = staples_kwargs or {}
@@ -180,12 +168,6 @@ class GaugeModule_(Module_):
         # Resolve and set link axis convention
         self.link_axis = self._resolve_link_axis()
         self.staples_handle.link_axis = self.link_axis
-
-        # Build spectral transformation pipeline
-        ops = None if eigvecs_net_ is None else [eigvecs_net_]
-        self.spectral_state_transform = SpectralStateTransform_(
-            matrix_handle, param_net_, dual_param_net_, ops=ops
-        )
 
     def forward(self, x, log0=0):
         """Apply forward link update."""
@@ -221,7 +203,7 @@ class GaugeModule_(Module_):
         slink = self.staples_handle.staple(x_mu, staples_ctx)
 
         # Apply invertible spectral transform
-        transform = self.spectral_state_transform
+        transform = self.slink_transform_
         if reverse:
             slink, logj = transform.reverse(slink, log0, staples_ctx)
         else:
@@ -234,10 +216,6 @@ class GaugeModule_(Module_):
         x = self._set_x_mu(x, x_mu)
 
         return x, logj
-
-    # -------------------------------------------------------------------------
-    # helpers
-    # -------------------------------------------------------------------------
 
     def _compute_staples(self, x):
         """Return staple context (data and helpers) for link update."""
@@ -308,18 +286,21 @@ class SpectralStateTransform_(Module_):
         matrix_handle,
         param_net_,
         dual_param_net_=None,
-        ops=None
+        extra_ops=None
     ):
         super().__init__()
 
         self.matrix_handle = matrix_handle
 
         # Build spectral transformation pipeline
-        ops = ops or []
+        ops = []
 
         if param_net_ is not None or dual_param_net_ is not None:
             op = ParamTransformOp(matrix_handle, param_net_, dual_param_net_)
-            ops = [op] + ops
+            ops.append(op)
+
+        if extra_ops is not None:
+            ops = ops + extra_ops
 
         self.ops = torch.nn.ModuleList(ops)
 
