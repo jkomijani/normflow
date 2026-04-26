@@ -93,14 +93,12 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
 
         kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
 
-        eigvecs = state.eigvecs
-
         if self.mask is None:
-            eigvecs, logJ_density = self.flow_(eigvecs, **kwargs)
+            eigvecs, logJ_density = self.flow_.forward(state.eigvecs, **kwargs)
         else:
             # Apply flow only to a sub-block, then reconstruct full matrix
             x_0, x_1 = self.mask.split(state.eigvecs)
-            x_0, logJ_density = self.flow_(x_0, **kwargs)
+            x_0, logJ_density = self.flow_.forward(x_0, **kwargs)
 
             # Enforce mask constraints after update
             x_0 = self.mask.purify(x_0, channel=0)
@@ -141,13 +139,11 @@ class ModalMatrixSteppedCommutatorFlow_(Module_):
 
         kwargs = {'diag_Lambda': diag_Lambda, 'Sigma': Sigma, 'tau': tau}
 
-        eigvecs = state.eigvecs
-
         if self.mask is None:
-            eigvecs, logJ_density = self.flow_.reverse(eigvecs, **kwargs)
+            eigvecs, logJ_density = self.flow_.reverse(state.eigvecs, **kwargs)
         else:
             # Apply flow only to a sub-block, then reconstruct full matrix
-            x_0, x_1 = self.mask.split(eigvecs)
+            x_0, x_1 = self.mask.split(state.eigvecs)
             x_0, logJ_density = self.flow_.reverse(x_0, **kwargs)
 
             # Enforce mask constraints after update
