@@ -7,7 +7,7 @@
 
 from dataclasses import dataclass, field
 import torch
-from lattice_ml.functions import naive_project_onto_su3
+from lattice_ml.linalg import project_data_and_grad_sun
 from ..linalg import compute_svd
 
 matmul = torch.matmul
@@ -101,7 +101,8 @@ class TemplateStaplesHandle:
             link = svd_result.Vh.adjoint() @ slink @ UDh.adjoint()
 
         if link.shape[-1] == 3:
-            link = naive_project_onto_su3(link)  # correct numerical deviations
+            # Projection to SU(3) for small numerical deviations & correct grad
+            link = project_data_and_grad_sun(link)
 
         return link
 
@@ -133,8 +134,8 @@ class TemplateStaplesHandle:
             slink_rotation = Vh.adjoint() @ slink_rotation @ Vh
 
         if link.shape[-1] == 3:
-            # Projection to SU(3) to correct numerical deviations
-            return naive_project_onto_su3(slink_rotation @ link)
+            # Projection to SU(3) for small numerical deviations & correct grad
+            return project_data_and_grad_sun(slink_rotation @ link)
 
         return slink_rotation @ link
 
