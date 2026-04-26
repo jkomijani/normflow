@@ -309,19 +309,6 @@ class GaugeModule_(Module_):
 
 
 # =============================================================================
-class SpectralState:
-    """
-    Container for spectral variables flowing through the transform pipeline.
-    """
-
-    __slots__ = ("eigangs", "eigvecs", "logj")
-
-    def __init__(self, eigangs, eigvecs, logj):
-        self.eigangs = eigangs
-        self.eigvecs = eigvecs
-        self.logj = logj
-
-
 class SpectralStateTransform(torch.nn.Module):
     """
     Applies a fixed sequence of invertible transformations to a SpectralState.
