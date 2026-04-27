@@ -9,16 +9,19 @@ methods handle the Jacobians of the transformation.
 
 # pylint: disable=invalid-name, relative-beyond-top-level
 
+from typing import List
 import torch
 
 from .._core import Module_
 from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
+from ...lib.linalg import compute_svd
 
 
 __all__ = [
     "GaugeModuleList_",
     "GaugeSLinkModule_",
+    "GaugeSingularValueModule_",
     "SpectralStateTransform_"
 ]
 
@@ -250,6 +253,234 @@ class GaugeSLinkModule_(Module_):
             x[:, self.mu] = x_mu
         else:
             x[..., self.mu, :, :] = x_mu
+        return x
+
+
+# =============================================================================
+class GaugeSingularValueModule_(Module_):
+    """
+    Parameters
+    ----------
+    mu : int
+        Direction of the main link to update.
+
+    nu_list : list[int]
+        Directions defining planes (with mu) used to construct staples.
+
+    staples_handle : object
+        Provides staple computation, slink construction, and push-back.
+
+    p_transform_ : Module_
+        Pipline for transforming x_mu (through P).
+
+    q_transform_ : Module_
+        Pipline for transforming x_nu (through Q).
+
+    staples_kwargs : dict or None
+        Extra arguments forwarded to staple computation.
+
+    Notes
+    -----
+    The transformation is invertible if all constituent networks are invertible
+    and use compatible masking.
+    """
+
+    unbounded_link_axis = True  # "link_axis" of inputs is supposed to be 0
+    sites_before_link = True  # It is irrelavant if unbounded_link_axis is True
+
+    def __init__(
+        self,
+        mu: int,
+        nu_list: List[int],
+        staples_handle,
+        q_transform_,
+        p_transform_=None,
+        staples_kwargs=None
+    ):
+        # q_transform cannot be set to None, If you want to do so, instead use
+        # GaugeSLinkModule_, which is similar to p_trasform only.
+        # There is a difference in the current form, but they can be exact
+        super().__init__()
+        self.mu = mu
+        self.nu = nu_list[0]
+        self.nu_list = nu_list
+
+        self.p_transform_ = p_transform_
+        self.q_transform_ = q_transform_
+
+        self.staples_handle = staples_handle
+        self.staples_kwargs = staples_kwargs or {}
+
+        # Resolve and set link axis convention
+        self.link_axis = self._resolve_link_axis()
+        self.staples_handle.link_axis = self.link_axis
+
+    def forward(self, x: torch.Tensor, log0: torch.Tensor | float = 0):
+        """
+        Perform a two-step, structure-preserving update of gauge links.
+
+        The update is applied sequentially:
+            1) Update ν-links via Q-transform
+            2) Update μ-links via P-transform (conditioned on updated Q)
+
+        Each step is a group-preserving rotation and contributes to the
+        accumulated log-Jacobian.
+
+        Args:
+            x: Gauge field (collection of link matrices).
+            log0: Initial log-Jacobian accumulator.
+
+        Returns:
+            Updated gauge field and accumulated log-Jacobian.
+        """
+        # Compute local staple context (neighbor-dependent features)
+        staples_ctx = self._compute_staples(x)
+
+        # Split into μ- and ν-direction links
+        x_mu, x_nu = self._get_x_mu_nu(x)
+
+        # Extract structured factors (P, Q) and coupling (Sigma)
+        P_0, Q_0, Sigma = staples_ctx.build_p_q_sigma(x_mu)
+
+        # ---------------------------------
+        # Part 1: Update ν-links (Q branch)
+        # ---------------------------------
+        # Learnable transform in Q-space
+        Q_1, logj = self.q_transform_.forward(Q_0, log0, staples_ctx)
+
+        # Push back the rotation in Q to x_nu
+        x_nu = Q_1 @ Q_0.adjoint() @ x_nu
+
+        if self.p_transform_ is None:
+            # Reassemble full gauge field
+            x = self._set_x_mu_nu(x, x_mu, x_nu)
+            return x, logj
+
+        # ---------------------------------
+        # Part 2: Update μ-links (P branch)
+        # ---------------------------------
+        # Recompute spectral info using updated Q (affects P update)
+        I = torch.eye(Q_1.shape[-1], dtype=Q_1.dtype, device=Q_1.device)
+        svd_result_1 = compute_svd(I + Q_1 @ Sigma)
+
+        # Lightweight context carrying only updated SVD (avoids full recompute)
+        staples_ctx_1 = staples_ctx.__class__(None)
+        staples_ctx_1._svd_result = svd_result_1  # injected state
+
+        # Rotate P into updated Q-frame
+        P_rotated = P_0 @ Q_0 @ Q_1.adjoint()
+        # OOPS, not wrong, but would be more context oriented if we:
+        #     MULTIPLY by staples_ctx_1._svd_result.special_unitary_factor
+
+        # Learnable transform in P-space
+        P_1, logj = self.p_transform_.forward(P_rotated, logj, staples_ctx_1)
+
+        # Push back the rotation in P to x_mu
+        x_mu = P_1 @ P_rotated.adjoint() @ x_mu
+
+        # Reassemble full gauge field
+        x = self._set_x_mu_nu(x, x_mu, x_nu)
+
+        return x, logj
+
+    def reverse(self, x, log0=0):
+        """
+        Invert the two-step update of gauge links.
+
+        Applies the inverse sequence:
+            1) Invert Q-transform to update ν-links
+            2) Invert P-transform to update μ-links (conditioned on Q)
+
+        Each step reverses a group-preserving rotation and updates the
+        accumulated log-Jacobian.
+
+        Args:
+            x: Gauge field (collection of link matrices).
+            log0: Initial log-Jacobian accumulator.
+
+        Returns:
+            Recovered gauge field and accumulated log-Jacobian.
+        """
+        # Compute local staple context (neighbor-dependent features)
+        staples_ctx = self._compute_staples(x)
+
+        # Split into μ- and ν-direction links
+        x_mu, x_nu = self._get_x_mu_nu(x)
+
+        # Extract structured factors (P, Q) and coupling (Sigma)
+        P_1, Q_1, Sigma = staples_ctx.build_p_q_sigma(x_mu)
+
+        # ----------------------------------
+        # Part 1: Invert ν-update (Q branch)
+        # ----------------------------------
+        # Recover original Q and log-Jacobian
+        Q_0, logj = self.q_transform_.reverse(Q_1, log0, staples_ctx)
+
+        # Undo Q-frame rotation
+        x_nu = Q_0 @ Q_1.adjoint() @ x_nu
+
+        if self.p_transform_ is None:
+            # Reassemble full gauge field
+            x = self._set_x_mu_nu(x, x_mu, x_nu)
+            return x, logj
+
+        # ----------------------------------
+        # Part 2: Invert μ-update (P branch)
+        # ----------------------------------
+        # Rebuild spectral context using Q_1 (same dependency as forward)
+        I = torch.eye(Q_1.shape[-1], dtype=Q_1.dtype, device=Q_1.device)
+        svd_result_1 = compute_svd(I + Q_1 @ Sigma)
+
+        # Minimal context carrying only updated SVD
+        staples_ctx_1 = staples_ctx.__class__(None)
+        staples_ctx_1._svd_result = svd_result_1  # injected state
+
+        # Invert P-transform in rotated frame
+        P_rotated, logj = self.p_transform_.reverse(P_1, logj, staples_ctx_1)
+
+        # Undo P-frame rotation on μ-links (no need to P0)
+        x_mu = P_rotated @ P_1.adjoint() @ x_mu
+
+        # Reassemble full field
+        x = self._set_x_mu_nu(x, x_mu, x_nu)
+
+        return x, logj
+
+    def _compute_staples(self, x):
+        """Return staple context (data and helpers) for link update."""
+        return self.staples_handle.compute_directional_staples_ctx(
+            x, mu=self.mu, nu_list=self.nu_list, **self.staples_kwargs
+        )
+
+    def _resolve_link_axis(self):
+        if self.unbounded_link_axis:
+            return 0
+        return -3 if self.sites_before_link else 1
+
+    def _get_x_mu_nu(self, x):
+        """Extract links in direction `mu` from input tensor `x`."""
+        if self.unbounded_link_axis:
+            x_mu = x[self.mu]
+            x_nu = x[self.nu]
+        elif not self.sites_before_link:
+            x_mu = x[:, self.mu]
+            x_nu = x[:, self.nu]
+        else:
+            x_mu = x[..., self.mu, :, :]
+            x_nu = x[..., self.nu, :, :]
+        return x_mu, x_nu
+
+    def _set_x_mu_nu(self, x, x_mu, x_nu):
+        """Set links in direction `mu` in `x` to `x_mu`."""
+        if self.unbounded_link_axis:
+            x[self.mu] = x_mu
+            x[self.nu] = x_nu
+        elif not self.sites_before_link:
+            x[:, self.mu] = x_mu
+            x[:, self.nu] = x_nu
+        else:
+            x[..., self.mu, :, :] = x_mu
+            x[..., self.nu, :, :] = x_nu
         return x
 
 
