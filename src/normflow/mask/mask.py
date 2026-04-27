@@ -61,6 +61,42 @@ class EvenOddMask(Mask):
         return mask
 
 
+class FourWayParityMask(Mask):
+    """
+    Partition a tensor into 4 disjoint boolean masks via:
+    (1) an even/odd split along one axis, and
+    (2) a checkerboard pattern over all indices.
+
+    `mask_id ∈ {0,1,2,3}` selects the combination of stripe (axis split)
+    and checkerboard phase.
+    """
+
+    @staticmethod
+    def make_mask(*, shape, mask_id: int, zebra_mu: int):
+        """
+        Args:
+            shape:
+            mask_id (int): encodes two bits:
+                - parity: which checkerboard phase to use
+                - visible_ind: which half (even/odd) along zebra_mu to keep
+            zebra_mu (int): Axis along which to apply the zebra split.
+        """
+        parity = mask_id % 2
+        visible_ind = mask_id // 2
+
+        # uint8 for compatibility with existing code; bool would be preferable
+        mask = torch.zeros(shape, dtype=torch.uint8)
+
+        # iterate over all indices (slow but explicit reference implementation)
+        for ind in itertools.product(*[range(l) for l in shape]):
+            # keep only even/odd slice along zebra_mu
+            if ind[zebra_mu] % 2 == visible_ind:
+                # checkerboard pattern: sum(ind) % 2, shifted by parity
+                mask[ind] = (1 - parity + sum(ind)) % 2
+
+        return mask
+
+
 class AlongAxesEvenOddMask(Mask):
     """Creates a mask that alternates only in a specific given direction."""
 

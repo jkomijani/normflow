@@ -1,5 +1,6 @@
 from .mask import EvenOddMask
 from .mask import AlongAxesEvenOddMask
+from .mask import FourWayParityMask
 
 from .partitioner import AlongAxisEvenOddPartitioner
 from .partitioner import ChunkCatPartitioner
