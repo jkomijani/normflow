@@ -361,6 +361,18 @@ class StaplesContext:
             self._svd_result = compute_svd(self._get_data())
         return self._svd_result
 
+    def build_p_q_sigma(self, x_mu):
+        data1 = self.staples[0]
+        data2 = self.staples[0].adjoint() @ sum(self.staples[1:])
+
+        self._svd_result = compute_svd(data2)
+
+        P = x_mu @ data1
+        Q = self._svd_result.special_unitary_factor
+        Sigma = self._svd_result.sigma_matrix_factor
+
+        return P, Q, Sigma
+
     def _get_data(self):
         """
         Return the effective staples used for SVD.
