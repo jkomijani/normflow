@@ -16,13 +16,17 @@ from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
 
 
-__all__ = ["GaugeModuleList_", "GaugeModule_", "SpectralStateTransform_"]
+__all__ = [
+    "GaugeModuleList_",
+    "GaugeSLinkModule_",
+    "SpectralStateTransform_"
+]
 
 
 # =============================================================================
 class GaugeModuleList_(ModuleList_):
     """
-    Container for a sequence of `GaugeModule_` transformations.
+    Container for a sequence of `GaugeSLinkModule_` transformations.
 
     Applies gauge updates sequentially along a chosen link axis.
 
@@ -31,8 +35,8 @@ class GaugeModuleList_(ModuleList_):
     unbind_link_axis : bool
         If True, the input is split along `link_axis` into a list of tensors
         before applying the modules, and stacked back afterward. This lets each
-        `GaugeModule_` operate on a single link direction (internally assuming
-        link_axis = 0).
+        `GaugeSLinkModule_` operate on a single link direction (internally
+        assuming link_axis = 0).
         If False, the full tensor is passed directly to each module.
     """
 
@@ -48,7 +52,7 @@ class GaugeModuleList_(ModuleList_):
 
         Parameters
         ----------
-        list_of_gauge_modules_ : list[GaugeModule_]
+        list_of_gauge_modules_ : list[GaugeSLinkModule_]
             Sequence of gauge update modules.
         sites_before_link : bool, optional
             If True, site dimensions precede the link axis in `x`;
@@ -110,7 +114,7 @@ class GaugeModuleList_(ModuleList_):
 
 
 # =============================================================================
-class GaugeModule_(Module_):
+class GaugeSLinkModule_(Module_):
     """
     Gauge-equivariant link update via an invertible spectral transformation.
 
@@ -182,7 +186,7 @@ class GaugeModule_(Module_):
         Apply a forward or inverse update to links in direction `mu`.
 
         Pipeline:
-            staples → slink → spectral transform → update slink → updat link
+            staples → slink → spectral transform → update slink → update link
 
         Args:
             x (tensor-like): Input gauge field.
