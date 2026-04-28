@@ -37,6 +37,7 @@ __all__ = [
     "Pade22_",
     "Pade32_",
     "Pade32a_",
+    "Pade22Spline_",  # same as UnityDistConvertor_
     "DistConvertor_",
     "UnityDistConvertor_",
     "PhaseDistConvertor_"
@@ -757,3 +758,6 @@ class SgnBiasNet_(Module_):
 
     def reverse(self, x, log0=0):
         return x - torch.sgn(x) * self.w**2, log0
+
+
+Pade22Spline_ = UnityDistConvertor_  # alias
