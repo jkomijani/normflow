@@ -321,11 +321,10 @@ class GaugeSingularValueModule_(Module_):
         # Compute local staple context (neighbor-dependent features)
         staples_ctx = self._compute_staples(x)
 
-        # Split into μ- and ν-direction links
-        x_mu, x_nu = self._get_x_mu_nu(x)
+        x_nu = self._get_x_nu(x)
 
-        # Extract structured factors (P, Q) and coupling (Sigma)
-        P_0, Q_0, Sigma = staples_ctx.build_p_q_sigma(x_mu)
+        # Extract structured factor Q
+        Q_0 = staples_ctx.build_q_factor()
 
         # Learnable transform in Q-space
         Q_1, logj = self.q_transform_.forward(Q_0, log0, staples_ctx)
@@ -334,7 +333,7 @@ class GaugeSingularValueModule_(Module_):
         x_nu = Q_1 @ Q_0.adjoint() @ x_nu
 
         # Reassemble full gauge field
-        x = self._set_x_mu_nu(x, x_mu, x_nu)
+        x = self._set_x_nu(x, x_nu, nu)
 
         return x, logj
 
@@ -352,11 +351,10 @@ class GaugeSingularValueModule_(Module_):
         # Compute local staple context (neighbor-dependent features)
         staples_ctx = self._compute_staples(x)
 
-        # Split into μ- and ν-direction links
-        x_mu, x_nu = self._get_x_mu_nu(x)
+        x_nu = self._get_x_nu(x, nu)
 
-        # Extract structured factors (P, Q) and coupling (Sigma)
-        P_1, Q_1, Sigma = staples_ctx.build_p_q_sigma(x_mu)
+        # Extract structured factor Q
+        Q_1 = staples_ctx.build_q_factor()
 
         # Recover original Q and log-Jacobian
         Q_0, logj = self.q_transform_.reverse(Q_1, log0, staples_ctx)
@@ -365,7 +363,7 @@ class GaugeSingularValueModule_(Module_):
         x_nu = Q_0 @ Q_1.adjoint() @ x_nu
 
         # Reassemble full gauge field
-        x = self._set_x_mu_nu(x, x_mu, x_nu)
+        x = self._set_x_nu(x, x_nu, nu)
 
         return x, logj
 
@@ -380,30 +378,24 @@ class GaugeSingularValueModule_(Module_):
             return 0
         return -3 if self.sites_before_link else 1
 
-    def _get_x_mu_nu(self, x):
-        """Extract links in direction `mu` from input tensor `x`."""
+    def _get_x_nu(self, x, nu):
+        """Extract links in direction `nu` from input tensor `x`."""
         if self.unbounded_link_axis:
-            x_mu = x[self.mu]
-            x_nu = x[self.nu]
+            x_nu = x[nu]
         elif not self.sites_before_link:
-            x_mu = x[:, self.mu]
-            x_nu = x[:, self.nu]
+            x_nu = x[:, nu]
         else:
-            x_mu = x[..., self.mu, :, :]
-            x_nu = x[..., self.nu, :, :]
-        return x_mu, x_nu
+            x_nu = x[..., nu, :, :]
+        return x_nu
 
-    def _set_x_mu_nu(self, x, x_mu, x_nu):
-        """Set links in direction `mu` in `x` to `x_mu`."""
+    def _set_x_nu(self, x, x_nu, nu):
+        """Set links in direction `nu` in `x` to `x_nu`."""
         if self.unbounded_link_axis:
-            x[self.mu] = x_mu
-            x[self.nu] = x_nu
+            x[nu] = x_nu
         elif not self.sites_before_link:
-            x[:, self.mu] = x_mu
-            x[:, self.nu] = x_nu
+            x[:, nu] = x_nu
         else:
-            x[..., self.mu, :, :] = x_mu
-            x[..., self.nu, :, :] = x_nu
+            x[..., nu, :, :] = x_nu
         return x
 
 
