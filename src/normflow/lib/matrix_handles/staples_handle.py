@@ -100,9 +100,8 @@ class TemplateStaplesHandle:
             UDh = svd_result.U * d.conj().unsqueeze(-2)
             link = svd_result.Vh.adjoint() @ slink @ UDh.adjoint()
 
-        if link.shape[-1] == 3:
-            # Projection to SU(3) for small numerical deviations & correct grad
-            link = project_data_and_grad_sun(link)
+        # Projection to SU(n) for small numerical deviations & correct grad
+        link = project_data_and_grad_sun(link)
 
         return link
 
@@ -133,11 +132,8 @@ class TemplateStaplesHandle:
             Vh = staples_ctx.svd_result.Vh
             slink_rotation = Vh.adjoint() @ slink_rotation @ Vh
 
-        if link.shape[-1] == 3:
-            # Projection to SU(3) for small numerical deviations & correct grad
-            return project_data_and_grad_sun(slink_rotation @ link)
-
-        return slink_rotation @ link
+        # Projection to SU(n) for small numerical deviations & correct grad
+        return project_data_and_grad_sun(slink_rotation @ link)
 
 
 # =============================================================================
