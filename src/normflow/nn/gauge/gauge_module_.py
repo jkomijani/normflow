@@ -270,9 +270,6 @@ class GaugeSingularValueModule_(Module_):
     staples_handle : object
         Provides staple computation, slink construction, and push-back.
 
-    p_transform_ : Module_
-        Pipline for transforming x_mu (through P).
-
     q_transform_ : Module_
         Pipline for transforming x_nu (through Q).
 
@@ -294,18 +291,13 @@ class GaugeSingularValueModule_(Module_):
         nu_list: List[int],
         staples_handle,
         q_transform_,
-        p_transform_=None,
         staples_kwargs=None
     ):
-        # q_transform cannot be set to None, If you want to do so, instead use
-        # GaugeSLinkModule_, which is similar to p_trasform only.
-        # There is a difference in the current form, but they can be exact
         super().__init__()
         self.mu = mu
         self.nu = nu_list[0]
         self.nu_list = nu_list
 
-        self.p_transform_ = p_transform_
         self.q_transform_ = q_transform_
 
         self.staples_handle = staples_handle
@@ -317,14 +309,7 @@ class GaugeSingularValueModule_(Module_):
 
     def forward(self, x: torch.Tensor, log0: torch.Tensor | float = 0):
         """
-        Perform a two-step, structure-preserving update of gauge links.
-
-        The update is applied sequentially:
-            1) Update ν-links via Q-transform
-            2) Update μ-links via P-transform (conditioned on updated Q)
-
-        Each step is a group-preserving rotation and contributes to the
-        accumulated log-Jacobian.
+        Perform the update of gauge links.
 
         Args:
             x: Gauge field (collection of link matrices).
@@ -342,41 +327,11 @@ class GaugeSingularValueModule_(Module_):
         # Extract structured factors (P, Q) and coupling (Sigma)
         P_0, Q_0, Sigma = staples_ctx.build_p_q_sigma(x_mu)
 
-        # ---------------------------------
-        # Part 1: Update ν-links (Q branch)
-        # ---------------------------------
         # Learnable transform in Q-space
         Q_1, logj = self.q_transform_.forward(Q_0, log0, staples_ctx)
 
         # Push back the rotation in Q to x_nu
         x_nu = Q_1 @ Q_0.adjoint() @ x_nu
-
-        if self.p_transform_ is None:
-            # Reassemble full gauge field
-            x = self._set_x_mu_nu(x, x_mu, x_nu)
-            return x, logj
-
-        # ---------------------------------
-        # Part 2: Update μ-links (P branch)
-        # ---------------------------------
-        # Recompute spectral info using updated Q (affects P update)
-        I = torch.eye(Q_1.shape[-1], dtype=Q_1.dtype, device=Q_1.device)
-        svd_result_1 = compute_svd(I + Q_1 @ Sigma)
-
-        # Lightweight context carrying only updated SVD (avoids full recompute)
-        staples_ctx_1 = staples_ctx.__class__(None)
-        staples_ctx_1._svd_result = svd_result_1  # injected state
-
-        # Rotate P into updated Q-frame
-        P_rotated = P_0 @ Q_0 @ Q_1.adjoint()
-        # OOPS, not wrong, but would be more context oriented if we:
-        #     MULTIPLY by staples_ctx_1._svd_result.special_unitary_factor
-
-        # Learnable transform in P-space
-        P_1, logj = self.p_transform_.forward(P_rotated, logj, staples_ctx_1)
-
-        # Push back the rotation in P to x_mu
-        x_mu = P_1 @ P_rotated.adjoint() @ x_mu
 
         # Reassemble full gauge field
         x = self._set_x_mu_nu(x, x_mu, x_nu)
@@ -385,14 +340,7 @@ class GaugeSingularValueModule_(Module_):
 
     def reverse(self, x, log0=0):
         """
-        Invert the two-step update of gauge links.
-
-        Applies the inverse sequence:
-            1) Invert Q-transform to update ν-links
-            2) Invert P-transform to update μ-links (conditioned on Q)
-
-        Each step reverses a group-preserving rotation and updates the
-        accumulated log-Jacobian.
+        Invert the update of gauge links.
 
         Args:
             x: Gauge field (collection of link matrices).
@@ -410,38 +358,13 @@ class GaugeSingularValueModule_(Module_):
         # Extract structured factors (P, Q) and coupling (Sigma)
         P_1, Q_1, Sigma = staples_ctx.build_p_q_sigma(x_mu)
 
-        # ----------------------------------
-        # Part 1: Invert ν-update (Q branch)
-        # ----------------------------------
         # Recover original Q and log-Jacobian
         Q_0, logj = self.q_transform_.reverse(Q_1, log0, staples_ctx)
 
         # Undo Q-frame rotation
         x_nu = Q_0 @ Q_1.adjoint() @ x_nu
 
-        if self.p_transform_ is None:
-            # Reassemble full gauge field
-            x = self._set_x_mu_nu(x, x_mu, x_nu)
-            return x, logj
-
-        # ----------------------------------
-        # Part 2: Invert μ-update (P branch)
-        # ----------------------------------
-        # Rebuild spectral context using Q_1 (same dependency as forward)
-        I = torch.eye(Q_1.shape[-1], dtype=Q_1.dtype, device=Q_1.device)
-        svd_result_1 = compute_svd(I + Q_1 @ Sigma)
-
-        # Minimal context carrying only updated SVD
-        staples_ctx_1 = staples_ctx.__class__(None)
-        staples_ctx_1._svd_result = svd_result_1  # injected state
-
-        # Invert P-transform in rotated frame
-        P_rotated, logj = self.p_transform_.reverse(P_1, logj, staples_ctx_1)
-
-        # Undo P-frame rotation on μ-links (no need to P0)
-        x_mu = P_rotated @ P_1.adjoint() @ x_mu
-
-        # Reassemble full field
+        # Reassemble full gauge field
         x = self._set_x_mu_nu(x, x_mu, x_nu)
 
         return x, logj
