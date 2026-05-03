@@ -357,11 +357,19 @@ class StaplesContext:
             self._svd_result = compute_svd(self._get_data())
         return self._svd_result
 
-    def build_q_factor(self):
+    def build_q_factor(self, roll_and_add=False):
+        """Temp: computes q factor."""
         data1 = self.staples[0]
-        data2 = self.staples[0].adjoint() @ sum(self.staples[1:])
+        data2 = sum(self.staples[1:])
 
-        self._svd_result = compute_svd(data2)
+        if roll_and_add:
+            data1_roll = torch.roll(data1, 1, dims=1 + self.mu)
+            data2_roll = torch.roll(data2, 1, dims=1 + self.mu)
+            data3 = data1.adjoint() @ data2 + data1_roll @ data2_roll.adjoint()
+        else:
+            data3 = data1.adjoint() @ data2
+
+        self._svd_result = compute_svd(data3)
 
         Q = self._svd_result.special_unitary_factor
 

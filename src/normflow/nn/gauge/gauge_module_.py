@@ -321,7 +321,7 @@ class GaugeSingularValueModule_(Module_):
         # Compute local staple context (neighbor-dependent features)
         staples_ctx = self._compute_staples(x)
 
-        x_nu = self._get_x_nu(x)
+        x_nu = self._get_x_nu(x, self.nu)
 
         # Extract structured factor Q
         Q_0 = staples_ctx.build_q_factor()
@@ -333,7 +333,7 @@ class GaugeSingularValueModule_(Module_):
         x_nu = Q_1 @ Q_0.adjoint() @ x_nu
 
         # Reassemble full gauge field
-        x = self._set_x_nu(x, x_nu, nu)
+        x = self._set_x_nu(x, x_nu, self.nu)
 
         return x, logj
 
@@ -351,7 +351,7 @@ class GaugeSingularValueModule_(Module_):
         # Compute local staple context (neighbor-dependent features)
         staples_ctx = self._compute_staples(x)
 
-        x_nu = self._get_x_nu(x, nu)
+        x_nu = self._get_x_nu(x, self.nu)
 
         # Extract structured factor Q
         Q_1 = staples_ctx.build_q_factor()
@@ -363,7 +363,7 @@ class GaugeSingularValueModule_(Module_):
         x_nu = Q_0 @ Q_1.adjoint() @ x_nu
 
         # Reassemble full gauge field
-        x = self._set_x_nu(x, x_nu, nu)
+        x = self._set_x_nu(x, x_nu, self.nu)
 
         return x, logj
 
