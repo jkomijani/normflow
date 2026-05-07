@@ -55,7 +55,7 @@ class MatrixModule_(Module_):
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
 
         # 2. Move the channel axis, in which the param are listed, from -1 to 1
-        param = torch.movedim(param, -1, 1)
+        # param = torch.movedim(param, -1, 1)
 
         # 3. Transform param
         if is_forward:
@@ -70,7 +70,7 @@ class MatrixModule_(Module_):
                 param, logJ_par2par = self.param_net_.reverse(param, args=args)
 
         # 4. Move back the channel axis to -1
-        param = torch.movedim(param, 1, -1)  # return channel axis to -1
+        # param = torch.movedim(param, 1, -1)  # return channel axis to -1
 
         # 5. Construct a new matrix from the transformed parameters
         matrix, logJ_par2mat = self.matrix_handle.param2matrix_(
@@ -90,7 +90,7 @@ class MatrixModule_(Module_):
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
 
         # 2. Move the channel axis, in which the param are listed, from -1 to 1
-        param = torch.movedim(param, -1, 1)  # move channel axis from -1 to 1
+        # param = torch.movedim(param, -1, 1)  # move channel axis from -1 to 1
 
         out_dict = dict(
                 matrix_initial=matrix,
@@ -105,7 +105,7 @@ class MatrixModule_(Module_):
             param, logJ_par2par = self.param_net_.reverse(param)
 
         # 4. Move back the channel axis to -1
-        param = torch.movedim(param, 1, -1)  # return channel axis to -1
+        # param = torch.movedim(param, 1, -1)  # return channel axis to -1
         out_dict.update(dict(param_final=param, logJ_par2par=logJ_par2par))
 
         # 5. Construct a new matrix from the transformed parameters
