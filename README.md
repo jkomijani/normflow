@@ -110,11 +110,10 @@ def make_model():
 
 # Instantiate and train the model
 model = make_model()
-model.train(
+model.model.trainer.run_training(
     n_epochs=1000,
     batch_size=64,
-    hyperparam={'lr': 0.01},
-    checkpoint_dict=dict(print_every=100)
+    hyperparam={'lr': 0.01}
 )
 ```
 
@@ -132,32 +131,7 @@ In this example, we have:
     using a rational quadratic spline. In this example, the spline has 10 knots,
     and the distribution is assumed to be symmetric with respect to the origin.
 
--   **Training**: The model is trained for `1000` epochs with a batch size of
-    `64`. Progress is printed every `100` epochs.
-
-This example demonstrates the flexibility of using the package to implement
-scalar field theories in a simplified zero-dimensional setting. It can be
-generalized to any dimension by changing the shape provided to the prior
-distribution.
-
-The above code block results in an output similar to:
-
-    >>> Training started for 1000 epochs <<<
-    Epoch: 100 | loss: -2.2800 | ess: 0.9789
-    Epoch: 200 | loss: -2.2667 | ess: 0.9908
-    Epoch: 300 | loss: -2.2907 | ess: 0.9970
-    Epoch: 400 | loss: -2.2954 | ess: 0.9994
-    Epoch: 500 | loss: -2.2772 | ess: 0.9933
-    Epoch: 600 | loss: -2.2942 | ess: 0.9999
-    Epoch: 700 | loss: -2.2900 | ess: 0.9998
-    Epoch: 800 | loss: -2.2907 | ess: 0.9999
-    Epoch: 900 | loss: -2.2890 | ess: 0.9999
-    Epoch: 1000 | loss: -2.2905 | ess: 0.9999
-    >>> Training finished (cpu); TIME = 1.27 sec <<<
-
-This output indicates the loss values at specified epochs during the training
-process, providing insight into the model's performance over time. The
-additional metric `ess` has a maximum value of 1 for a perfectly trained model.
+-   **Training**: The model is trained for 1000 epochs with a batch size of 64.
 
 
 After training the model, one can draw samples using the `posterior` attribute.
@@ -193,9 +167,10 @@ The *TRAIN* and *GENERATE* blocks in the above figure depict the procedures for
 training the model and generating samples/configurations. For more information
 see [arXiv:2301.01504](https://arxiv.org/abs/2301.01504).
 
-For multi-GPU tranining, refer to the example in:
-```
-examples/scalar_1dof.py
+
+For SU(N) matricces, refer to the example in:
+-```
+-examples/matrix_model.py
 ```
 
 In summary, this package provides a robust and flexible framework for
@@ -208,4 +183,4 @@ and expand its functionality.
 
 
 | Created by Javad Komijani in 2021 \
-| Copyright (C) 2021-25, Javad Komijani
+| Copyright (C) 2021-26, Javad Komijani
