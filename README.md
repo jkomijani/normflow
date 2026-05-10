@@ -180,5 +180,5 @@ of the package, and we welcome contributions and feedback to help us improve
 and expand its functionality.
 
 
-| Created by Javad Komijani in 2021
+| Created by Javad Komijani in 2021 \
 | Copyright (C) 2021-2026, Javad Komijani
