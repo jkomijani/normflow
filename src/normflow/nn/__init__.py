@@ -19,8 +19,6 @@ from .scalar.fftflow_ import *
 from .scalar.meanfield_ import *
 from .scalar.psd_ import *
 
-from .gauge.gauge_updown_sampler import *
-
 from .scalar.planar_ import MultiPlanarFlow_
 
 from .matrix.matrix_module_ import MatrixModule_
