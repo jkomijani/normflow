@@ -32,7 +32,7 @@ distribution for scalar theories or uniformly generated SU(N) matrices
 (with the Haar measure) for gauge theories.
 
 
-Each instance of `Model` includes a `train` method, which is responsible for
+Each instance of `Model` includes a `trainer` method, which is responsible for
 training the model. The training follows a self-learning strategy, meaning
 no external data is required. The goal is to optimize the neural network's
 parameters to accurately map the prior distribution to the target distribution.
@@ -169,9 +169,7 @@ see [arXiv:2301.01504](https://arxiv.org/abs/2301.01504).
 
 
 For SU(N) matricces, refer to the example in:
--```
--examples/matrix_model.py
-```
+- `examples/matrix_model.py`
 
 In summary, this package provides a robust and flexible framework for
 implementing the method of normalizing flows as a generative model for lattice
@@ -182,5 +180,5 @@ of the package, and we welcome contributions and feedback to help us improve
 and expand its functionality.
 
 
-| Created by Javad Komijani in 2021 \
-| Copyright (C) 2021-26, Javad Komijani
+| Created by Javad Komijani in 2021
+| Copyright (C) 2021-2026, Javad Komijani
