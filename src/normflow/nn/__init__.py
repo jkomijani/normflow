@@ -1,6 +1,13 @@
-from ._core import Module_, ModuleList_
-from ._core import MultiChannelModule_, MultiOutChannelModule_
-from ._core import InvisibilityMaskWrapperModule_
+"""Import all modules of `nn` subpackage"""
+
+# Core modules:
+from ._core import (
+    Module_,
+    ModuleList_,
+    MultiChannelModule_,
+    MultiOutChannelModule_,
+    InvisibilityMaskWrapperModule_
+)
 
 from .unet_ import *
 
@@ -24,23 +31,27 @@ from .scalar.planar_ import MultiPlanarFlow_
 from .matrix.matrix_module_ import MatrixModule_
 from .matrix.stapled_matrix_module_ import StapledMatrixModule_
 
+# SU(N) gauge modules:
 from .gauge.planar_gauge_module_ import PlanarGaugeModule_
 from .gauge.planar_gauge_module_ import PlanarGaugeModuleList_
 
 from .gauge.gauge_module_ import *
 
-from .gauge.gauge_param_couplings_ import Pade11Coupling_
-from .gauge.gauge_param_couplings_ import Pade22Coupling_
-from .gauge.gauge_param_couplings_ import SU3RQSplineCoupling_
-from .gauge.gauge_param_couplings_ import SU2RQSplineCoupling_
-from .gauge.gauge_param_couplings_ import U1RQSplineCoupling_
-from .gauge.gauge_param_couplings_ import SUnParamAffineCoupling_
+from .gauge.gauge_param_couplings_ import (
+    Pade11Coupling_,
+    Pade22Coupling_,
+    SU3RQSplineCoupling_,
+    SU2RQSplineCoupling_,
+    U1RQSplineCoupling_,
+    SUnParamAffineCoupling_
+)
 
-from .gauge.gauge_param_dual_couplings_ import Pade11DualCoupling_
-from .gauge.gauge_param_dual_couplings_ import Pade22DualCoupling_
-from .gauge.gauge_param_dual_couplings_ import SU2RQSplineDualCoupling_
-from .gauge.gauge_param_dual_couplings_ import SU3RQSplineDualCoupling_
-
+from .gauge.gauge_param_dual_couplings_ import (
+    Pade11DualCoupling_,
+    Pade22DualCoupling_,
+    SU2RQSplineDualCoupling_,
+    SU3RQSplineDualCoupling_
+)
 
 from .gauge.trivializing_map_ import WilsonTrivMap_
 from .gauge.unitary_flow_ import ModalMatrixSteppedCommutatorFlow_
