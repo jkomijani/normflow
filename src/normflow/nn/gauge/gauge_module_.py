@@ -15,7 +15,6 @@ import torch
 from .._core import Module_
 from .._core import ModuleList_
 from ..matrix.matrix_module_ import MatrixModule_
-from ...lib.linalg import compute_svd
 
 
 __all__ = [
