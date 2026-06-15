@@ -12,7 +12,8 @@ class WilsonTrivMap_(AdjLieODEFlow_):
 
     Args:
         wilson_action: The Wilson gauge action from `normflow.action`.
-        t_span (int, int): Integration interval in flow time (default: (0, 1)).
+        n_c (int): Number of colors.
+        t_span (float, float): Flow time interval. Defaults to (0, 1).
         step_size (float): Integration step size. Defaults to `0.1 / beta`.
         order (str): Must be 'LO'. Higher orders are not yet implemented.
         **solver_kwargs: Additional keyword arguments passed to the ODE solver.
@@ -21,6 +22,7 @@ class WilsonTrivMap_(AdjLieODEFlow_):
     def __init__(
         self,
         wilson_action,
+        n_c,
         t_span=(0, 1),
         step_size=None,
         order='LO',
@@ -28,7 +30,7 @@ class WilsonTrivMap_(AdjLieODEFlow_):
     ):
         assert order == 'LO', "NLO is not implemented yet"
 
-        func = WilsonFlowDynamics(wilson_action)
+        func = WilsonFlowDynamics(wilson_action, n_c)
 
         if step_size is None:
             # Empirical default: 0.1 works well for beta = 1
@@ -55,10 +57,10 @@ class WilsonFlowDynamics(AdjLieModule):
     #      C_F = (N_c^2 - 1) / N_c.
     # - The flow equation is unchanged in form but uses the correct C_F value.
 
-    def __init__(self, wilson_action):
+    def __init__(self, wilson_action, n_c):
         super().__init__()
         self.wilson_action = wilson_action
-        n_c = wilson_action.n_c
+        self.n_c = n_c
         # Casimir constant for our normalization used in action.algebra_force
         self.c_f = (n_c ** 2 - 1) / n_c
 
