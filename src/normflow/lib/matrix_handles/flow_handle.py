@@ -13,7 +13,6 @@ representations.
 import torch
 
 from lattice_ml.functions import (
-    eyes_like,
     kronecker_product,
     matrix_exp1jh_and_jacobian,
     inverse_eign_and_jacobian,
@@ -108,8 +107,7 @@ class UnitaryFlow_:
         jacobian = self.calc_jacobian_matrix(u_matrix, v_matrix, f_jacobian)
         if self.return_logdet:
             return v_matrix, self.calc_logdet(jacobian)
-        else:
-            return v_matrix, jacobian
+        return v_matrix, jacobian
 
     def one_step_reverse(self, v_matrix, **func_kwargs):
         """
@@ -124,18 +122,17 @@ class UnitaryFlow_:
         jacobian = self.calc_jacobian_matrix(u_tentative, v_matrix, f_jacobian)
         if self.return_logdet:
             return u_tentative, -self.calc_logdet(jacobian)
-        else:
-            return u_tentative, torch.linalg.inv(jacobian)
+        return u_tentative, torch.linalg.inv(jacobian)
 
     def calc_jacobian_matrix(self, u_matrix, v_matrix, f_jacobian):
         """
         Construct the Jacobian of the full transformation using the chain rule.
         """
-        eye = eyes_like(f_jacobian)
+        eye = eye_like(f_jacobian)
         mat = kronecker_product(v_matrix.adjoint(), u_matrix.transpose(-2, -1))
         jac = eye + mat @ f_jacobian
         if self.jacobian_mode == 'Omega':
-            eye = eyes_like(u_matrix)
+            eye = eye_like(u_matrix)
             jac = kronecker_product(v_matrix, eye) @ jac
         return jac
 
@@ -143,6 +140,15 @@ class UnitaryFlow_:
     def calc_logdet(jacobian):
         """Compute log |det(J)| of the Jacobian."""
         return torch.log(torch.linalg.det(jacobian).abs())
+
+
+def eye_like(x: torch.Tensor) -> torch.Tensor:
+    """
+    Return identity matrices matching x's shape, dtype, and device.
+    The last two dimensions of x must be square.
+    """
+    eye = torch.eye(x.shape[-1], dtype=x.dtype, device=x.device)
+    return eye.repeat(*x.shape[:-2], 1, 1)
 
 
 # =============================================================================
