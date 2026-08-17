@@ -7,8 +7,7 @@ underscore implies that the associated forward and reverse methods handle the
 Jacobians of the transformation.
 """
 
-
-import torch
+# pylint: disable=invalid-name, relative-beyond-top-level, too-many-arguments
 
 from .._core import Module_
 
@@ -16,6 +15,13 @@ from .._core import Module_
 # =============================================================================
 class MatrixModule_(Module_):
     """A module for transforming matrices.
+
+    All matrix-specific logic (parametrization, reconstruction, and the
+    associated Jacobians) is delegated to `matrix_handle`; this class itself
+    is agnostic to the group. In particular, it also works for U(1) theory:
+    pass `matrix_handle=U1Parametrizer()` (see
+    `normflow.lib.matrix_handles`), in which case `x` is a plain complex
+    phase rather than a matrix.
 
     Parameters
     ----------
@@ -34,11 +40,13 @@ class MatrixModule_(Module_):
         self.matrix_handle = matrix_handle
 
     def forward(self, x, log0=0, reduce_=False, args=None):
+        """Apply forward transformation."""
         return self._kernel(
             x, is_forward=True, reduce_=reduce_, log0=log0, args=args
         )
 
     def reverse(self, x, log0=0, reduce_=False, args=None):
+        """Apply reverse (inverse) transformation."""
         return self._kernel(
             x, is_forward=False, reduce_=reduce_, log0=log0, args=args
         )
@@ -54,10 +62,7 @@ class MatrixModule_(Module_):
         # 1. Parametrize the input matrix
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
 
-        # 2. Move the channel axis, in which the param are listed, from -1 to 1
-        # param = torch.movedim(param, -1, 1)
-
-        # 3. Transform param
+        # 2. Transform param
         if is_forward:
             if args is None:
                 param, logJ_par2par = self.param_net_.forward(param)
@@ -69,15 +74,12 @@ class MatrixModule_(Module_):
             else:
                 param, logJ_par2par = self.param_net_.reverse(param, args=args)
 
-        # 4. Move back the channel axis to -1
-        # param = torch.movedim(param, 1, -1)  # return channel axis to -1
-
-        # 5. Construct a new matrix from the transformed parameters
+        # 3. Construct a new matrix from the transformed parameters
         matrix, logJ_par2mat = self.matrix_handle.param2matrix_(
             param, reduce_=reduce_
         )
 
-        # 6. Add up all log-Jacobians
+        # 4. Add up all log-Jacobians
         logJ = logJ_mat2par + logJ_par2par + logJ_par2mat
 
         return matrix, log0 + logJ
@@ -89,33 +91,28 @@ class MatrixModule_(Module_):
         # 1. Parametrize the input matrix
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
 
-        # 2. Move the channel axis, in which the param are listed, from -1 to 1
-        # param = torch.movedim(param, -1, 1)  # move channel axis from -1 to 1
+        out_dict = {
+            "matrix_initial": matrix,
+            "param_initial": param,
+            "logJ_mat2par": logJ_mat2par,
+        }
 
-        out_dict = dict(
-                matrix_initial=matrix,
-                param_initial=param,
-                logJ_mat2par=logJ_mat2par
-                )
-
-        # 3. Transform param
+        # 2. Transform param
         if is_forward:
             param, logJ_par2par = self.param_net_.forward(param)
         else:
             param, logJ_par2par = self.param_net_.reverse(param)
 
-        # 4. Move back the channel axis to -1
-        # param = torch.movedim(param, 1, -1)  # return channel axis to -1
-        out_dict.update(dict(param_final=param, logJ_par2par=logJ_par2par))
+        out_dict.update({"param_final": param, "logJ_par2par": logJ_par2par})
 
-        # 5. Construct a new matrix from the transformed parameters
+        # 3. Construct a new matrix from the transformed parameters
         matrix, logJ_par2mat = self.matrix_handle.param2matrix_(
             param, reduce_=reduce_
         )
-        out_dict.update(dict(matrix_final=matrix, logJ_par2mat=logJ_par2mat))
+        out_dict.update({"matrix_final": matrix, "logJ_par2mat": logJ_par2mat})
 
         # 6. Add up all log-Jacobians
         logJ = logJ_mat2par + logJ_par2par + logJ_par2mat
-        out_dict.update(dict(logJ=logJ))
+        out_dict.update({"logJ": logJ})
 
         return out_dict
