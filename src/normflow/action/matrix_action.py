@@ -7,17 +7,15 @@ import torch
 
 
 class MatrixAction:
-    """Matrix action defined as `S = -(β/n) ReTr[f(x g)]` for an n×n matrix x.
+    """Matrix action defined as `S = -(β/n) ReTr[f(x)]` for an n×n matrix x.
 
     Args:
         beta (float): Coupling constant `β` in the action.
-        staples_matrix (torch.Tensor): Constant matrix `g`.
-        func (callable, optional): Function `f` applied to the matrix product.
+        func (callable, optional): Function `f` applied to x.
     """
 
-    def __init__(self, beta, staples_matrix=None, func=None):
+    def __init__(self, beta, func=None):
         self.beta = beta
-        self.staples_matrix = staples_matrix
         self.func = func
 
     def __call__(self, x):
@@ -26,26 +24,24 @@ class MatrixAction:
 
     def action(self, x):
         """Return the action for the given input matrices."""
-        if self.staples_matrix is not None:
-            x = x @ self.staples_matrix
 
         if self.func is not None:
             x = self.func(x)
 
-        reduced_trace = calc_reduced_trace(x)
+        normalized_trace = compute_normalized_trace(x)
 
         # Sum over trace, except on batch, if multi-point models are present
-        if reduced_trace.ndim > 1:
-            dim = tuple(range(1, reduced_trace.ndim))
-            reduced_trace = torch.sum(reduced_trace, dim=dim)
+        if normalized_trace.ndim > 1:
+            dim = tuple(range(1, normalized_trace.ndim))
+            normalized_trace = torch.sum(normalized_trace, dim=dim)
 
-        return -self.beta * torch.real(reduced_trace)
+        return -self.beta * torch.real(normalized_trace)
 
     def log_prob(self, x, action_logz=0):
         """Return log probability up to an additive constant."""
         return -self.action(x) - action_logz
 
 
-def calc_reduced_trace(x):
-    """Compute the reduced trace of x."""
-    return torch.mean(torch.diagonal(x, dim1=-2, dim2=-1), dim=-1)
+def compute_normalized_trace(x):
+    """Compute the normalized trace (trace / n) of the input matrix x."""
+    return torch.einsum('...ii->...', x) / x.shape[-1]
