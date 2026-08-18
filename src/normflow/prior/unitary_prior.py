@@ -3,7 +3,6 @@
 """This module is for introducing unitary priors."""
 
 from typing import Tuple
-import torch
 
 from .prior import Prior, NormalPrior
 from ..lib.stats import UnGroup, SUnGroup, U1Group
@@ -12,9 +11,11 @@ from ..lib.matrix_handles import SU3Algebra2Group_
 
 
 __all__ = [
-    "UniformUnPrior", "UniformSUnPrior", "UniformU1Prior",
+    "UniformUnPrior",
+    "UniformSUnPrior",
+    "UniformU1Prior",
+    "NormalSUnPrior",
     "UnPrior", "SUnPrior", "U1Prior",  # alias for legacy
-    "NormalSUnPrior"
 ]
 
 
@@ -28,8 +29,9 @@ class UniformUnPrior(Prior):
         drop_constant_log_prob: bool = False,
         **super_kwargs
     ):
-        kws = dict(shape=shape, drop_constant_log_prob=drop_constant_log_prob)
-        dist = UnGroup(n, **kws)
+        dist = UnGroup(
+            n, shape=shape, drop_constant_log_prob=drop_constant_log_prob
+        )
 
         super().__init__(dist, **super_kwargs)
 
@@ -48,7 +50,7 @@ class UniformUnPrior(Prior):
     def parameters(self):
         """Returns all parameters needed to define the prior in a dict."""
         dist = self.dist.normal_dist
-        return dict(loc=dist.loc, scale=dist.scale)
+        return {'loc': dist.loc, 'scale': dist.scale}
 
 
 class UniformSUnPrior(Prior):
@@ -61,8 +63,9 @@ class UniformSUnPrior(Prior):
         drop_constant_log_prob: bool = False,
         **super_kwargs
     ):
-        kws = dict(shape=shape, drop_constant_log_prob=drop_constant_log_prob)
-        dist = SUnGroup(n, **kws)
+        dist = SUnGroup(
+            n, shape=shape, drop_constant_log_prob=drop_constant_log_prob
+        )
 
         super().__init__(dist, **super_kwargs)
 
@@ -81,7 +84,7 @@ class UniformSUnPrior(Prior):
     def parameters(self):
         """Returns all parameters needed to define the prior in a dict."""
         dist = self.dist.normal_dist
-        return dict(loc=dist.loc, scale=dist.scale)
+        return {'loc': dist.loc, 'scale': dist.scale}
 
 
 class UniformU1Prior(Prior):
@@ -100,14 +103,14 @@ class UniformU1Prior(Prior):
         will also be created on the same device.
         """
         dist = self.dist.uniform_dist
-        dist.loc = dist.loc.to(*args, **kwargs)
-        dist.scale = dist.scale.to(*args, **kwargs)
+        dist.low = dist.low.to(*args, **kwargs)
+        dist.high = dist.high.to(*args, **kwargs)
 
     @property
     def parameters(self):
         """Returns all parameters needed to define the prior in a dict."""
         dist = self.dist.uniform_dist
-        return dict(loc=dist.loc, scale=dist.scale)
+        return {'low': dist.low, 'high': dist.high}
 
 
 class NormalSUnPrior(NormalPrior):
