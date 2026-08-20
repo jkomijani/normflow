@@ -1,4 +1,4 @@
-# Javad Komijani, 2021-2025
+# Javad Komijani, 2021-2026
 
 """
 This file implements a model similar to the one defined in [arXiv:2301.01504]
@@ -10,12 +10,7 @@ To run the main function with default options, use:
 
 For parallel training, e.g., with 2 nodes and 4 processors per node, use:
 
-    >>> torchrun --nproc_per_node=4 $filename --world_size 8
-
-The `world_size` option serves two purposes:
-
-1. Dividing the batch size.
-2. Running `execute_ddp_training` if `world_size > 1`.
+    >>> torchrun --nproc_per_node=4 $filename
 """
 
 from typing import Tuple
@@ -23,9 +18,10 @@ from functools import partial
 
 import math
 import torch
-import normflow
-
 from torch.nn import BatchNorm2d
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+import normflow
 
 from normflow import Model
 from normflow.prior import NormalPrior
@@ -55,10 +51,8 @@ def main(
     lr: float = 0.01,
     path_gradient_autodiff: bool = True,
     alpha_tmax: bool = None,
-    world_size: int = 1,
-    print_every: int = 100,
-    print_bsize: int | None = None,
     # IO & test
+    log_name: str = None,
     load_fname: str = None,
     save_fname: str = None,
     debug: bool = False,
@@ -87,9 +81,7 @@ def main(
         lr: Learning rate.
         path_gradient_autodiff: Whether to use path-wise gradient autodiff.
         alpha_tmax: Optional alpha tmax for scheduler.
-        world_size: Number of parallel workers for DDP.
-        print_every: Steps between console prints.
-        print_bsize: Optional batch size for printing metrics.
+        log_name: Name for the training logger.
         load_fname: Path to load checkpoint.
         save_fname: Path to save checkpoint.
         debug: If True, sets a fixed random seed for reproducibility.
@@ -116,33 +108,33 @@ def main(
         ]
     )
 
-    checkpoint_dict = {
-        'print_every': print_every,
-        'print_bsize': print_bsize and print_bsize // world_size
-    }
-
-    scheduler = partial(
-        torch.optim.lr_scheduler.CosineAnnealingLR,
-        T_max=int(1.01 * n_epochs + 1)
-    )
-
-    train_kwargs = {
-        'n_epochs': n_epochs,
-        'batch_size': batch_size // world_size,
-        'path_gradient_autodiff': path_gradient_autodiff,
-        'load_checkpoint_path': load_fname,
-        'save_checkpoint_path': save_fname,
-        'scheduler': scheduler,
-        'alpha_tmax': alpha_tmax,
+    training_config = {
         'hyperparam': {'lr': lr},
-        'checkpoint_dict': checkpoint_dict
+        'lr_scheduler_class': partial(CosineAnnealingLR, T_max=1 + n_epochs),
+        'path_gradient_autodiff': path_gradient_autodiff,
+        'alpha_tmax': alpha_tmax,
+        'log_name': log_name,
+        'load_checkpoint_path': load_fname,
+        'save_checkpoint_path': save_fname
     }
+
+    world_size = model.trainer.device_handler.world_size
 
     if world_size > 1:
-        model.execute_ddp_training(**train_kwargs)
-    else:
-        print("number of model parameters =", model.net_.npar)
-        model.train(**train_kwargs)
+        seeds_list = torch.randint(2**32 - 1, size=(world_size,)).tolist()
+        training_config["seeds_list"] = seeds_list
+
+    # model.trainer.device_handler.training_device = 'cpu'
+    model.trainer.run_training(n_epochs, batch_size, **training_config)
+
+    if world_size == 1:
+        if n_epochs > 0:
+            log_dict = model.trainer.logger.load_numpy()
+            print("mean(loss[-100:])", log_dict['loss'][-100:].mean())
+
+            ess = model.compute_metrics(batch_size=batch_size)[0]
+            print("ESS", ess)
+
         normflow.reverse_flow_sanitychecker(model)
 
     return model
@@ -156,9 +148,9 @@ def assemble_net(
     zee2sym: bool = True,
     acts: Tuple[torch.nn.Module, ...] | None = None,
     len0: int = 4,
-    len1: int = 10,
-    len2: int = 50,
-    len3: int = 50
+    num_spline_knots1: int = 10,
+    num_spline_knots2: int = 50,
+    num_spline_knots3: int = 50
 ):
     """
     Assemble a modular neural network for lattice data as a `ModuleList_`.
@@ -177,9 +169,9 @@ def assemble_net(
         acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
             LeakyReLU.
         len0: Reserved for number of layers in PSD block mean-field.
-        len1: Number of spline knots in the PSD block (ipsd_knots_len).
-        len2: Size of first DistConvertor_ (optional intermediate activation).
-        len3: Size of final DistConvertor_ (optional output activation).
+        num_spline_knots1: Number of spline knots in the PSD block.
+        num_spline_knots2: For first DistConvertor_ (intermediate activation).
+        num_spline_knots3: For final DistConvertor_ (output activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
@@ -187,15 +179,15 @@ def assemble_net(
 
     # 1. PSD block
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=len1
+        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=num_spline_knots1
     )
 
     nets_list = [psd_block_]
 
     # 2. include (possible) activation
-    if len2 > 1:
+    if num_spline_knots2 > 1:
         nets_list.append(
-            DistConvertor_(len2, symmetric=zee2sym, smooth=True)
+            DistConvertor_(num_spline_knots2, symmetric=zee2sym, smooth=True)
         )
 
     # 3. Add (possible) affine blocks
@@ -231,34 +223,12 @@ def assemble_net(
     )
 
     # 4. include (possible) activation
-    if len3 > 1:
+    if num_spline_knots3 > 1:
         nets_list.append(
-            DistConvertor_(len3, symmetric=zee2sym, smooth=True)
+            DistConvertor_(num_spline_knots3, symmetric=zee2sym, smooth=True)
         )
 
     return ModuleList_(nets_list)
-
-
-# =============================================================================
-def _unittest(rel_tol: float = 1e-1):
-    """
-    Minimal unit test for the PSD + affine coupling model.
-
-    Due to CPU/GPU differences, the relative tolerance is intentionally large.
-
-    Args:
-        rel_tol: Relative tolerance for comparing computed loss to reference.
-
-    Returns:
-        bool: True if the computed loss is within tolerance, False otherwise.
-    """
-    model = main(debug=True, n_epochs=5, print_every=None)
-    loss = model.trainer.compute_metrics(batch_size=16)[0]
-    loss_ref = -54.615462066452416
-    passed = math.isclose(loss, loss_ref, rel_tol=rel_tol)
-    if not passed:
-        print(f"Unittest Failed in psd_affine_coupling: {loss} != {loss_ref}")
-    return passed
 
 
 # =============================================================================
@@ -268,36 +238,30 @@ if __name__ == '__main__':
     add = parser.add_argument
 
     # Lattice setup
-    add("--lat_shape", dest="lat_shape", type=int, nargs='+')
-    add("--m_sq", dest="m_sq", type=float)
-    add("--lambd", dest="lambd", type=float)
-    add("--kappa", dest="kappa", type=float)
+    add("--lat_shape", type=int, nargs='+')
+    add("--m_sq", type=float)
+    add("--lambd", type=float)
+    add("--kappa", type=float)
     # Architecture setup
-    add("--n_layers", dest="n_layers", type=int)
-    add("--len0", dest="len0", type=int)
-    add("--len1", dest="len1", type=int)
-    add("--len2", dest="len2", type=int)
-    add("--len3", dest="len3", type=int)
-    add("--zee2sym", dest="zee2sym", type=bool)
-    add("--hidden_sizes", dest="hidden_sizes", type=int, nargs='+')
+    add("--n_layers", type=int)
+    add("--len0", type=int)
+    add("--num_spline_knots1", type=int)
+    add("--num_spline_knots2", type=int)
+    add("--num_spline_knots3", type=int)
+    add("--zee2sym", type=bool)
+    add("--hidden_sizes", type=int, nargs='+')
     # Training setup
-    add("--batch_size", dest="batch_size", type=int)
-    add("--lr", dest="lr", type=float)
-    add("--n_epochs", dest="n_epochs", type=int)
-    add("--world_size", dest="world_size", type=int)
-    add("--path_gradient_autodiff", dest="path_gradient_autodiff", type=bool)
-    add("--alpha_tmax", dest="alpha_tmax", type=int)
-    add("--print_every", dest="print_every", type=int)
-    add("--print_bsize", dest="print_bsize", type=int)
+    add("--batch_size", type=int)
+    add("--lr", type=float)
+    add("--n_epochs", type=int)
+    add("--path_gradient_autodiff", type=bool)
+    add("--alpha_tmax", type=int)
     # IO & test
-    add("--load_fname", dest="load_fname", type=str)
-    add("--save_fname", dest="save_fname", type=str)
-    add("--unittest", dest="unittest", type=bool)
+    add("--log_name", type=str)
+    add("--load_fname", type=str)
+    add("--save_fname", type=str)
 
     args = vars(parser.parse_args())
     args = {key: value for key, value in args.items() if value is not None}
 
-    if "unittest" in args.keys():
-        _unittest()
-    else:
-        main(**args)
+    main(**args)

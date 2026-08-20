@@ -1,40 +1,23 @@
-# Javad Komijani, 2021-2025
+# Javad Komijani, 2021-2026
 
-"""
-This file implements a model similar to the one defined in [arXiv:2301.01504]
-with PSD flow and coupling layers, except that a coupling based on pade [3,2]
-transfromation is used.
-
-To run the main function with default options, use:
-
-    >>> python3 $filename
-
-For parallel training, e.g., with 2 nodes and 4 processors per node, use:
-
-    >>> torchrun --nproc_per_node=4 $filename
-"""
+"""This file implements a PSD flow."""
 
 from typing import Tuple
 from functools import partial
 
 import torch
-import normflow
-
-from torch.nn import BatchNorm2d
 from torch.optim.lr_scheduler import CosineAnnealingLR
+
+import normflow
 
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
-from normflow.mask import EvenOddMask
 
 from normflow.nn import (
     ModuleList_,
     DistConvertor_,
     make_psd_block,
-    Pade32aCoupling_,
-    AvgNeighborPool,
-    ConvBlock
 )
 
 
@@ -100,14 +83,6 @@ def main(
 
     model = Model(net_=net_, prior=prior, action=action)
 
-    # Training setup
-    model.net_.setup_groups(
-        groups=[
-            {'ind': [0, 1, 3], 'hyper': {'weight_decay': 1e-4}},
-            {'ind': [2], 'hyper': {'weight_decay': 1e-2}}
-        ]
-    )
-
     training_config = {
         'hyperparam': {'lr': lr},
         'lr_scheduler_class': partial(CosineAnnealingLR, T_max=1 + n_epochs),
@@ -124,6 +99,7 @@ def main(
         seeds_list = torch.randint(2**32 - 1, size=(world_size,)).tolist()
         training_config["seeds_list"] = seeds_list
 
+    # model.trainer.device_handler.training_device = 'cpu'
     model.trainer.run_training(n_epochs, batch_size, **training_config)
 
     if world_size == 1:
@@ -142,92 +118,35 @@ def main(
 # =============================================================================
 def assemble_net(
     lat_shape: Tuple[int, ...],
-    n_layers: int = 4,
-    hidden_sizes: Tuple[int, ...] = (8, 8),
-    zee2sym: bool = True,
-    acts: Tuple[torch.nn.Module, ...] | None = None,
     len0: int = 4,
-    len1: int = 10,
-    len2: int = 50,
-    len3: int = 50
+    num_spline_knots1: int = 10,
+    num_spline_knots2: int = 50,
 ):
     """
     Assemble a modular neural network for lattice data as a `ModuleList_`.
 
     The network includes, in order:
         1. PSD block (mean-field + FFT-based) for lattice modes.
-        2. Optional DistConvertor_ for intermediate activation.
-        3. Pade32a coupling blocks (ConvBlock inside Pade32aCoupling_).
-        4. Optional DistConvertor_ for output transformation.
+        2. Optional DistConvertor_ for output transformation.
 
     Args:
         lat_shape: Shape of the lattice input.
-        n_layers: Number of affine layers in each affine coupling.
-        hidden_sizes: Hidden channel sizes for ConvBlock in an affine layer.
-        zee2sym: If True, enforces Z2 symmetry for activations and converters.
-        acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
-            LeakyReLU.
         len0: Reserved for number of layers in PSD block mean-field.
-        len1: Number of spline knots in the PSD block (ipsd_knots_len).
-        len2: Size of first DistConvertor_ (optional intermediate activation).
-        len3: Size of final DistConvertor_ (optional output activation).
+        num_spline_knots1: Number of spline knots in the PSD block.
+        num_spline_knots2: For DistConvertor_ (output activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
     """
-
     # 1. PSD block
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=len1
+        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=num_spline_knots1
     )
 
-    nets_list = [psd_block_]
+    # 2. Elementwise DistConvertor_
+    dc_ = DistConvertor_(num_spline_knots2, symmetric=True, smooth=True)
 
-    # 2. include (possible) activation
-    if len2 > 1:
-        nets_list.append(
-            DistConvertor_(len2, symmetric=zee2sym, smooth=True)
-        )
-
-    # 3. Add (possible) affine blocks
-    if acts is None:
-        act = torch.nn.Tanh() if zee2sym else torch.nn.LeakyReLU()
-        acts = (*[act]*len(hidden_sizes), None)
-
-    norms = (
-        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes],
-        None
-    )
-
-    conv_dict = {
-        'in_channels': 1,
-        'out_channels': 3,
-        'hidden_sizes': hidden_sizes,
-        'kernel_size': 3,
-        'padding_mode': 'circular',
-        'conv_ndim': len(lat_shape),
-        'acts': acts,
-        'norms': norms,
-        'pre_act': AvgNeighborPool(),
-        'bias': not zee2sym
-    }
-
-    mask = EvenOddMask(shape=lat_shape)
-
-    nets_list.append(
-        Pade32aCoupling_(
-            [ConvBlock(**conv_dict) for _ in range(n_layers)],
-            mask=mask
-        )
-    )
-
-    # 4. include (possible) activation
-    if len3 > 1:
-        nets_list.append(
-            DistConvertor_(len3, symmetric=zee2sym, smooth=True)
-        )
-
-    return ModuleList_(nets_list)
+    return ModuleList_([psd_block_, dc_])
 
 
 # =============================================================================
@@ -242,13 +161,9 @@ if __name__ == '__main__':
     add("--lambd", type=float)
     add("--kappa", type=float)
     # Architecture setup
-    add("--n_layers", type=int)
     add("--len0", type=int)
-    add("--len1", type=int)
-    add("--len2", type=int)
-    add("--len3", type=int)
-    add("--zee2sym", type=bool)
-    add("--hidden_sizes", type=int, nargs='+')
+    add("--num_spline_knots1", type=int)
+    add("--num_spline_knots2", type=int)
     # Training setup
     add("--batch_size", type=int)
     add("--lr", type=float)
