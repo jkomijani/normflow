@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2023 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """
 This module has a class to generate complex matrices from the Ginibre ensemble.
@@ -19,12 +19,13 @@ class GinibreCMatrixDist:
     Parameters
     ----------
     n : int
-        Specifies the dimension n of the Ginibre matrices
+        Specifies the dimension n of the Ginibre matrices.
 
-    shape : tuple (optional)
+    shape : Tuple[int] | None (optional, default=None)
         Specifing the shape of tensor of Ginibre matrices.
         Each sample would be of a tensor of size (*shape, n, n),
         where the last two dimensions construct GL(n, C) matrices.
+        If None, shape will be set to (); shape can accept () too.
 
     .. _[Mezzadri]:
         F. Mezzadri,
@@ -32,7 +33,9 @@ class GinibreCMatrixDist:
         :arXiv:`math-ph/0609050`.
     """
 
-    def __init__(self, *, n, shape=(1,), sigma=1):
+    def __init__(self, *, n, shape=None, sigma=1):
+        if shape is None:
+            shape = ()
         self.n = n
         self.shape = shape
         shape_ = (*shape, n, n)  # the shape of underlying torch tensor

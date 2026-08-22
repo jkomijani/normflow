@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """This module is for introducing unitary priors."""
 
@@ -20,15 +20,30 @@ __all__ = [
 
 
 class UniformUnPrior(Prior):
-    """Generate unitary matrices uniformly with the Haar measure."""
+    """Generate unitary matrices uniformly with the Haar measure.
+
+    Parameters
+    ----------
+    n : int
+        Dimension of the U(n) matrices.
+    shape : Tuple[int] | None (optional, default=None)
+        Lattice shape, i.e. the shape of tensor of matrices sampled
+        per configuration; treated as () if None. The batch axis is
+        added separately by `batch_size` in `sample`/`sample_`.
+    drop_constant_log_prob : bool (optional, default=False)
+        If True, log_prob returns zeros instead of -log(volume).
+    """
 
     def __init__(
         self,
         n: int,
-        shape: Tuple = (1,),
+        shape: Tuple | None = None,
         drop_constant_log_prob: bool = False,
         **super_kwargs
     ):
+        if shape is None:
+            shape = ()
+
         dist = UnGroup(
             n, shape=shape, drop_constant_log_prob=drop_constant_log_prob
         )
@@ -38,9 +53,8 @@ class UniformUnPrior(Prior):
         self.shape = shape
 
     def to(self, *args, **kwargs):
-        """
-        Moves the distibution parameters to a device, implying that the samples
-        will also be created on the same device.
+        """Move the distribution parameters to a device, implying that
+        the samples will also be created on the same device.
         """
         dist = self.dist.normal_dist
         dist.loc = dist.loc.to(*args, **kwargs)
@@ -54,15 +68,30 @@ class UniformUnPrior(Prior):
 
 
 class UniformSUnPrior(Prior):
-    """Generate SU(n) matrices uniformly with the Haar measure."""
+    """Generate SU(n) matrices uniformly with the Haar measure.
+
+    Parameters
+    ----------
+    n : int
+        Dimension of the SU(n) matrices.
+    shape : Tuple[int] | None (optional, default=None)
+        Lattice shape, i.e. the shape of tensor of matrices sampled
+        per configuration; treated as () if None. The batch axis is
+        added separately by `batch_size` in `sample`/`sample_`.
+    drop_constant_log_prob : bool (optional, default=False)
+        If True, log_prob returns zeros instead of -log(volume).
+    """
 
     def __init__(
         self,
         n: int,
-        shape: Tuple = (1,),
+        shape: Tuple | None = None,
         drop_constant_log_prob: bool = False,
         **super_kwargs
     ):
+        if shape is None:
+            shape = ()
+
         dist = SUnGroup(
             n, shape=shape, drop_constant_log_prob=drop_constant_log_prob
         )
@@ -72,9 +101,8 @@ class UniformSUnPrior(Prior):
         self.shape = shape
 
     def to(self, *args, **kwargs):
-        """
-        Moves the distibution parameters to a device, implying that the samples
-        will also be created on the same device.
+        """Move the distribution parameters to a device, implying that
+        the samples will also be created on the same device.
         """
         dist = self.dist.normal_dist
         dist.loc = dist.loc.to(*args, **kwargs)
@@ -91,16 +119,24 @@ class UniformU1Prior(Prior):
     """Generate U(1) variables uniformly with the Haar measure.
 
     This is a faster implementation of random U(1) than `UnPrior(n=1)`.
+
+    Parameters
+    ----------
+    shape : Tuple[int] | None (optional, default=None)
+        Lattice shape, i.e. the shape of tensor of variables sampled
+        per configuration; treated as () if None. The batch axis is
+        added separately by `batch_size` in `sample`/`sample_`.
     """
-    def __init__(self, shape=(1,), **kwargs):
+    def __init__(self, shape=None, **kwargs):
+        if shape is None:
+            shape = ()
         dist = U1Group(shape=shape)
         super().__init__(dist, **kwargs)
         self.shape = shape
 
     def to(self, *args, **kwargs):
-        """
-        Moves the distibution parameters to a device, implying that the samples
-        will also be created on the same device.
+        """Move the distribution parameters to a device, implying that
+        the samples will also be created on the same device.
         """
         dist = self.dist.uniform_dist
         dist.low = dist.low.to(*args, **kwargs)
@@ -126,13 +162,18 @@ class NormalSUnPrior(NormalPrior):
 
     Args:
         n: Dimension of the SU(n) group (supports n=2 or n=3).
-        shape: Batch shape for sampling algebra elements.
+        shape: Lattice shape for sampling algebra elements; treated
+            as () if None (default). The batch axis is added
+            separately by `batch_size` in `sample`/`sample_`.
         super_kwargs: Passed to ``NormalPrior``. May include:
             * ``loc``: Mean of the underlying normal distribution.
             * ``scale``: Stddev of the underlying normal distribution.
             * ``seed``: Random seed for reproducible sampling.
     """
-    def __init__(self, n: int, shape: Tuple = (1,), **super_kwargs):
+    def __init__(self, n: int, shape: Tuple | None = None, **super_kwargs):
+
+        if shape is None:
+            shape = ()
 
         super().__init__(shape=(*shape, n**2 - 1), **super_kwargs)
 
@@ -155,7 +196,7 @@ class NormalSUnPrior(NormalPrior):
         return self.sample_(batch_size)[0]
 
     def sample_(self, batch_size: int = 1):
-        """Return samples of SU(n) matrices and log probabilites.
+        """Return samples of SU(n) matrices and log probabilities.
 
         Args:
             batch_size: Number of samples.

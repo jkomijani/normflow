@@ -1,13 +1,13 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """
-This module has classes to generate random unitary and special unitary matrices.
+This module has classes to generate random (special) unitary matrices.
 """
+
+from math import log, lgamma, pi  # lgamma: log gamma
 
 import torch
 import numpy as np
-
-from math import log, lgamma, pi  # lgamma: log gamma
 
 from .ginibre_dist import GinibreCMatrixDist
 from ..linalg import haar_qr
@@ -16,19 +16,20 @@ from ..linalg import haar_qr
 # =============================================================================
 class UnGroup(GinibreCMatrixDist):
     """Generate random unitary matrices, i.e. random U(n).
-    
+
     Simliar to `[scipy.stats.unitary_group]`_, we follow `[Mezzadri]`_ to
     generate randam unitary matrices.
 
     Parameters
     ----------
     n : int
-        Specifies the dimension n of the U(n) matrices
+        Specifies the dimension n of the U(n) matrices.
 
-    shape : tuple (optional)
+    shape : Tuple[int] | None (optional, default=None)
         Specifing the shape of tensor of random unitary matrices.
         Each sample would be of a tensor of size (*shape, n, n),
         where the last two dimensions construct unitary matrices.
+        If None, shape will be set to (); shape can accept () too.
 
     .. _[scipy.stats.unitary_group]:
         https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.unitary_group.html
@@ -39,7 +40,10 @@ class UnGroup(GinibreCMatrixDist):
         :arXiv:`math-ph/0609050`.
     """
 
-    def __init__(self, n, shape=(1,), drop_constant_log_prob=False):
+    def __init__(self, n, shape=None, drop_constant_log_prob=False):
+
+        if shape is None:
+            shape = ()
 
         super().__init__(n=n, shape=shape)
 
@@ -58,8 +62,7 @@ class UnGroup(GinibreCMatrixDist):
         lat_shape = x.shape[:-2]  # one log_prop for each matrix
         if self.drop_constant_log_prob:
             return torch.zeros(lat_shape, device=x.device)
-        else:
-            return torch.zeros(lat_shape, device=x.device) - self.log_group_vol
+        return torch.zeros(lat_shape, device=x.device) - self.log_group_vol
 
     @staticmethod
     def calc_log_group_volume(n):
@@ -69,7 +72,7 @@ class UnGroup(GinibreCMatrixDist):
             "Volumes of Compact Manifolds", arXiv:`math-ph/0210033`
         """
         logc = log(n) + (n+1) * log(2) + (n**2 + n) * log(pi)
-        return 0.5 * logc + sum([-lgamma(1+k) for k in range(1, n)])
+        return 0.5 * logc + sum(-lgamma(1+k) for k in range(1, n))
 
 
 # =============================================================================
@@ -98,14 +101,14 @@ class SUnGroup(UnGroup):
             "Volumes of Compact Manifolds", arXiv:`math-ph/0210033`
         """
         logc = log(n) + (n-1) * log(2) + (n**2 + n - 2) * log(pi)
-        return 0.5 * logc + sum([-lgamma(1+k) for k in range(1, n)])
+        return 0.5 * logc + sum(-lgamma(1+k) for k in range(1, n))
 
 
 # =============================================================================
 class U1Group:
-    """Generate random unitary matrices, i.e. random U(1).
+    r"""Generate random unitary matrices, i.e. random U(1).
 
-    This is an implementation of random U(1), which is faster than `UnGroup(1)`.
+    This is an implementation of random U(1), which is faster than UnGroup(1).
 
     For a random unitary variable, the probability distribution function
     is math:`p(z) = 1/(2 \pi i) 1/z` such that math:`p(z) dz` is always real
@@ -126,6 +129,7 @@ class U1Group:
         self.log_tot_vol = np.log(2 * pi) + np.log(np.prod(shape))
 
     def sample(self, size=(1,)):  # this is the `sample` of dist (not prior)
+        """Draw random samples."""
         return torch.exp(1j * self.uniform_dist.sample(size))
 
     def log_prob(self, x):
@@ -135,13 +139,14 @@ class U1Group:
 
 # =============================================================================
 def test_spectrum(prior, n_samples=100, display=True, bins=30):
+    # pylint: disable=all
     r"""Test the distribution of eigenvalues.
 
     Since Haar measure is the analogue of a uniform distribution, each set of
     eigenvalues must have the same weight, therefore the normalized eigenvalue
     density is :math:`\rho(\theta) = 1 / (2 \pi)` `[Mezzadri]`_.
     The histogram generated here must agree with Figure 2.a of `[Mezzadri]`_.
-     
+
     .. _[Mezzadri]:
         F. Mezzadri,
         "How to generate random matrices from the classical compact groups",
