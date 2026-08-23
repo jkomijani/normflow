@@ -3,15 +3,17 @@
 """This is a module for defining matrix models..."""
 
 
+import math
 import torch
 
 
 class MatrixAction:
-    """Matrix action defined as `S = -(β/n) ReTr[f(x)]` for an n×n matrix x.
+    """
+    Matrix action defined as `S = (β/N) ReTr[I - f(X)]` for N×N matrix X.
 
     Args:
         beta (float): Coupling constant `β` in the action.
-        func (callable, optional): Function `f` applied to x.
+        func (callable, optional): Function `f` applied to X; identity if None.
     """
 
     def __init__(self, beta, func=None):
@@ -28,14 +30,16 @@ class MatrixAction:
         if self.func is not None:
             x = self.func(x)
 
-        normalized_trace = compute_normalized_trace(x)
+        normalized_trace = compute_normalized_trace(x.real)
+
+        number_matrices_per_batch = math.prod(x.shape[1:-2])
 
         # Sum over trace, except on batch, if multi-point models are present
         if normalized_trace.ndim > 1:
             dim = tuple(range(1, normalized_trace.ndim))
             normalized_trace = torch.sum(normalized_trace, dim=dim)
 
-        return -self.beta * torch.real(normalized_trace)
+        return self.beta * (number_matrices_per_batch - normalized_trace)
 
     def log_prob(self, x, action_logz=0):
         """Return log probability up to an additive constant."""
