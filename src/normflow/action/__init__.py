@@ -8,6 +8,6 @@ from .ginibre_gauge_action import GinibreGaugeAction
 
 from .matrix_action import MatrixAction
 
-from .u1_action import U1Action
+from .phasor_action import PhasorAction
 
 from .scalar_action import ScalarPhi4Action
