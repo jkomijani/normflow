@@ -39,8 +39,10 @@ class Prior(ABC):
         log_prob_density = self.dist.log_prob(x)
         if self.propagate_density:
             return log_prob_density
-        dim = range(1, len(log_prob_density.shape))  # 0: batch axis
-        return torch.sum(log_prob_density, dim=tuple(dim))
+        dim = tuple(range(1, len(log_prob_density.shape)))  # 0: batch axis
+        if not dim:  # nothing to sum over, e.g. lattice shape == ()
+            return log_prob_density
+        return torch.sum(log_prob_density, dim=dim)
 
     @property
     def nvar(self):
