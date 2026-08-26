@@ -101,7 +101,8 @@ class TemplateStaplesHandle:
             link = svd_result.Vh.adjoint() @ slink @ UDh.adjoint()
 
         # Projection to SU(n) for small numerical deviations & correct grad
-        link = project_data_and_grad_sun(link)
+        if link.shape[-1] == 3:
+            link = project_data_and_grad_sun(link)
 
         return link
 
