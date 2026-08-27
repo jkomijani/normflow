@@ -112,6 +112,8 @@ class Trainer:
         self.lr_scheduler = None
         self.alpha_scheduler = None
         self.config = TrainingConfiguration(**training_config)
+        self._step_metrics = {}
+        self._epoch_metrics = {}
 
     def configure_optimizers(self, **kwargs):
         """Configure the optimizers and logging."""
@@ -195,6 +197,7 @@ class Trainer:
         self.device_handler.to_training_device(self.model.network_fn_)
         self.device_handler.to_training_device(self.model.prior)
         self.configure_optimizers(**config)
+        self.batch_size = batch_size
 
         self.device_handler.print_device_info()
         print_model_info(self.model.network_fn_)
@@ -205,14 +208,9 @@ class Trainer:
         )
 
         for self.current_epoch in progress:
-            loss, logq, logp = self.training_epoch(batch_size)
-
-            logq = self.device_handler.all_gather_into_tensor(logq)
-            logp = self.device_handler.all_gather_into_tensor(logp)
-            ess = Metrics.calc_ess(logq, logp).item()
+            loss = self.training_epoch()
             self.logger.log_epoch(
-                self.current_epoch,
-                {'loss': loss, 'ess': ess, 'logp': logp.mean()}
+                self.current_epoch, {'loss': loss, **self._epoch_metrics}
             )
 
             if self.lr_scheduler is not None:
@@ -270,9 +268,9 @@ class Trainer:
             if self.is_main_process:
                 logging.info("Process group destroyed.")
 
-    def training_epoch(self, batch_size: int, debug: bool = False):
+    def training_epoch(self, debug: bool = False) -> torch.Tensor:
         """
-        Perform a single training step with a batch of size `batch_size`.
+        Perform a single training step with a batch of size `self.batch_size`.
 
         Note that:
         - The alpha scheduler controls the interpolation between the action
@@ -280,17 +278,22 @@ class Trainer:
         - If `path_gradient_autodiff` is enabled, the forward pass uses the
           `forward_with_path_gradient_ad` method of `Module_` to adjust
           autmatic differentiation.
+        - Metrics logged via `self.log(name, value)` (here: `ess`, `logp`)
+          are stored in `self._epoch_metrics`, matching `DiffusionModel`'s
+          `Trainer.training_epoch` convention.
 
         This method samples inputs from the prior distribution, computes
         transformed outputs, evaluates loss based on log-probabilities, and
         optimizes the model using backpropagation.
         """
+        self._step_metrics = {}
+
         network_fn_ = self.model.network_fn_
         prior = self.model.prior
         action = self.model.action
 
         # Sample inputs from the prior
-        x, logr = prior.sample_(batch_size)
+        x, logr = prior.sample_(self.batch_size)
 
         # Forward pass through the neural network
         y, logj = network_fn_.forward(x)
@@ -333,12 +336,29 @@ class Trainer:
                 f"param.grad = {param.grad.ravel()[0].item():.14e}\n"
             ))
 
-        return loss, logq, logp
+        # ESS is nonlinear in logq/logp, so it must be computed from the
+        # full (gathered) batch rather than averaged across ranks.
+        logq = self.device_handler.all_gather_into_tensor(logq.detach())
+        logp = self.device_handler.all_gather_into_tensor(logp.detach())
+        self.log("ess", Metrics.calc_ess(logq, logp).item())
+        self.log("logp", logp.mean())
+        self._epoch_metrics = self._step_metrics
+
+        return loss.detach()
 
     @property
     def is_main_process(self):
         """Return if main process."""
         return self.device_handler.is_main_process
+
+    def log(self, name: str, value):
+        """Log a metric value for the current training step.
+
+        Meant to be called from within `training_epoch`, e.g.
+        `self.log("ess", ess)`. Logged values are merged into the epoch log
+        alongside `loss`; see `training_epoch`.
+        """
+        self._step_metrics[name] = value
 
     def save_checkpoint(self, fname: str):
         """Save the model state (on rank 0)."""
