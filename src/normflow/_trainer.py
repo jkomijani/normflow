@@ -75,6 +75,7 @@ class Trainer:
         self,
         model: torch.nn.Module,
         logger: Union["LoggerLike", None] = None,
+        training_device: Literal["gpu", "cpu", "cuda", "default"] = "default",
         **training_config,
     ):
         """Initializes the trainer with the given model.
@@ -82,6 +83,7 @@ class Trainer:
         Args:
             model (torch.nn.Module): The model to be trained.
             logger (LoggerLike or None): If None, uses the default `CSVLogger`.
+            training_device (str): Selects the training device.
             **training_config: Additional kweword arguments, including:
                 optimizer_class: Callable = torch.optim.AdamW
                 lr_scheduler_class: Callable | None = None
@@ -104,7 +106,7 @@ class Trainer:
         self.model = model
         self.current_epoch = 0
         self.training_dataloader = None
-        self.device_handler = DeviceHandler()
+        self.device_handler = DeviceHandler(training_device)
         self.logger = logger or CSVLogger()
         self.optimizer = None
         self.lr_scheduler = None
@@ -113,6 +115,10 @@ class Trainer:
 
     def configure_optimizers(self, **kwargs):
         """Configure the optimizers and logging."""
+
+        if "training_device" in kwargs:
+            self.device_handler = DeviceHandler(kwargs["training_device"])
+            kwargs.pop("training_device")
 
         if "log_name" in kwargs:
             self.logger.reset_name(kwargs["log_name"])
@@ -518,15 +524,14 @@ class DeviceHandler:
     """
     def __init__(
         self,
-        training_device: Literal["gpu", "cpu", "auto"] = "auto"
+        training_device: Literal["gpu", "cpu", "cuda", "default"] = "default"
     ):
         """Initialize for 1 rank. If needed will be changed later."""
         self.world_size = int(os.environ.get("WORLD_SIZE", 1))
         if self.world_size == 1:
             self.rank = 0  # The global rank of the current process
             self.local_rank = 0  # The rank within the local node (GPU)
-            flag = torch.cuda.is_available() and training_device != "cpu"
-            self.training_device = "cuda" if flag else "cpu"
+            self.training_device = resolve_device(training_device)
         else:
             # to be de determined later in self.init_process_group()
             self.rank = None  # The global rank of the current process
@@ -626,6 +631,43 @@ class DeviceHandler:
         logging.info("Utilized training device: %s", self.training_device)
         if self.world_size > 1:
             torch.distributed.barrier()
+
+
+def resolve_device(preferred_device: str = "gpu") -> str:
+    """Resolve a device preference to an actual device.
+
+    Returns the default device if `preferred_device == "default"`. If
+    `preferred_device == "cuda"`, uses `cuda` if available, otherwise falls
+    back to `cpu` (mps/xpu are not considered). Otherwise, checks GPU
+    accelerators in the order `cuda` > `mps` > `xpu`, falling back to `cpu`
+    if none are available (or if `preferred_device is "cpu"`).
+
+    Args:
+        preferred_device (str): `"cpu"` forces CPU; `"gpu"` tries
+            accelerators in the above order; `"cuda"` uses cuda if available
+            and otherwise falls back to cpu; `"default"` returns the default.
+
+    Returns:
+        str: One of `"cuda"`, `"mps"`, `"xpu"`, `"cpu"`, or the dafault device.
+    """
+    if preferred_device not in ("cpu", "gpu", "cuda", "default"):
+        raise ValueError(
+            f"preferred_device must be 'cpu', 'gpu', 'cuda', or 'default'; "
+            f"got {preferred_device!r}."
+        )
+    if preferred_device == "default":
+        return torch.get_default_device()
+    if preferred_device == "cuda":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+
+    use_accelerator = preferred_device != "cpu"
+    if use_accelerator and torch.cuda.is_available():
+        return "cuda"
+    if use_accelerator and torch.backends.mps.is_available():
+        return "mps"
+    if use_accelerator and hasattr(torch, "xpu") and torch.xpu.is_available():
+        return "xpu"
+    return "cpu"
 
 
 # =============================================================================
