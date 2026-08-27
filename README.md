@@ -101,10 +101,10 @@ def make_model():
     action = ScalarPhi4Action(kappa=0, m_sq=-2.0, lambd=0.2)
 
     # Initialize the neural network for transformations
-    net_ = DistConvertor_(knots_len=10, symmetric=True)
+    network_fn_ = DistConvertor_(knots_len=10, symmetric=True)
 
     # Create the Model with the defined components
-    model = Model(net_=net_, prior=prior, action=action)
+    model = Model(network_fn_=network_fn_, prior=prior, action=action)
 
     return model
 

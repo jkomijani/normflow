@@ -61,7 +61,9 @@ class MCMCSampler:
         logqp_ref = ref['logqp']
 
         # 2.1) Calculate the accept/reject status of the samples
-        accept_seq = Metropolis.calc_accept_status(seize(logq - logp), logqp_ref)
+        accept_seq = Metropolis.calc_accept_status(
+            seize(logq - logp), logqp_ref
+        )
 
         # 2.2) Handle the first item separately
         if accept_seq[0] == False:
@@ -80,16 +82,21 @@ class MCMCSampler:
         ref['logp'] = logp[-1].item()
         ref['logqp'] = ref['logq'] - ref['logp']
 
-        self.history.bookkeeping(accept_rate=np.mean(accept_seq))  # always save
+        # always save
+        self.history.bookkeeping(accept_rate=np.mean(accept_seq))
         if bookkeeping:
-            self.history.bookkeeping(accept_seq=accept_seq, accept_ind=accept_ind)
+            self.history.bookkeeping(
+                accept_seq=accept_seq, accept_ind=accept_ind
+            )
 
         return y, logq, logp
 
     @torch.no_grad()
     def serial_sample_generator(self, n_samples, batch_size=16):
         """Generate Monte Carlo Markov Chain samples one by one"""
-        unsqz = lambda a, b, c: (a.unsqueeze(0), b.unsqueeze(0), c.unsqueeze(0))
+        unsqz = lambda a, b, c: (
+            a.unsqueeze(0), b.unsqueeze(0), c.unsqueeze(0)
+        )
         for i in range(n_samples):
             ind = i % batch_size  # the index of the batch
             if ind == 0:
@@ -107,7 +114,9 @@ class MCMCSampler:
         n_batches = np.ceil(n_samples/batch_size).astype(int)
         logqp = np.zeros(n_batches * batch_size)
         for k in range(n_batches):
-            _, logq, logp = self._model.posterior.sample__(batch_size=batch_size)
+            _, logq, logp = self._model.posterior.sample__(
+                batch_size=batch_size
+            )
             logqp[k*batch_size: (k+1)*batch_size] = seize(logq - logp)
 
         # Now calculate the mean and std of acceptance rate (by shuffling)
@@ -120,7 +129,9 @@ class MCMCSampler:
         """Estimate acceptance rate from shuffling logqp"""
         calc_rate = lambda logqp: np.mean(Metropolis.calc_accept_status(logqp))
         resampler = Resampler(method)
-        mean, std = resampler.eval(logqp, fn=calc_rate, n_resamples=n_resamples)
+        mean, std = resampler.eval(
+            logqp, fn=calc_rate, n_resamples=n_resamples
+        )
         return mean, std
 
     def log_prob(self, y, action_logz=0):
@@ -145,11 +156,11 @@ class BlockedMCMCSampler(MCMCSampler):
         """Return a batch of mcmc samples."""
 
         prior = self._model.prior
-        net_ = self._model.net_
+        network_fn_ = self._model.network_fn_
         action = self._model.action
 
         try:
-            x = net_.reverse(self._ref['sample'].unsqueeze(0))[0]
+            x = network_fn_.reverse(self._ref['sample'].unsqueeze(0))[0]
             logqp_ref = self._ref['logqp']
         except:
             print("Starting from scratch & setting logqp_ref to None")
@@ -172,8 +183,9 @@ class BlockedMCMCSampler(MCMCSampler):
         accept_seq = np.empty((batch_size, n_blocks), dtype=bool)
 
         for ind in range(batch_size):
-            accept_seq[ind], logqp_ref = self.sweep(x, n_blocks, logqp_ref)  # in-place sweeper
-            y, logJ = net_(x)
+            # in-place sweeper
+            accept_seq[ind], logqp_ref = self.sweep(x, n_blocks, logqp_ref)
+            y, logJ = network_fn_(x)
             logq[ind] = prior.log_prob(x) - logJ
             logp[ind] = -action(y)
             cfgs[ind] = y
@@ -184,7 +196,8 @@ class BlockedMCMCSampler(MCMCSampler):
         self._ref['logp'] = logp[-1].item()
         self._ref['logqp'] = (logq[-1] - logp[-1]).item()
 
-        self.history.bookkeeping(accept_rate=np.mean(accept_seq))  # always save
+        # always save
+        self.history.bookkeeping(accept_rate=np.mean(accept_seq))
         if bookkeeping:
             self.history.bookkeeping(logq=logq, logp=logp)
             self.history.bookkeeping(accept_seq=accept_seq.ravel())
@@ -195,7 +208,7 @@ class BlockedMCMCSampler(MCMCSampler):
     def sweep(self, x, n_blocks=1, logqp_ref=None):
         """In-place sweeper."""
         prior = self._model.prior
-        net_ = self._model.net_
+        network_fn_ = self._model.network_fn_
         action = self._model.action
 
         accept_seq = np.empty(n_blocks, dtype=bool)
@@ -203,7 +216,7 @@ class BlockedMCMCSampler(MCMCSampler):
 
         for ind in range(n_blocks):
             prior.blockupdater(x, ind)  # in-place updater
-            y, logJ = net_(x)
+            y, logJ = network_fn_(x)
             logq = prior.log_prob(x) - logJ
             logp = -action(y)
             # Metropolis acceptance condition:
@@ -291,7 +304,10 @@ class MCMCHistory:
 
     @property
     def raw_logqp(self):
-        return [(logq - logp) for (logq, logp) in zip(self.raw_logq, self.raw_logp)]
+        return [
+            (logq - logp)
+            for (logq, logp) in zip(self.raw_logq, self.raw_logp)
+        ]
 
 
 # =============================================================================
@@ -317,7 +333,7 @@ class Metropolis:
         return status  # also called accept_seq
 
     def calc_accept_indices(accept_seq):
-        """Return indices of output of Metropolis-Hasting accept/reject step."""
+        """Return indices of output of Metropolis-Hasting accept/reject."""
         indices = np.arange(len(accept_seq))
         cntr = 0
         for ind, accept in enumerate(accept_seq):

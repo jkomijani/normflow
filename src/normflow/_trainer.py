@@ -121,10 +121,10 @@ class Trainer:
         self.config.update(**kwargs)
 
         # For initiating optimizer, get model parameters (grouped or flat)
-        if '_groups' in self.model.net_.__dict__.keys():
-            parameters = self.model.net_.grouped_parameters()
+        if '_groups' in self.model.network_fn_.__dict__.keys():
+            parameters = self.model.network_fn_.grouped_parameters()
         else:
-            parameters = self.model.net_.parameters()
+            parameters = self.model.network_fn_.parameters()
         hyperparam = self.config.hyperparam
         self.optimizer = self.config.optimizer_class(parameters, **hyperparam)
 
@@ -186,12 +186,12 @@ class Trainer:
           provided (only on the main process when using distributed training).
         """
         self.load_checkpoint(load_checkpoint_path)
-        self.device_handler.to_training_device(self.model.net_)
+        self.device_handler.to_training_device(self.model.network_fn_)
         self.device_handler.to_training_device(self.model.prior)
         self.configure_optimizers(**config)
 
         self.device_handler.print_device_info()
-        print_model_info(self.model.net_)
+        print_model_info(self.model.network_fn_)
 
         progress = tqdm(
             range(1 + self.current_epoch, 1 + self.current_epoch + n_epochs),
@@ -241,8 +241,10 @@ class Trainer:
         # Initialize distributed backend
         self.device_handler.init_process_group(backend="nccl")
         self.load_checkpoint(load_checkpoint_path)
-        net_ = self.model.net_
-        self.model.net_ = self.device_handler.model_ddp_wrapper(net_)
+        network_fn_ = self.model.network_fn_
+        self.model.network_fn_ = self.device_handler.model_ddp_wrapper(
+            network_fn_
+        )
         self.device_handler.set_seed(seeds_list)
 
         if self.is_main_process:
@@ -277,7 +279,7 @@ class Trainer:
         transformed outputs, evaluates loss based on log-probabilities, and
         optimizes the model using backpropagation.
         """
-        net_ = self.model.net_
+        network_fn_ = self.model.network_fn_
         prior = self.model.prior
         action = self.model.action
 
@@ -285,13 +287,15 @@ class Trainer:
         x, logr = prior.sample_(batch_size)
 
         # Forward pass through the neural network
-        y, logj = net_.forward(x)
+        y, logj = network_fn_.forward(x)
 
         # Compute the log-probability of the transformed data `y`
         logq = logr - logj
 
         if self.config.path_gradient_autodiff:
-            logq += adjustment_for_path_gradient_autodiff(y, net_, prior)
+            logq += adjustment_for_path_gradient_autodiff(
+                y, network_fn_, prior
+            )
 
         # Compute target log-probability
         if self.alpha_scheduler is None:
@@ -310,12 +314,12 @@ class Trainer:
         loss.backward()
 
         if self.config.clip_grad_norm:
-            clip_grad_norm_(net_.parameters(), max_norm=1.0)
+            clip_grad_norm_(network_fn_.parameters(), max_norm=1.0)
 
         self.optimizer.step()
 
         if debug:
-            param = list(net_.parameters())[-1]
+            param = list(network_fn_.parameters())[-1]
             print((
                 f"Debug [training_epoch]: rank = {self.device_handler.rank} | "
                 f"loss = {loss.item():.4f} | "
@@ -335,9 +339,9 @@ class Trainer:
         if fname is None or not self.is_main_process:
             return
         if self.device_handler.world_size == 1:
-            torch.save(self.model.net_.state_dict(), fname)
+            torch.save(self.model.network_fn_.state_dict(), fname)
         else:
-            torch.save(self.model.net_.module.state_dict(), fname)
+            torch.save(self.model.network_fn_.module.state_dict(), fname)
 
     def load_checkpoint(self, fname: str, map_location=torch.device('cpu')):
         """Load a model checkpoint into the current instance of the model."""
@@ -347,11 +351,11 @@ class Trainer:
         if fname is None:
             return
         state = torch.load(fname, map_location=map_location, weights_only=True)
-        self.model.net_.load_state_dict(state)
+        self.model.network_fn_.load_state_dict(state)
 
 
 # =============================================================================
-def adjustment_for_path_gradient_autodiff(y, net_, prior):
+def adjustment_for_path_gradient_autodiff(y, network_fn_, prior):
     """
     Compute the path gradient adjustment for statistical stability.
 
@@ -365,18 +369,19 @@ def adjustment_for_path_gradient_autodiff(y, net_, prior):
 
     Args:
         y (Tensor): Transformed variable obtained from the normalizing flow.
-        net_ (Module): For applying the reverse flow on `y` to obtain `x`.
+        network_fn_ (Module): For applying the reverse flow on `y` to obtain
+            `x`.
         prior: For computing the log probability of the `x`.
 
     Returns:
         Tensor: Adjustment to `logq` of `y`.
     """
     # Note that `y` is obtained through the forward transformation:
-    # `y, logj = net_.forward(x)`
+    # `y, logj = network_fn_.forward(x)`
 
     # Compute the reverse transformation on detached `y` to calculate
     # the partial gradient w.r.t. only the parameters of the reverse path
-    x, minus_logj = net_.reverse(y.detach())
+    x, minus_logj = network_fn_.reverse(y.detach())
     # Note that, basically, `minus_logj = -logj`
 
     # Adjust the log-Jacobian for statistical stability by removing the

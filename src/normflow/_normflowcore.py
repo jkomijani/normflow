@@ -7,6 +7,8 @@ networks, and actions. It provides utilities for training and sampling,
 along with support for MCMC sampling and device management.
 """
 
+import warnings
+
 import torch
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
@@ -20,11 +22,11 @@ __all__ = ["Model", "reverse_flow_sanitychecker"]
 # =============================================================================
 class Model:
     """
-    The central high-level class of the package, which integrates instances of
-    essential classes (`prior`, `net_`, and `action`) to provide utilities for
-    training and sampling. This class interfaces with various core components
-    to facilitate training, posterior inference, MCMC sampling, and device
-    management.
+    The central high-level class of the package, which integrates instances
+    of essential classes (`prior`, `network_fn_`, and `action`) to provide
+    utilities for training and sampling. This class interfaces with various
+    core components to facilitate training, posterior inference, MCMC
+    sampling, and device management.
 
     Parameters
     ----------
@@ -32,15 +34,20 @@ class Model:
         An instance of a Prior class (e.g., `NormalPrior`) representing the
         model's prior distribution.
 
-    net_ : instance of a `Module_` class
+    network_fn_ : instance of a `Module_` class
         A model component responsible for the transformations required in the
-        model. The trailing underscore indicates that the associated forward
-        method computes and returns the Jacobian of the transformation, which
-        is crucial in the method of normalizing flows.
+        model. The trailing underscore in `Module_` indicates that the
+        associated forward method computes and returns the Jacobian of the
+        transformation, which is crucial in the method of normalizing flows.
 
     action : instance of an `Action` class
         Defines the model's action, which specified the target distribution
         during training.
+
+    net_ : instance of a `Module_` class, optional
+        Deprecated alias for `network_fn_`, kept for backward compatibility
+        with pre-3.0 code. Ignored if `network_fn_` is also given. Will be
+        removed in a future release.
 
     Attributes
     ----------
@@ -64,10 +71,19 @@ class Model:
         MCMC sampling for improved sampling efficiency.
     """
 
-    def __init__(self, *, prior, net_, action):
+    def __init__(self, *, prior, action, network_fn_=None, net_=None):
+
+        if network_fn_ is None:
+            if net_ is None:
+                raise TypeError("Missing required argument: `network_fn_`.")
+            warnings.warn(
+                "`net_` is deprecated; use `network_fn_` instead.",
+                DeprecationWarning, stacklevel=2,
+            )
+            network_fn_ = net_
 
         # Main components of the model
-        self.net_ = net_
+        self.network_fn_ = network_fn_
         self.prior = prior
         self.action = action
 
@@ -80,6 +96,15 @@ class Model:
         self.posterior = Posterior(self)
         self.mcmc = MCMCSampler(self)
         self.blocked_mcmc = BlockedMCMCSampler(self)
+
+    @property
+    def net_(self):
+        """Deprecated alias for `network_fn_`; will be removed."""
+        return self.network_fn_
+
+    @net_.setter
+    def net_(self, value):
+        self.network_fn_ = value
 
     @torch.no_grad()
     def compute_metrics(self, batch_size: int, epoch: int | None = None):
@@ -193,7 +218,7 @@ class Posterior:
         if preprocess_func is not None:
             x, logr = preprocess_func(x, logr)
 
-        y, logj = self._model.net_(x)
+        y, logj = self._model.network_fn_(x)
         logq = logr - logj
         return y, logq
 
@@ -232,7 +257,7 @@ class Posterior:
         Tensor
             Log probabilities of the samples.
         """
-        x, minus_logj = self._model.net_.reverse(y)
+        x, minus_logj = self._model.network_fn_.reverse(y)
         logr = self._model.prior.log_prob(x)
         logq = logr + minus_logj
         return logq
@@ -248,15 +273,15 @@ def calc_ess(logq, logp):
 
 
 @torch.no_grad()
-def reverse_flow_sanitychecker(model, n_samples=4, net_=None):
+def reverse_flow_sanitychecker(model, n_samples=4, network_fn_=None):
     """Performs a sanity check on the reverse method of modules."""
 
-    if net_ is None:
-        net_ = model.net_
+    if network_fn_ is None:
+        network_fn_ = model.network_fn_
 
     x = model.prior.sample(n_samples)
-    y, logj = net_(x)
-    x_hat, minus_logj = net_.reverse(y)
+    y, logj = network_fn_(x)
+    x_hat, minus_logj = network_fn_.reverse(y)
 
     jac_product = torch.exp(logj + minus_logj).cpu().numpy()
     diff = (x - x_hat).abs().reshape(n_samples, -1).sum(dim=1).cpu().numpy()
