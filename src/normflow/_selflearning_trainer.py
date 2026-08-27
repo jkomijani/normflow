@@ -15,11 +15,11 @@ import numpy as np
 import pydantic
 
 
-__all__ = ["Trainer"]
+__all__ = ["SelfLearningTrainer"]
 
 
 # =============================================================================
-class Trainer:
+class SelfLearningTrainer:
     """
     High-level orchestration for model training.
 
@@ -40,11 +40,10 @@ class Trainer:
     Device selection:
         Single- or multi-GPU execution is determined automatically based on the
         runtime environment and launch method. When the script is launched via
-        ``torchrun`` and the environment variable ``WORLD_SIZE`` is greater
-        than 1, the Trainer uses Distributed Data Parallel (DDP) for multi-GPU
-        training. When launched via standard ``python`` (or when
-        ``WORLD_SIZE == 1``), training runs in a single process on one device
-        (GPU if available, CPU otherwise).
+        `torchrun` and the environment variable `WORLD_SIZE` is greater than 1,
+        this class uses Distributed Data Parallel (DDP) for multi-GPU training.
+        When launched via standard `python` (or when `WORLD_SIZE == 1`),
+        training runs in a single process on one device.
 
     Training configuration:
         Training-related configuration (e.g. optimizer, scheduler, and
@@ -54,7 +53,7 @@ class Trainer:
 
     Typical usage:
         >>> model = MyModel()
-        >>> trainer = Trainer(model)
+        >>> trainer = SelfLearningTrainer(model)
         >>> trainer.run_training(
         ...     n_epochs=10,
         ...     batch_size=8,
@@ -111,9 +110,19 @@ class Trainer:
         self.optimizer = None
         self.lr_scheduler = None
         self.alpha_scheduler = None
-        self.config = TrainingConfiguration(**training_config)
+        self.config = self._build_config(training_config)
         self._step_metrics = {}
         self._epoch_metrics = {}
+
+    def _build_config(self, training_config):
+        return TrainingConfiguration(**training_config)
+
+    def _get_parameters(self):
+        # For initiating optimizer, get model parameters (grouped or flat)
+        network_fn_ = self.model.network_fn_
+        if '_groups' in network_fn_.__dict__.keys():
+            return network_fn_.grouped_parameters()
+        return network_fn_.parameters()
 
     def configure_optimizers(self, **kwargs):
         """Configure the optimizers and logging."""
@@ -128,11 +137,7 @@ class Trainer:
 
         self.config.update(**kwargs)
 
-        # For initiating optimizer, get model parameters (grouped or flat)
-        if '_groups' in self.model.network_fn_.__dict__.keys():
-            parameters = self.model.network_fn_.grouped_parameters()
-        else:
-            parameters = self.model.network_fn_.parameters()
+        parameters = self._get_parameters()
         hyperparam = self.config.hyperparam
         self.optimizer = self.config.optimizer_class(parameters, **hyperparam)
 

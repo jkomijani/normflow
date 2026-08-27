@@ -7,13 +7,13 @@ networks, and actions. It provides utilities for training and sampling,
 along with support for MCMC sampling and device management.
 """
 
+import math
 import warnings
 
 import torch
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
-from .lib.combo import fmt_val_err
-from ._trainer import Trainer
+from ._selflearning_trainer import SelfLearningTrainer
 
 
 __all__ = ["Model", "reverse_flow_sanitychecker"]
@@ -25,8 +25,8 @@ class Model:
     The central high-level class of the package, which integrates instances
     of essential classes (`prior`, `network_fn_`, and `action`) to provide
     utilities for training and sampling. This class interfaces with various
-    core components to facilitate training, posterior inference, MCMC
-    sampling, and device management.
+    core components to facilitate training, posterior inference, MCMC sampling,
+    and device management.
 
     Parameters
     ----------
@@ -51,12 +51,10 @@ class Model:
 
     Attributes
     ----------
-    trainer : Trainer
-        An instance of the Trainer class, responsible for training the model.
-        For training one can call `trainer`. Note that `trainer.__call__` is
-        aliased to `train` as well as to `fit` for flexibility in usage.
-        Moreover, `trainer.execute_ddp_training` is a method that cab be used
-        for parallel training, which is also aliased to `execute_ddp_training`.
+    trainer : SelfLearningTrainer
+        An instance of `SelfLearningTrainer` class, responsible for training
+        the model. `trainer.run_training` is also aliased to `train` and `fit`
+        for flexibility in usage.
 
     posterior : Posterior
         An instance of the Posterior class, which manages posterior inference
@@ -77,8 +75,7 @@ class Model:
             if net_ is None:
                 raise TypeError("Missing required argument: `network_fn_`.")
             warnings.warn(
-                "`net_` is deprecated; use `network_fn_` instead.",
-                DeprecationWarning, stacklevel=2,
+                "`net_` is deprecated; use `network_fn_`.", DeprecationWarning
             )
             network_fn_ = net_
 
@@ -88,7 +85,7 @@ class Model:
         self.action = action
 
         # Components for training
-        self.trainer = Trainer(self)
+        self.trainer = SelfLearningTrainer(self)
         self.train = self.trainer.run_training  # alias
         self.fit = self.trainer.run_training  # another alias
 
@@ -270,6 +267,16 @@ def calc_ess(logq, logp):
     log_ess = 2*torch.logsumexp(logpq, dim=0) - torch.logsumexp(2*logpq, dim=0)
     ess = torch.exp(log_ess) / len(logpq)  # normalized
     return ess
+
+
+def fmt_val_err(value, error, err_digits=1):
+    """Format a value with its uncertainty in parentheses."""
+    try:
+        digits = -math.floor(math.log10(error)) + err_digits - 1
+        digits = max(digits, 0)
+        return f"{value:.{digits}f}({error * 10**digits:.0f})"
+    except (TypeError, ValueError, OverflowError):
+        return f"{value}+-{error}"
 
 
 @torch.no_grad()
