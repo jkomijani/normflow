@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=69.5"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,8 +7,28 @@ name = "normflow"
 version = "3.0.0"
 description = "Normalizing flow for generating lattice field configurations"
 readme = "README.md"
+requires-python = ">=3.10"
 authors = [{ name = "Javad Komijani", email = "jkomijani@gmail.com" }]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "normalizing-flows",
+    "lattice-field-theory",
+    "machine-learning",
+    "pytorch",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2.0",
+    "tqdm>=4.60",
+]
 
 [project.urls]
 Homepage = "https://github.com/jkomijani/normflow"
