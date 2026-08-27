@@ -14,6 +14,7 @@ import torch
 
 from .mcmc import MCMCSampler, BlockedMCMCSampler
 from ._selflearning_trainer import SelfLearningTrainer
+from ._trainer import Trainer
 
 
 __all__ = ["Model", "reverse_flow_sanitychecker"]
@@ -40,9 +41,11 @@ class Model:
         associated forward method computes and returns the Jacobian of the
         transformation, which is crucial in the method of normalizing flows.
 
-    action : instance of an `Action` class
-        Defines the model's action, which specified the target distribution
-        during training.
+    action : instance of an `Action` class, optional
+        Defines the model's action, which specifies the target distribution
+        during self-learning training. If omitted (`None`), `model.trainer`
+        is dataset driven (maximum-likelihood, via `DatabasedLearningModel`)
+        instead of a `SelfLearningTrainer`.
 
     net_ : instance of a `Module_` class, optional
         Deprecated alias for `network_fn_`, kept for backward compatibility
@@ -51,10 +54,10 @@ class Model:
 
     Attributes
     ----------
-    trainer : SelfLearningTrainer
-        An instance of `SelfLearningTrainer` class, responsible for training
-        the model. `trainer.run_training` is also aliased to `train` and `fit`
-        for flexibility in usage.
+    trainer : SelfLearningTrainer or Trainer
+        Responsible for training the model; a `SelfLearningTrainer` if action
+        is given, otherwise a dataset-driven trainer. `trainer.run_training`
+        is also aliased to `train` and `fit` for flexibility in usage.
 
     posterior : Posterior
         An instance of the Posterior class, which manages posterior inference
@@ -69,7 +72,7 @@ class Model:
         MCMC sampling for improved sampling efficiency.
     """
 
-    def __init__(self, *, prior, action, network_fn_=None, net_=None):
+    def __init__(self, *, prior, action=None, network_fn_=None, net_=None):
 
         if network_fn_ is None:
             if net_ is None:
@@ -85,7 +88,11 @@ class Model:
         self.action = action
 
         # Components for training
-        self.trainer = SelfLearningTrainer(self)
+        if action is not None:
+            self.trainer = SelfLearningTrainer(self)
+        else:
+            self._databased_model = DatabasedLearningModel(prior, network_fn_)
+            self.trainer = Trainer(self._databased_model)
         self.train = self.trainer.run_training  # alias
         self.fit = self.trainer.run_training  # another alias
 
@@ -139,6 +146,39 @@ class Model:
 
         # Return computed metrics
         return ess, logqp, logq, logp
+
+
+# =============================================================================
+class DatabasedLearningModel(torch.nn.Module):
+    """
+    Wraps a `prior` and `network_fn_` as a `torch.nn.Module` exposing a
+    `training_step(batch) -> loss` method, matching the interface `Trainer`
+    expects.
+
+    Unlike self-learning, no `action` is needed: `batch` is a 1-tuple of target
+    samples `(y,)`, and the loss is the negative log-likelihood of `y` under
+    the flow, obtained by reversing `network_fn_` and evaluating the resulting
+    latent point under `prior`.
+
+    Typical usage:
+        >>> wrapped = DatabasedLearningModel(prior, network_fn_)
+        >>> trainer = Trainer(wrapped)
+        >>> trainer.run_training(training_dataloader=loader, n_epochs=10)
+    """
+
+    def __init__(self, prior, network_fn_):
+        super().__init__()
+        self.prior = prior
+        self.network_fn_ = network_fn_
+
+    def training_step(self, batch):
+        """
+        Maximum-likelihood training step: `-log q(y)`, averaged over the batch.
+        """
+        y, = batch
+        x, minus_logj = self.network_fn_.reverse(y)
+        logq = self.prior.log_prob(x) + minus_logj
+        return -logq.mean()
 
 
 # =============================================================================
