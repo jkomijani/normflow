@@ -94,11 +94,10 @@ In this example, we have:
 
 -   **Neural Network**: `make_real_line_rqs` composes `Expit_`, a rational
     quadratic (RQ) spline, and `Logit_` in sequence: `Expit_` maps the
-    unbounded reals to (0, 1), a 10-knot RQ spline reparameterizes within
-    (0, 1), and `Logit_` maps back -- this composition is what lets the
-    spline, only ever defined on a bounded domain, cover the whole real
-    line. `symmetric=True`
-    assumes the distribution is symmetric about the origin.
+    unbounded reals to (0, 1), a 10-knot RQ spline reparameterizes it, and
+    `Logit_` maps back -- this composition is what lets the spline cover
+    the whole real line.
+    `symmetric=True` assumes the distribution is symmetric about the origin.
 
 -   **Training**: The model is trained for 1000 epochs with a batch size of 64.
 
@@ -139,15 +138,15 @@ see [arXiv:2301.01504](https://arxiv.org/abs/2301.01504).
 
 
 For a more elaborate scalar example, refer to
-`examples/scalar_model/scalar_psd_affine_coupling.py`, which implements a
-model similar to the one defined in
+[examples/scalar_model/scalar_psd_affine_coupling.py](examples/scalar_model/scalar_psd_affine_coupling.py),
+which implements a model similar to the one defined in
 [arXiv:2301.01504](https://arxiv.org/abs/2301.01504) with PSD flow and
 coupling layers.
 
 
 For SU(N) matrices, two further examples are provided:
 
-- `examples/matrix_model.py`: a minimal normalizing flow over a single
+- [examples/matrix_model.py](examples/matrix_model.py): a minimal normalizing flow over a single
   SU(N) matrix (SU(2) or SU(3)) -- not a lattice gauge theory, just a
   simple SU(N) matrix -- useful as a quick illustration of the matrix machinery
   (`MatrixModule_` with a `Pade22_`- or `RQSplineNet_`-based parametrization).
@@ -160,8 +159,9 @@ For SU(N) matrices, two further examples are provided:
       width="60%" />
   </p>
 
-- `examples/gauge_elementwise_pade22_slinkflow.py`: a true lattice gauge theory
-  example. It builds a full lattice of gauge links (default shape `4x4x4x4`),
+- [examples/gauge_elementwise_pade22_slinkflow.py](examples/gauge_elementwise_pade22_slinkflow.py):
+  a true lattice gauge theory example. It builds a full lattice of gauge links
+  (default shape `4x4x4x4`),
   draws from the uniform (Haar) prior, and trains against the Wilson gauge
   action for U(1), SU(2), or SU(3).
   It also supports distributed training via `torchrun`.
