@@ -94,7 +94,7 @@ def main(
         lat_shape=lat_shape, n_c=n_c, action=action, **net_kwargs
     )
 
-    model = Model(net_=net_, prior=prior, action=action)
+    model = Model(network_fn_=net_, prior=prior, action=action)
 
     training_config = {
         'hyperparam': {'lr': lr, 'weight_decay': weight_decay},

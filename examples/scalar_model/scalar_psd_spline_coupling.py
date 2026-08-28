@@ -91,15 +91,15 @@ def main(
     """
 
     if debug:
-        torch.manual_seed(213)
+        torch.manual_seed(42)
 
     net_ = assemble_net(lat_shape=lat_shape, **net_kwargs)
     action = ScalarPhi4Action(kappa=kappa, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 
-    model = Model(net_=net_, prior=prior, action=action)
+    model = Model(network_fn_=net_, prior=prior, action=action)
 
-    model.net_.setup_groups(
+    model.network_fn_.setup_groups(
         groups=[
             {'ind': [0, 1, 3], 'hyper': {'weight_decay': 1e-4}},
             {'ind': [2], 'hyper': {'weight_decay': 1e-2}}
@@ -130,7 +130,7 @@ def main(
             print("mean(loss[-100:])", log_dict['loss'][-100:].mean())
 
             ess = model.compute_metrics(batch_size=batch_size)[0]
-            print("ESS", ess)
+            print(f"\nESS: {ess}\n")
 
         normflow.reverse_flow_sanitychecker(model)
 

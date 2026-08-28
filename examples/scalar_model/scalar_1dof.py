@@ -49,13 +49,13 @@ def main(
     """
 
     if debug:
-        torch.manual_seed(213)
+        torch.manual_seed(42)
 
     net_ = make_real_line_rqs(num_spline_knots, symmetric=True)
     action = ScalarPhi4Action(kappa=0, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 
-    model = Model(net_=net_, prior=prior, action=action)
+    model = Model(network_fn_=net_, prior=prior, action=action)
 
     training_config = {
         'hyperparam': {'lr': 0.01, 'weight_decay': 0.001},
@@ -67,7 +67,7 @@ def main(
     model.trainer.run_training(n_epochs, batch_size, **training_config)
 
     ess = model.compute_metrics(batch_size=batch_size)[0]
-    print("ESS", ess)
+    print(f"\nESS: {ess}\n")
 
     return model
 

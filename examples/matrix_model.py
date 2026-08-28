@@ -49,8 +49,8 @@ def main(
     net_ = assemble_net(n_c, num_spline_knots)
 
     # Create the Model with the defined components
-    model = Model(net_=net_, prior=prior, action=action)
-    print("number of model parameters =", model.net_.npar)
+    model = Model(network_fn_=net_, prior=prior, action=action)
+    print("number of model parameters =", model.network_fn_.npar)
 
     training_config = {
         'hyperparam': {'lr': lr},

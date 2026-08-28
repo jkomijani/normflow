@@ -75,13 +75,13 @@ def main(
     """
 
     if debug:
-        torch.manual_seed(213)
+        torch.manual_seed(42)
 
     net_ = assemble_net(lat_shape=lat_shape, **net_kwargs)
     action = ScalarPhi4Action(kappa=kappa, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 
-    model = Model(net_=net_, prior=prior, action=action)
+    model = Model(network_fn_=net_, prior=prior, action=action)
 
     training_config = {
         'hyperparam': {'lr': lr},
@@ -108,7 +108,7 @@ def main(
             print("mean(loss[-100:])", log_dict['loss'][-100:].mean())
 
             ess = model.compute_metrics(batch_size=batch_size)[0]
-            print("ESS", ess)
+            print(f"\nESS: {ess}\n")
 
         normflow.reverse_flow_sanitychecker(model)
 
