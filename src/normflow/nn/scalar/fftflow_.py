@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 r"""This module introduces a new neural network called `FFTNet_`.
 
@@ -27,7 +27,7 @@ import copy
 import torch
 import numpy as np
 
-from .modules import SplineNet
+from .modules import RQSplineNet
 from .._core import Module_
 from ...lib.indexing import outer_arange
 
@@ -248,7 +248,7 @@ class FFTNet_(Module_):  # pylint: disable=invalid-name
 
 
 # =============================================================================
-class IPSDMultiplierNet(SplineNet):
+class IPSDMultiplierNet(RQSplineNet):
     r"""
     Inverse Power Spectral Density (IPSD) multiplicative factor.
 
@@ -276,7 +276,7 @@ class IPSDMultiplierNet(SplineNet):
         \sigma(k^2)^2 = y_0 + y_1 \, f_\text{spline}(k^2),
 
     where :math:`f_\text{spline}` is a **monotonically increasing rational-
-    quadratic (RQ) spline** defined by the base ``SplineNet``, and
+    quadratic (RQ) spline** defined by the base ``RQSplineNet``, and
     ``y = exp(logy)`` are learnable parameters. The monotonicity ensures that
     larger lattice k^2 generally correspond to larger scaling factors, which
     is physically reasonable for inverse PSDs.
@@ -284,7 +284,7 @@ class IPSDMultiplierNet(SplineNet):
     Parameters
     ----------
     knots_len : int
-        Number of spline knots used in the base SplineNet. If less than 2,
+        Number of spline knots used in the base RQSplineNet. If less than 2,
         it is automatically set to 2 and `smooth=True` is added to `kwargs`,
         which effectively makes the spline behave like an identity function.
     logy : torch.Tensor
@@ -294,7 +294,7 @@ class IPSDMultiplierNet(SplineNet):
         If True, the zero lattice mode (:math:`k^2 = 0`) is replaced with 1
         to prevent singularities in Jacobian computations. Default is False.
     **kwargs : dict
-        Additional arguments forwarded to the ``SplineNet`` constructor.
+        Additional arguments forwarded to the ``RQSplineNet`` constructor.
     """
 
     def __init__(

@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """
 This module includes several basic subclasses of `torch.nn.Module` that are
@@ -11,7 +11,7 @@ particularly in probabilistic modeling and generative tasks.
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 # pylint: disable=invalid-name
 
-from typing import Tuple, Union, Sequence, Type, Optional
+from typing import Callable, Tuple, Union, Sequence, Type, Optional
 
 import torch
 import numpy as np
@@ -27,6 +27,7 @@ __all__ = [
     "Affine",
     "Pade32",
     "SplineNet",
+    "RQSplineNet",
     "RQSplineWithGrad",
     "AvgNeighborPool"
 ]
@@ -647,9 +648,10 @@ class SplineNet(torch.nn.Module):
     Neural network wrapper for learnable spline-based transformations.
 
     The network defines a monotonic mapping from `xlim` to `ylim` using a
-    trainable spline function. The specific spline implementation can be
-    provided via the `Spline` argument. By default, it uses a rational
-    quadratic spline (`RQSpline`).
+    trainable spline function. This class is agnostic to the specific spline
+    formula used to fill in the segments between knots: it must be provided
+    via the required `Spline` argument (e.g. `RQSpline`, for a rational
+    quadratic spline).
 
     The number of knots is specified by `knots_len`. The first knot is fixed
     at (xlim[0], ylim[0]) and the last at (xlim[1], ylim[1]). The coordinates
@@ -668,7 +670,7 @@ class SplineNet(torch.nn.Module):
     Notes
     -----
     - `knots_len` must be at least 2.
-    - `SplineNet(2, smooth=True)` yields an identity-like mapping with two
+    - `RQSplineNet(2, smooth=True)` yields an identity-like mapping with two
       dummy parameters.
 
     Parameters
@@ -689,8 +691,8 @@ class SplineNet(torch.nn.Module):
         Relevant only if `spline_shape` is not an empty list. Default is -1.
     smooth : bool, optional
         If True, enforces smooth derivatives across knots. Default is False.
-    Spline : callable, optional
-        Spline class or factory to use. Defaults to `RQSpline`.
+    Spline : callable, required
+        Spline class or factory to use (e.g. `RQSpline`).
     set_param2zero : bool, optional
         If True, initializes internal parameters to zero. Defaults to True.
     **spline_kwargs : dict
@@ -698,12 +700,21 @@ class SplineNet(torch.nn.Module):
     """
     def __init__(
         self,
-        knots_len,
-        xlim=(0, 1), ylim=(0, 1),
-        knots_x=None, knots_y=None, knots_d=None,
-        weights_x=None, weights_y=None, weights_d=None,
-        spline_shape=None, knots_axis=-1, smooth=False, Spline=RQSpline,
-        set_param2zero=True,
+        knots_len: int,
+        xlim: Tuple[float, float] = (0, 1),
+        ylim: Tuple[float, float] = (0, 1),
+        knots_x: Optional[Tensor] = None,
+        knots_y: Optional[Tensor] = None,
+        knots_d: Optional[Tensor] = None,
+        weights_x: Optional[Tensor] = None,
+        weights_y: Optional[Tensor] = None,
+        weights_d: Optional[Tensor] = None,
+        spline_shape: Optional[Sequence[int]] = None,
+        knots_axis: int = -1,
+        smooth: bool = False,
+        *,
+        Spline: Callable,
+        set_param2zero: bool = True,
         **spline_kwargs
     ):
         super().__init__()
@@ -810,10 +821,18 @@ class SplineNet(torch.nn.Module):
         dim = self.knots_axis
         zero_shape = list(self.spline_shape)
         zero_shape.insert(dim, 1)
-        zero = lambda w: torch.zeros(zero_shape, device=w.device)
-        cumsumsoftmax = lambda w: torch.cumsum(self.softmax(w), dim=dim)
-        to_coord = lambda w: torch.cat((zero(w), cumsumsoftmax(w)), dim=dim)
-        to_deriv = lambda d: self.softplus(d) if d is not None else None
+
+        def zero(w):
+            return torch.zeros(zero_shape, device=w.device)
+
+        def cumsumsoftmax(w):
+            return torch.cumsum(self.softmax(w), dim=dim)
+
+        def to_coord(w):
+            return torch.cat((zero(w), cumsumsoftmax(w)), dim=dim)
+
+        def to_deriv(d):
+            return self.softplus(d) if d is not None else None
 
         knots_x = self.knots_x
         if knots_x is None:
@@ -842,21 +861,52 @@ class SplineNet(torch.nn.Module):
             torch.nn.init.normal_(param, mean=mean, std=std)
 
 
-class RQSplineWithGrad(SplineNet, torch.nn.Module):
+class RQSplineNet(SplineNet):
+    """A `SplineNet` specialized to use the rational quadratic (RQ) spline
+    (`RQSpline`) as its underlying spline implementation.
+
+    Parameters
+    ----------
+    knots_len : int
+        Number of knots in the spline; see `SplineNet`.
+    symmetric : bool, optional
+        If True, only parameterizes the spline on `xlim=(0.5, 1)`,
+        `ylim=(0.5, 1)`, with an anti-periodic boundary condition
+        (`extrap={'left': 'anti'}`) extending it to the left -- halving the
+        number of learnable parameters needed to cover [0, 1]. Defaults to
+        False. Mutually exclusive with passing `xlim`/`ylim`/`extrap`
+        explicitly in `**kwargs` (raises `TypeError` if both are given).
+    **kwargs : dict
+        Additional keyword arguments forwarded to `SplineNet` (e.g. `ylim`,
+        `smooth`).
     """
-    Extension of `SplineNet` that also computes the first-order derivative
+
+    def __init__(self, knots_len: int, symmetric: bool = False, **kwargs):
+
+        extra = {}
+        if symmetric:
+            extra = {
+                'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
+            }
+
+        super().__init__(knots_len, Spline=RQSpline, **kwargs, **extra)
+
+
+class RQSplineWithGrad(RQSplineNet, torch.nn.Module):
+    """
+    Extension of `RQSplineNet` that also computes the first-order derivative
     (gradient) of the rational quadratic (RQ) spline transformation.
 
-    The superclass `SplineNet` already defines a monotonic RQ spline mapping
-    from (0, 0) to (1, 1). This subclass behaves identically, except that its
-    `forward` and `reverse` methods also return the derivative of the
-    transformation with respect to the input.
+    The superclass `RQSplineNet` already defines a monotonic RQ spline
+    mapping from (0, 0) to (1, 1). This subclass behaves identically, except
+    that its `forward` and `reverse` methods also return the derivative of
+    the transformation with respect to the input.
 
     The mapping is strictly monotonic increasing and can be used as a smooth
     bijection over [0, 1].
 
     For changing the spline configuration (number of knots, domain/range,
-    smoothness), see the documentation of `SplineNet`.
+    smoothness), see the documentation of `RQSplineNet`.
     """
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
