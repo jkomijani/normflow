@@ -1,4 +1,4 @@
-# Copyright (c) 2025 Javad Komijani
+# Copyright (c) 2025-2026 Javad Komijani
 
 """
 This module includes several basic subclasses of `torch.nn.Module` that are
@@ -9,25 +9,23 @@ particularly in probabilistic modeling and generative tasks.
 # pylint: disable=invalid-name, relative-beyond-top-level
 
 from typing import Callable, Dict, Tuple
-import math
 import torch
 
 from normflow.lib.spline import make_rq_spline_field
 
-from .._core import Module_
-from .time_embedding import TimeEmbeddedWeight
+from .._core import ModuleList_, Module_
+
+from .modules_ import Expit_, Logit_
 
 
 __all__ = [
-    "RQSModule_",
-    "TimeEmbeddedRQSModule_",
-    "TimeEmbeddedUnityDistConvertor_",
-    "TimeEmbeddedPhaseDistConvertor_"
+    "RQSplineContextModule_",
+    "make_real_line_rqs_context_module",
 ]
 
 
 # =============================================================================
-class RQSModule_(Module_):
+class RQSplineContextModule_(Module_):
     """A module for learnable RQS-based transformations.
 
     This module defines a monotonic mapping from `xlim` to `ylim` using a
@@ -53,8 +51,9 @@ class RQSModule_(Module_):
     ----------
     feature_map_fn : Callable
         Function producing features that parameterize the spline.
-    xlim, ylim : tuple of float, optional
-        Minimum and maximum values for x and y. Defaults to (0, 1).
+    xlim, ylim : tuple of float or None, optional
+        Minimum and maximum values for x and y. Defaults to (0, 1) if not
+        provided (`None`).
     knots_x, knots_y : torch.Tensor or None, optional
         If provided, these fix the knot positions instead of learning them.
     knots_axis : int, optional
@@ -63,19 +62,38 @@ class RQSModule_(Module_):
         If True, enforce smooth derivatives across knots. Default: True.
     extrap : dict, optional
         Extrapolation behavior outside the domain.
+    symmetric : bool, optional
+        If True, restricts the spline to `xlim=(0.5, 1)`, `ylim=(0.5, 1)`,
+        with an anti-periodic boundary condition (`extrap={'left': 'anti'}`)
+        extending it to the left -- halving the number of features needed
+        to cover [0, 1]. Defaults to False. Mutually exclusive with passing
+        `xlim`/`ylim`/`extrap` explicitly (raises `TypeError` if both are
+        given).
     """
 
     def __init__(
         self,
         feature_map_fn: Callable,
-        xlim: Tuple[float, float] = (0, 1),
-        ylim: Tuple[float, float] = (0, 1),
+        xlim: Tuple[float, float] | None = None,
+        ylim: Tuple[float, float] | None = None,
         knots_x: torch.Tensor = None,
         knots_y: torch.Tensor = None,
         knots_axis: int = -1,
         smooth: bool = True,
         extrap: Dict = None,
+        symmetric: bool = False,
     ):
+        if symmetric:
+            if xlim is not None or ylim is not None or extrap is not None:
+                raise TypeError(
+                    "symmetric=True is mutually exclusive with explicitly"
+                    " passing xlim/ylim/extrap"
+                )
+            xlim, ylim, extrap = (0.5, 1), (0.5, 1), {'left': 'anti'}
+        else:
+            xlim = (0, 1) if xlim is None else xlim
+            ylim = (0, 1) if ylim is None else ylim
+
         super().__init__()
         self.spline_kwargs = {
             'xlim': xlim,
@@ -145,78 +163,28 @@ class RQSModule_(Module_):
 
 
 # =============================================================================
-class TimeEmbeddedRQSModule_(RQSModule_):
-    """An RQS module whose spline parameters are conditioned on time.
-
-    This class extends `RQSModule_` by generating spline parameters through a
-    `TimeEmbeddedWeight` network. The time embedding produces features used to
-    determine knot positions and/or derivatives in the spline.
-
-    Args:
-        n_knots (int): Number of spline knots.
-        knots_x (torch.Tensor or None): Fixed x-knots, or learned if None.
-        knots_y (torch.Tensor or None): Fixed y-knots, or learned if None.
-        smooth (bool): If True, enforces first-derivative continuity.
-        encoding_kwargs (dict): Args forwarded to `TimeEmbeddedWeight`.
-        **rqs_kwargs: Additional args passed to `RQSModule_`.
+def make_real_line_rqs_context_module(
+    feature_map_fn: Callable,
+    **kwargs
+) -> ModuleList_:
     """
-    def __init__(
-        self,
-        n_knots: int,
-        knots_x: torch.Tensor | None = None,
-        knots_y: torch.Tensor | None = None,
-        smooth: bool = False,
-        encoding_kwargs: Dict = None,
-        **rqs_kwargs
-    ):
-        # Determine required feature dimensions
-        n_x = (n_knots - 1) * (knots_x is None)
-        n_y = (n_knots - 1) * (knots_y is None)
-        n_d = n_knots * (not smooth)
-        n_features = n_x + n_y + n_d
+    Build a context-conditioned RQ-spline-based transformation for
+    unbounded, real variables.
 
-        # Time-conditioned feature mapping
-        feature_map_fn = TimeEmbeddedWeight(
-            [n_features], **(encoding_kwargs or {})
-        )
+    Steps:
+        pass through instances of `Expit_`, `RQSplineContextModule_`, and
+        `Logit_`.
 
-        # Initialize the parent RQS module
-        super().__init__(
-            feature_map_fn,
-            knots_x=knots_x,
-            knots_y=knots_y,
-            smooth=smooth,
-            **rqs_kwargs
-        )
+    Parameters
+    ----------
+    feature_map_fn : Callable
+        Forwarded to `RQSplineContextModule_`.
+    **kwargs
+        Additional keyword arguments forwarded to `RQSplineContextModule_`
+        (e.g. `channels_axis`, `xlim`, `ylim`, `smooth`, `extrap`).
+    """
 
-
-# =============================================================================
-class TimeEmbeddedUnityDistConvertor_(TimeEmbeddedRQSModule_):
-    """As a PDF convertor for random variables in range [0, 1]."""
-
-    def __init__(self, n_knots, symmetric=False, **kwargs):
-
-        extra = {
-            'xlim': (0.5, 1) if symmetric else (0, 1),
-            'ylim': (0.5, 1) if symmetric else (0, 1),
-            'extrap': {'left': 'anti'} if symmetric else None
-        }
-
-        super().__init__(n_knots, **kwargs, **extra)
-
-
-# =============================================================================
-class TimeEmbeddedPhaseDistConvertor_(TimeEmbeddedRQSModule_):
-    """As a PDF convertor for random variables in range [-pi, pi]."""
-
-    def __init__(self, n_knots, symmetric=False, **kwargs):
-
-        pi = math.pi
-
-        extra = {
-            'xlim': (0, pi) if symmetric else (-pi, pi),
-            'ylim': (0, pi) if symmetric else (-pi, pi),
-            'extrap': {'left': 'anti'} if symmetric else None
-        }
-
-        super().__init__(n_knots, **kwargs, **extra)
+    nets_ = [
+        Expit_(), RQSplineContextModule_(feature_map_fn, **kwargs), Logit_(),
+    ]
+    return ModuleList_(nets_)

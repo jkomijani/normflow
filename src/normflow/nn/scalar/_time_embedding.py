@@ -3,11 +3,60 @@
 """Module for generating time-embedded weight tensors and modules."""
 
 
-from typing import Tuple
+from typing import Dict, Tuple
 import torch
 
+from normflow.nn import RQSplineContextModule_
 
-__all__ = ["TimeEmbeddedWeight", "SinusoidalEncoder"]
+
+__all__ = ["TimeEmbeddedRQSModule_"]
+
+
+# =============================================================================
+class TimeEmbeddedRQSModule_(RQSplineContextModule_):
+    """An RQS module whose spline parameters are conditioned on time.
+
+    This class extends `RQSplineContextModule_` by generating spline
+    parameters through a `TimeEmbeddedWeight` network. The time embedding
+    produces features used to determine knot positions and/or derivatives
+    in the spline.
+
+    Args:
+        n_knots (int): Number of spline knots.
+        knots_x (torch.Tensor or None): Fixed x-knots, or learned if None.
+        knots_y (torch.Tensor or None): Fixed y-knots, or learned if None.
+        smooth (bool): If True, enforces first-derivative continuity.
+        encoding_kwargs (dict): Args forwarded to `TimeEmbeddedWeight`.
+        **rqs_kwargs: Additional args passed to `RQSplineContextModule_`.
+    """
+    def __init__(
+        self,
+        n_knots: int,
+        knots_x: torch.Tensor | None = None,
+        knots_y: torch.Tensor | None = None,
+        smooth: bool = False,
+        encoding_kwargs: Dict = None,
+        **rqs_kwargs
+    ):
+        # Determine required feature dimensions
+        n_x = (n_knots - 1) * (knots_x is None)
+        n_y = (n_knots - 1) * (knots_y is None)
+        n_d = n_knots * (not smooth)
+        n_features = n_x + n_y + n_d
+
+        # Time-conditioned feature mapping
+        feature_map_fn = TimeEmbeddedWeight(
+            [n_features], **(encoding_kwargs or {})
+        )
+
+        # Initialize the parent RQS module
+        super().__init__(
+            feature_map_fn,
+            knots_x=knots_x,
+            knots_y=knots_y,
+            smooth=smooth,
+            **rqs_kwargs
+        )
 
 
 # =============================================================================
