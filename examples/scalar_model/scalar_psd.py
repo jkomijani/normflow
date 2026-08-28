@@ -16,7 +16,7 @@ from normflow.action import ScalarPhi4Action
 
 from normflow.nn import (
     ModuleList_,
-    DistConvertor_,
+    make_real_line_rqs,
     make_psd_block,
 )
 
@@ -127,13 +127,13 @@ def assemble_net(
 
     The network includes, in order:
         1. PSD block (mean-field + FFT-based) for lattice modes.
-        2. Optional DistConvertor_ for output transformation.
+        2. Optional `make_real_line_rqs` for output transformation.
 
     Args:
         lat_shape: Shape of the lattice input.
         len0: Reserved for number of layers in PSD block mean-field.
         num_spline_knots1: Number of spline knots in the PSD block.
-        num_spline_knots2: For DistConvertor_ (output activation).
+        num_spline_knots2: For `make_real_line_rqs` (output activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
@@ -143,8 +143,8 @@ def assemble_net(
         lat_shape, meanfield_n_layers=len0, ipsd_knots_len=num_spline_knots1
     )
 
-    # 2. Elementwise DistConvertor_
-    dc_ = DistConvertor_(num_spline_knots2, symmetric=True, smooth=True)
+    # 2. Elementwise make_real_line_rqs (dc_: Distribution Converter)
+    dc_ = make_real_line_rqs(num_spline_knots2, symmetric=True, smooth=True)
 
     return ModuleList_([psd_block_, dc_])
 

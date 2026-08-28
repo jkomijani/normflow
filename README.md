@@ -91,7 +91,7 @@ a scalar theory with one degree of freedom.
 ```python
 
 from normflow.prior import NormalPrior
-from normflow.nn import DistConvertor_
+from normflow.nn import make_real_line_rqs
 
 def make_model():
     # Define the prior distribution
@@ -101,7 +101,7 @@ def make_model():
     action = ScalarPhi4Action(kappa=0, m_sq=-2.0, lambd=0.2)
 
     # Initialize the neural network for transformations
-    network_fn_ = DistConvertor_(knots_len=10, symmetric=True)
+    network_fn_ = make_real_line_rqs(num_spline_knots=10, symmetric=True)
 
     # Create the Model with the defined components
     model = Model(network_fn_=network_fn_, prior=prior, action=action)
@@ -125,11 +125,16 @@ In this example, we have:
 -   **Action**: A quartic scalar theory is defined with parameters
     `kappa=0`, `m_sq=-2.0`, and `lambda=0.2`.
 
--   **Neural Network**: The `DistConvertor_` class is used to create the
-    transformation network, with `knots_len=10` and symmetry enabled.
-    Any instance of this class converts the probability distribution of inputs
-    using a rational quadratic spline. In this example, the spline has 10 knots,
-    and the distribution is assumed to be symmetric with respect to the origin.
+-   **Neural Network**: The `make_real_line_rqs` function is used to create
+    the transformation network, with `num_spline_knots=10` and symmetry
+    enabled. It converts the probability distribution of inputs by first
+    mapping the unbounded reals to (0, 1) via `Expit_`, reparameterizing
+    within (0, 1) using a rational quadratic spline, and mapping back to
+    the unbounded reals via `Logit_` -- this `Expit_`/`Logit_` sandwich is
+    what lets the spline, which is only ever defined on a bounded domain,
+    cover the whole real line. In this example, the spline has 10 knots,
+    and the distribution is assumed to be symmetric with respect to the
+    origin.
 
 -   **Training**: The model is trained for 1000 epochs with a batch size of 64.
 

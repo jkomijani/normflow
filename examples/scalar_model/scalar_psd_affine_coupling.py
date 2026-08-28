@@ -30,7 +30,7 @@ from normflow.mask import EvenOddMask
 
 from normflow.nn import (
     ModuleList_,
-    DistConvertor_,
+    make_real_line_rqs,
     make_psd_block,
     AffineCoupling_,
     AvgNeighborPool,
@@ -157,9 +157,9 @@ def assemble_net(
 
     The network includes, in order:
         1. PSD block (mean-field + FFT-based) for lattice modes.
-        2. Optional DistConvertor_ for intermediate activation.
+        2. Optional `make_real_line_rqs` for intermediate activation.
         3. Affine coupling blocks (ConvBlock inside AffineCoupling_).
-        4. Optional DistConvertor_ for output transformation.
+        4. Optional `make_real_line_rqs` for output transformation.
 
     Args:
         lat_shape: Shape of the lattice input.
@@ -170,8 +170,10 @@ def assemble_net(
             LeakyReLU.
         len0: Reserved for number of layers in PSD block mean-field.
         num_spline_knots1: Number of spline knots in the PSD block.
-        num_spline_knots2: For first DistConvertor_ (intermediate activation).
-        num_spline_knots3: For final DistConvertor_ (output activation).
+        num_spline_knots2: For first `make_real_line_rqs` (intermediate
+            activation).
+        num_spline_knots3: For final `make_real_line_rqs` (output
+            activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
@@ -187,7 +189,9 @@ def assemble_net(
     # 2. include (possible) activation
     if num_spline_knots2 > 1:
         nets_list.append(
-            DistConvertor_(num_spline_knots2, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots2, symmetric=zee2sym, smooth=True
+            )
         )
 
     # 3. Add (possible) affine blocks
@@ -225,7 +229,9 @@ def assemble_net(
     # 4. include (possible) activation
     if num_spline_knots3 > 1:
         nets_list.append(
-            DistConvertor_(num_spline_knots3, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots3, symmetric=zee2sym, smooth=True
+            )
         )
 
     return ModuleList_(nets_list)

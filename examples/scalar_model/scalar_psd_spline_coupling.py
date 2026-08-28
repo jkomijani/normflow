@@ -28,7 +28,7 @@ from normflow.mask import EvenOddMask
 from normflow.nn import (
     ModuleList_,
     Identity_,
-    DistConvertor_,
+    make_real_line_rqs,
     FFTNet_,
     MeanFieldNet_,
     PSDBlock_,
@@ -167,7 +167,7 @@ def assemble_net(
     # 2. include (possible) activation
     if knots2_len > 1:
         nets_list.append(
-            DistConvertor_(knots2_len, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(knots2_len, symmetric=zee2sym, smooth=True)
         )
 
     # 3. Add (possible) affine blocks
@@ -201,7 +201,7 @@ def assemble_net(
     # 4. include (possible) activation
     if knots4_len > 1:
         nets_list.append(
-            DistConvertor_(knots4_len, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(knots4_len, symmetric=zee2sym, smooth=True)
         )
 
     return ModuleList_(nets_list)

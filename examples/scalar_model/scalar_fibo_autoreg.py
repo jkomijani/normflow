@@ -42,7 +42,7 @@ from normflow.mask import (
 
 from normflow.nn import (
     Module_,
-    DistConvertor_,
+    make_real_line_rqs,
     AffineCoupling_,
     ModuleList_,
     make_psd_block,
@@ -200,7 +200,7 @@ def assemble_fibo_autoreg_module(
 
     for ind, (_, _, _, a_shape, _) in enumerate(metadata_list):
         if ind == 0:
-            nets_[0] = DistConvertor_(knots_len)
+            nets_[0] = make_real_line_rqs(knots_len)
         else:
             nets1 = [ConvBlock(**conv_kwargs) for _ in range(4)]
             nets2 = [ConvBlock(**conv_kwargs) for _ in range(4)]
@@ -239,7 +239,7 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
         Networks for the second affine coupling layer. These act only
         on the transformed active variables, using an even/odd mask.
     knots_len : int, optional
-        Number of knots in the `DistConvertor_` spline that operates on
+        Number of knots in the `make_real_line_rqs` spline that operates on
         the transformed active variables. Default is 10.
 
     Notes
@@ -256,8 +256,9 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
     def __init__(self, nets1, nets2, shape, knots_len=10):
         super().__init__()
 
-        # Smooth distribution converter for transformed active variables
-        self.dc_ = DistConvertor_(knots_len, smooth=True)
+        # dc_: Distribution Converter -- smooth converter for the
+        # transformed active variables
+        self.dc_ = make_real_line_rqs(knots_len, smooth=True)
 
         # First affine coupling: conditioned on both active + frozen variables
         mask1 = ListPartitioner()

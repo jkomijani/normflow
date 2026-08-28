@@ -9,7 +9,7 @@ the framework of normalizing flows.
 import torch
 
 from normflow import Model
-from normflow.nn import DistConvertor_
+from normflow.nn import make_real_line_rqs
 from normflow.action import ScalarPhi4Action
 from normflow.prior import NormalPrior
 
@@ -30,7 +30,7 @@ def main(
     Build, configure, and train a 1-dof RQS model.
 
     Steps:
-        1. Build the network (`DistConvertor_`), action, and prior.
+        1. Build the network (`make_real_line_rqs`), action, and prior.
         2. Wrap into a `Model`.
         3. Run training via `model.trainer.run_training`.
 
@@ -39,7 +39,7 @@ def main(
         lat_shape: Shape of the lattice (single site for 1 dof).
         n_epochs: Number of training epochs.
         batch_size: Training batch size.
-        num_spline_knots: Number of RQS knots in `DistConvertor_`.
+        num_spline_knots: Number of RQS knots in `make_real_line_rqs`.
         load_fname: Path to load a checkpoint before training.
         save_fname: Path to save a checkpoint after training.
         debug: If True, sets a fixed random seed for reproducibility.
@@ -51,7 +51,7 @@ def main(
     if debug:
         torch.manual_seed(213)
 
-    net_ = DistConvertor_(num_spline_knots, symmetric=True)
+    net_ = make_real_line_rqs(num_spline_knots, symmetric=True)
     action = ScalarPhi4Action(kappa=0, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 

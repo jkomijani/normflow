@@ -16,7 +16,6 @@ Includes:
 import torch
 import numpy as np
 
-from .modules_ import DistConvertor_
 from .modules_ import Pade32_
 from .._core import Module_
 from .._core import ModuleList_
@@ -30,8 +29,8 @@ def make_meanfield_net(n: int) -> 'MeanFieldNet_':
     Construct a MeanFieldNet_ with a Pade32List_ converter.
 
     - Pade32List_: stack of odd functions, suitable for Z2-symmetric theories.
-    - For other cases, one could use Pade32a or DistConvertor_,
-      which are not supported here.
+    - For other cases, one could use Pade32a or RQSplineNet_, which are not
+      supported here.
 
     Args:
         n: Number of Pade32_ layers.
@@ -51,8 +50,9 @@ class MeanFieldNet_(Module_):  # pylint: disable=invalid-name
     the spatial volume to maintain proper scaling.
 
     Attributes:
-        net_ (DistConvertor_):
-            Internal distribution converter acting on the mean-field.
+        net_ (Module_):
+            Internal distribution converter acting on the mean-field (e.g.
+            a `Pade32List_`, via `make_meanfield_net`).
     """
 
     def __init__(self, net_: 'Module_'):
@@ -139,21 +139,6 @@ class MeanFieldNet_(Module_):  # pylint: disable=invalid-name
         x_mean_scaled, log0 = self.net_.forward(x_mean * rvol, log0)
         stack.append((x_mean_scaled.ravel() / rvol, log0))
         return stack
-
-    @staticmethod
-    def build(knots_len=10, **kwargs):
-        """
-        Legacy constructor for `MeanFieldNet_`.
-
-        This method creates a `MeanFieldNet_` using a `DistConvertor_`.
-
-        !!! warning
-            Deprecated: This method will be removed in future releases.
-            Use :func:`make_meanfield_net` instead, which builds the
-            internal converter using :class:`Pade32List_` layers.
-        """
-        dc_ = DistConvertor_(knots_len, **kwargs)
-        return MeanFieldNet_(dc_)
 
 
 class Pade32List_(ModuleList_):  # pylint: disable=invalid-name

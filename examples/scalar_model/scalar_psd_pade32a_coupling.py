@@ -30,7 +30,7 @@ from normflow.mask import EvenOddMask
 
 from normflow.nn import (
     ModuleList_,
-    DistConvertor_,
+    make_real_line_rqs,
     make_psd_block,
     Pade32aCoupling_,
     AvgNeighborPool,
@@ -156,9 +156,9 @@ def assemble_net(
 
     The network includes, in order:
         1. PSD block (mean-field + FFT-based) for lattice modes.
-        2. Optional DistConvertor_ for intermediate activation.
+        2. Optional `make_real_line_rqs` for intermediate activation.
         3. Pade32a coupling blocks (ConvBlock inside Pade32aCoupling_).
-        4. Optional DistConvertor_ for output transformation.
+        4. Optional `make_real_line_rqs` for output transformation.
 
     Args:
         lat_shape: Shape of the lattice input.
@@ -169,8 +169,10 @@ def assemble_net(
             LeakyReLU.
         len0: Reserved for number of layers in PSD block mean-field.
         len1: Number of spline knots in the PSD block (ipsd_knots_len).
-        len2: Size of first DistConvertor_ (optional intermediate activation).
-        len3: Size of final DistConvertor_ (optional output activation).
+        len2: Size of first `make_real_line_rqs` (optional intermediate
+            activation).
+        len3: Size of final `make_real_line_rqs` (optional output
+            activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
@@ -186,7 +188,7 @@ def assemble_net(
     # 2. include (possible) activation
     if len2 > 1:
         nets_list.append(
-            DistConvertor_(len2, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(len2, symmetric=zee2sym, smooth=True)
         )
 
     # 3. Add (possible) affine blocks
@@ -224,7 +226,7 @@ def assemble_net(
     # 4. include (possible) activation
     if len3 > 1:
         nets_list.append(
-            DistConvertor_(len3, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(len3, symmetric=zee2sym, smooth=True)
         )
 
     return ModuleList_(nets_list)
