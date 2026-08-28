@@ -14,7 +14,7 @@ from normflow.action import MatrixAction
 
 from normflow.nn import (
     Pade22_,
-    Pade22Spline_,
+    RQSplineNet_,
     MultiChannelModule_,
     MatrixModule_
 )
@@ -61,6 +61,9 @@ def main(
 
     model.trainer.run_training(n_epochs, batch_size, **training_config)
 
+    ess = model.compute_metrics(batch_size=batch_size)[0]
+    print(f"\nESS: {ess}\n")
+
     normflow.reverse_flow_sanitychecker(model)
 
     return model
@@ -83,11 +86,11 @@ def assemble_net(n_c: int, num_spline_knots: int):
         param_net_ = Pade22_(n_channels=n_c - 1, channels_axis=-1)
 
     elif n_c == 2:
-        param_net_ = Pade22Spline_(num_spline_knots)
+        param_net_ = RQSplineNet_(num_spline_knots)
 
     else:
-        net0_ = Pade22Spline_(num_spline_knots)
-        net1_ = Pade22Spline_((1+num_spline_knots) // 2, symmetric=True)
+        net0_ = RQSplineNet_(num_spline_knots)
+        net1_ = RQSplineNet_((1+num_spline_knots) // 2, symmetric=True)
         param_net_ = MultiChannelModule_([net0_, net1_], channels_axis=-1)
 
     if n_c == 2:
