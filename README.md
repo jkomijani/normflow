@@ -1,4 +1,4 @@
-# normflow
+normflow
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](/LICENSE)
 --------
 
@@ -156,7 +156,7 @@ For SU(N) matrices, two further examples are provided:
   <p align="center">
       <img src="docs/images/matrix_model_eigenangles.png"
       alt="Eigenangle distribution of SU(3) matrices before and after training"
-      width="60%" />
+      width="50%" />
   </p>
 
 - [examples/gauge_elementwise_pade22_slinkflow.py](examples/gauge_elementwise_pade22_slinkflow.py):
@@ -188,7 +188,7 @@ Gaussian prior (top left) is gradually reshaped into the target:
 <p align="center">
     <img src="docs/images/multi_planar_flow_stages.png"
     alt="Sample distribution after each layer of the multi-planar flow, from the Gaussian prior to the trained target"
-    width="90%" />
+    width="100%" />
 </p>
 
 
