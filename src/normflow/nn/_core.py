@@ -145,39 +145,47 @@ class Module_(torch.nn.Module, ABC):
         """
 
     def transfer(self, **kwargs):  # pylint: disable=unused-argument
+        """Return a deep copy of this module."""
         return copy.deepcopy(self)
 
     @property
     def npar(self):
-        return sum([np.prod(p.shape) for p in self.parameters()])
+        """Return the total number of parameters."""
+        return sum(np.prod(p.shape) for p in self.parameters())
 
     def sum_density(self, x):
+        """Sum `x` over all but the batch axis, unless propagating density."""
         if self.propagate_density:
             return x
         return torch.sum(x, dim=list(range(1, x.dim())))
 
     def set_param2zero(self):
+        """Zero out all parameters in place."""
         for param in self.parameters():
             torch.nn.init.zeros_(param)
 
     def get_weights_blob(self):
+        """Return the state dict as a base64-encoded string."""
         serialized_model = io.BytesIO()
         torch.save(self.state_dict(), serialized_model)
         return base64.b64encode(serialized_model.getbuffer()).decode('utf-8')
 
     def set_weights_blob(self, blob, map_location=torch.device('cpu')):
+        """Load parameters from a base64-encoded state dict blob."""
         weights = torch.load(
-                io.BytesIO(base64.b64decode(blob.strip())),
-                map_location=map_location,
-                weights_only=True
-                )
+            io.BytesIO(base64.b64decode(blob.strip())),
+            map_location=map_location,
+            weights_only=True
+        )
         self.load_state_dict(weights)
 
     def freeze_parameters(self):
+        """Disable gradient tracking for all parameters."""
         for param in self.parameters():
             param.requires_grad = False
 
     def unfreeze_parameters(self):
+        """Enable gradient tracking for all parameters."""
         for param in self.parameters():
             param.requires_grad = True
 
@@ -192,6 +200,14 @@ class ModuleList_(torch.nn.ModuleList, Module_):
     By combining the functionalities of `torch.nn.ModuleList` and `Module_`,
     this class allows for efficient management of multiple invertible
     transformations, facilitating complex probabilistic modeling tasks.
+
+    Note on `args`: `forward/reverse` accept an optional `args` for submodules
+    that are conditioned on an externally supplied context. If provided, it is
+    broadcast as-is to *every* submodule in the list -- so if you pass `args`,
+    every submodule must accept an `args` parameter, whether or not it actually
+    uses it. A `ModuleList_` mixing submodules that accept `args` with ones
+    that don't must only be called with `args=None`; calling it with `args` set
+    would raise a `TypeError` on the first submodule that doesn't accept it.
     """
 
     _groups = None
@@ -202,7 +218,7 @@ class ModuleList_(torch.nn.ModuleList, Module_):
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    def forward(self, x, log0=0):
+    def forward(self, x, log0=0, args=None):
         """
         Sequentially apply the forward transformations.
 
@@ -210,17 +226,23 @@ class ModuleList_(torch.nn.ModuleList, Module_):
             x (Tensor): Input to be transformed via the sequence of flows.
             log0 (Tensor | float, optional): Initial value for the log Jacobian
                 from previous transformations. Defaults to 0.
+            args (Tensor | tuple[Tensor, ...] | None, optional): Externally
+                supplied conditioning input(s), forwarded unchanged to every
+                submodule's `forward` if not None, and omitted otherwise (so
+                submodules that don't accept `args` still work). Defaults to
+                None.
 
         Returns:
             Tensor: Transformed output tensor after applying all flows.
             Tensor: Cumulative log Jacobians across flows.
         """
         logj = log0
+        args_kwargs = {} if args is None else {'args': args}
         for net_ in self:
-            x, logj = net_.forward(x, log0=logj)
+            x, logj = net_.forward(x, log0=logj, **args_kwargs)
         return x, logj
 
-    def reverse(self, x, log0=0):
+    def reverse(self, x, log0=0, args=None):
         """
         Sequentially apply the reverse transformations.
 
@@ -229,17 +251,24 @@ class ModuleList_(torch.nn.ModuleList, Module_):
                 reversed flows.
             log0 (Tensor | float, optional): Initial value for the log Jacobian
                 from previous transformations. Defaults to 0.
+            args (Tensor | tuple[Tensor, ...] | None, optional): Externally
+                supplied conditioning input(s); must match the value used in
+                the corresponding forward call. Forwarded unchanged to every
+                submodule's `reverse` if not None, and omitted otherwise.
+                Defaults to None.
 
         Returns:
             Tensor: Transformed output tensor after applying all reverse flows.
             Tensor: Cumulative log Jacobians across reverse flows.
         """
         logj = log0
+        args_kwargs = {} if args is None else {'args': args}
         for net_ in reversed(self):
-            x, logj = net_.reverse(x, log0=logj)
+            x, logj = net_.reverse(x, log0=logj, **args_kwargs)
         return x, logj
 
     def grouped_parameters(self):
+        """Return parameters, grouped by `_groups` if set, else a flat list."""
         if self._groups is None:
             return super().parameters()
 
@@ -250,7 +279,7 @@ class ModuleList_(torch.nn.ModuleList, Module_):
 
         for grp in self._groups:
             par = sum_list([list(self[k].parameters()) for k in grp['ind']])
-            params_list.append(dict(params=par, **grp['hyper']))
+            params_list.append({'params': par, **grp['hyper']})
 
         return params_list
 
@@ -261,13 +290,14 @@ class ModuleList_(torch.nn.ModuleList, Module_):
         """
         self._groups = groups
 
-    def hack(self, x, log0=0):
+    def hack(self, x, log0=0, args=None):
         """Similar to the forward method, except that returns the output of
         middle blocks too; useful for examining effects of each block.
         """
         stack = [(x, log0)]
+        args_kwargs = {} if args is None else {'args': args}
         for net_ in self:
-            x, log0 = net_.forward(x, log0)
+            x, log0 = net_.forward(x, log0, **args_kwargs)
             stack.append((x, log0))
         return stack
 
@@ -339,16 +369,14 @@ class MultiChannelModule_(torch.nn.ModuleList):
             x = torch.stack([o[0] for o in out], dim=self.channels_axis)
 
         # Sum log-determinants
-        logj = sum([o[1] for o in out])
+        logj = sum(o[1] for o in out)
 
         return x, log0 + logj
 
-    def parameters(self):
-        return super().parameters()
-
     @property
     def npar(self):
-        return sum([np.prod(p.shape) for p in super().parameters()])
+        """Return the total number of parameters."""
+        return sum(np.prod(p.shape) for p in self.parameters())
 
 
 # =============================================================================
@@ -374,7 +402,7 @@ class MultiOutChannelModule_(MultiChannelModule_):
         x = torch.cat([o[0] for o in out], dim=self.channels_axis)
 
         # Sum log-determinants
-        logj = sum([o[1] for o in out])
+        logj = sum(o[1] for o in out)
 
         return x, log0 + logj
 
@@ -396,21 +424,27 @@ class InvisibilityMaskWrapperModule_(Module_):
     """
 
     def __init__(self, net_, *, mask):
-        super().__init__(label=f'wrapper:{net_.label}')
+        super().__init__()
         self.net_ = net_
         self.mask = mask
         self.net_.propagate_density = True  # does not sum the density
 
-    def forward(self, x, log0=0):
+    def forward(self, x, log0=0, args=None):
         x_v, x_invisible = self.mask.split(x)  # x_v: x_visible
-        x_v, logj_density = self.net_.forward(x_v)
+        if args is None:
+            x_v, logj_density = self.net_.forward(x_v)
+        else:
+            x_v, logj_density = self.net_.forward(x_v, args=args)
         x_v = self.mask.purify(x_v, channel=0)
         logj = self.sum_density(self.mask.purify(logj_density, channel=0))
         return self.mask.cat(x_v, x_invisible), log0 + logj
 
-    def reverse(self, x, log0=0):
+    def reverse(self, x, log0=0, args=None):
         x_v, x_invisible = self.mask.split(x)  # x_v: x_visible
-        x_v, logj_density = self.net_.reverse(x_v)
+        if args is None:
+            x_v, logj_density = self.net_.reverse(x_v)
+        else:
+            x_v, logj_density = self.net_.reverse(x_v, args=args)
         x_v = self.mask.purify(x_v, channel=0)
         logj = self.sum_density(self.mask.purify(logj_density, channel=0))
         return self.mask.cat(x_v, x_invisible), log0 + logj
