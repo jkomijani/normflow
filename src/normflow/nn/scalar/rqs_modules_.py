@@ -163,7 +163,7 @@ class RQSplineContextModule_(Module_):
 
 
 # =============================================================================
-class RealLineRQSContextModule_(Module_):
+class RealLineRQSplineContextModule_(Module_):
     """
     Wraps `RQSplineContextModule_` with optional `Expit_`/`Logit_` bookending,
     letting its `(0, 1)` default domain and/or range reach the whole real line.
@@ -231,14 +231,14 @@ def make_real_line_rqs_context_module(
     unbounded_domain: bool = True,
     unbounded_range: bool = True,
     **kwargs
-) -> RealLineRQSContextModule_:
+) -> RealLineRQSplineContextModule_:
     """
     Build a context-conditioned RQ-spline-based transformation for unbounded,
     real variables.
 
-    See `RealLineRQSContextModule_` for the meaning of the parameters; this
-    is simply a thin, function-style constructor for it.
+    See `RealLineRQSplineContextModule_` for the meaning of the parameters;
+    this is simply a thin, function-style constructor for it.
     """
-    return RealLineRQSContextModule_(
+    return RealLineRQSplineContextModule_(
         feature_map_fn, unbounded_domain, unbounded_range, **kwargs
     )
