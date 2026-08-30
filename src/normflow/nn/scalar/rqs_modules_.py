@@ -13,7 +13,7 @@ import torch
 
 from normflow.lib.spline import make_rq_spline_field
 
-from .._core import ModuleList_, Module_
+from .._core import Module_
 
 from .modules_ import Expit_, Logit_
 
@@ -163,28 +163,82 @@ class RQSplineContextModule_(Module_):
 
 
 # =============================================================================
-def make_real_line_rqs_context_module(
-    feature_map_fn: Callable,
-    **kwargs
-) -> ModuleList_:
+class RealLineRQSContextModule_(Module_):
     """
-    Build a context-conditioned RQ-spline-based transformation for
-    unbounded, real variables.
-
-    Steps:
-        pass through instances of `Expit_`, `RQSplineContextModule_`, and
-        `Logit_`.
+    Wraps `RQSplineContextModule_` with optional `Expit_`/`Logit_` bookending,
+    letting its `(0, 1)` default domain and/or range reach the whole real line.
 
     Parameters
     ----------
     feature_map_fn : Callable
         Forwarded to `RQSplineContextModule_`.
+    unbounded_domain : bool, optional
+        If True (default), the input is on the whole real line, reached by
+        bookending the spline with `Expit_`. If False, the input is expected in
+        `(0, 1)`.
+    unbounded_range : bool, optional
+        If True (default), the output is on the whole real line, reached by
+        bookending the spline with `Logit_`. If False, the output is in
+        `(0, 1)`.
     **kwargs
         Additional keyword arguments forwarded to `RQSplineContextModule_`
-        (e.g. `channels_axis`, `xlim`, `ylim`, `smooth`, `extrap`).
+        (e.g. `channels_axis`, `smooth`, `extrap`, `symmetric`).
     """
 
-    nets_ = [
-        Expit_(), RQSplineContextModule_(feature_map_fn, **kwargs), Logit_(),
-    ]
-    return ModuleList_(nets_)
+    def __init__(
+        self,
+        feature_map_fn: Callable,
+        unbounded_domain: bool = True,
+        unbounded_range: bool = True,
+        **kwargs
+    ):
+        super().__init__()
+        self.spline_ = RQSplineContextModule_(feature_map_fn, **kwargs)
+        self.expit_ = Expit_() if unbounded_domain else None
+        self.logit_ = Logit_() if unbounded_range else None
+
+    def forward(self, x, log0=0, args=None):
+        """
+        Apply `Expit_` (if any), the spline, then `Logit_` (if any).
+        """
+        if self.expit_ is not None:
+            x, log0 = self.expit_.forward(x, log0)
+
+        x, log0 = self.spline_.forward(x, log0, args=args)
+
+        if self.logit_ is not None:
+            x, log0 = self.logit_.forward(x, log0)
+
+        return x, log0
+
+    def reverse(self, x, log0=0, args=None):
+        """
+        Undo `forward`: `Logit_` (if any), the spline, `Expit_` (if any).
+        """
+        if self.logit_ is not None:
+            x, log0 = self.logit_.reverse(x, log0)
+
+        x, log0 = self.spline_.reverse(x, log0, args=args)
+
+        if self.expit_ is not None:
+            x, log0 = self.expit_.reverse(x, log0)
+
+        return x, log0
+
+
+def make_real_line_rqs_context_module(
+    feature_map_fn: Callable,
+    unbounded_domain: bool = True,
+    unbounded_range: bool = True,
+    **kwargs
+) -> RealLineRQSContextModule_:
+    """
+    Build a context-conditioned RQ-spline-based transformation for unbounded,
+    real variables.
+
+    See `RealLineRQSContextModule_` for the meaning of the parameters; this
+    is simply a thin, function-style constructor for it.
+    """
+    return RealLineRQSContextModule_(
+        feature_map_fn, unbounded_domain, unbounded_range, **kwargs
+    )
