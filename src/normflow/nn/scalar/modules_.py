@@ -694,7 +694,7 @@ class RQSplineNet_(SplineNet_):
 
     Parameters
     ----------
-    knots_len : int
+    n_knots : int
         Number of knots in the spline; see `SplineNet`.
     symmetric : bool, optional
         If True, only parameterizes the spline on `xlim=(0.5, 1)`,
@@ -708,7 +708,7 @@ class RQSplineNet_(SplineNet_):
         `smooth`).
     """
 
-    def __init__(self, knots_len: int, symmetric: bool = False, **kwargs):
+    def __init__(self, n_knots: int, symmetric: bool = False, **kwargs):
 
         extra = {}
         if symmetric:
@@ -716,7 +716,7 @@ class RQSplineNet_(SplineNet_):
                 'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
             }
 
-        super().__init__(knots_len, Spline=RQSpline, **kwargs, **extra)
+        super().__init__(n_knots, Spline=RQSpline, **kwargs, **extra)
 
 
 class UnityDistConvertor_(RQSplineNet_):
@@ -728,7 +728,7 @@ class UnityDistConvertor_(RQSplineNet_):
         already `xlim=(0, 1)`, `ylim=(0, 1)`).
     """
 
-    def __init__(self, knots_len, symmetric=False, **kwargs):
+    def __init__(self, num_spline_knots, symmetric=False, **kwargs):
 
         if symmetric:
             extra = {
@@ -737,7 +737,7 @@ class UnityDistConvertor_(RQSplineNet_):
         else:
             extra = {}
 
-        super().__init__(knots_len, **kwargs, **extra)
+        super().__init__(num_spline_knots, **kwargs, **extra)
 
 
 class DistConvertor_(ModuleList_):
@@ -754,11 +754,12 @@ class DistConvertor_(ModuleList_):
     """
 
     def __init__(
-            self, knots_len, symmetric=False, final_scale=False, **kwargs
+            self, num_spline_knots, symmetric=False,
+            final_scale=False, **kwargs
             ):
 
-        assert knots_len > 1, \
-            f"RQSplineNet_ is not defined for {knots_len} knots"
+        assert num_spline_knots > 1, \
+            f"RQSplineNet_ is not defined for {num_spline_knots} knots"
 
         if symmetric:
             extra = {
@@ -768,7 +769,8 @@ class DistConvertor_(ModuleList_):
             extra = {'xlim': (0, 1), 'ylim': (0, 1)}
 
         nets_ = [
-            Expit_(), RQSplineNet_(knots_len, **kwargs, **extra), Logit_()
+            Expit_(), RQSplineNet_(num_spline_knots, **kwargs, **extra),
+            Logit_()
         ]
 
         if final_scale:

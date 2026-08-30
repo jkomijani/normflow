@@ -24,7 +24,7 @@ __all__ = ["make_psd_block", "PSDBlock_"]
 
 def make_psd_block(
     lat_shape: Tuple[int, ...],
-    ipsd_knots_len: int = 10,
+    ipsd_num_spline_knots: int = 10,
     meanfield_n_layers: int = 0,
 ):
     """
@@ -39,26 +39,28 @@ def make_psd_block(
 
     Args:
         lat_shape: Lattice shape.
-        ipsd_knots_len: Number of spline knots for FFTNet_ (> 2).
+        ipsd_num_spline_knots: Number of spline knots for FFTNet_ (> 2).
         meanfield_n_layers: Depth of the mean-field converter. If 0, no
             mean-field network is used. Default is 0.
 
     Returns:
         PSDBlock_ or FFTNet_: Combined PSD block or FFT-based network
     """
-    if ipsd_knots_len <= 2:
-        raise ValueError("ipsd_knots_len must be greater than 2")
+    if ipsd_num_spline_knots <= 2:
+        raise ValueError("ipsd_num_spline_knots must be greater than 2")
 
     if meanfield_n_layers <= 0:
         # Only FFTNet_ is needed
-        return make_fftnet(lat_shape, knots_len=ipsd_knots_len)
+        return make_fftnet(lat_shape, num_spline_knots=ipsd_num_spline_knots)
 
     # Build MeanFieldNet_ for zero mode
     mfnet_ = make_meanfield_net(meanfield_n_layers)
 
     # Build FFTNet_ for non-zero modes
     fftnet_ = make_fftnet(
-        lat_shape, knots_len=ipsd_knots_len, ignore_zeromode=True
+        lat_shape,
+        num_spline_knots=ipsd_num_spline_knots,
+        ignore_zeromode=True,
     )
 
     # Combine both components into a PSD block.
