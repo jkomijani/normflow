@@ -37,10 +37,10 @@ def main(
     load_fname: str = None,
     save_fname: str = None
 ):
-    """The main file for building and training the model."""
+    """The main function for building and training the model."""
 
     # Define the prior distribution
-    prior = UniformSUnPrior(n_c, shape=(1,))
+    prior = UniformSUnPrior(n_c)
 
     # Define the action for target distribution
     action = MatrixAction(beta=beta)
@@ -103,11 +103,6 @@ def assemble_net(n_c: int, num_spline_knots: int):
 
 
 # =============================================================================
-def _unittest():
-    """NOT READY YET"""
-
-
-# =============================================================================
 if __name__ == '__main__':
     from argparse import ArgumentParser
     import yaml
@@ -144,7 +139,4 @@ if __name__ == '__main__':
         {k: v for k, v in args.items() if v is not None and k != "config"}
     )
 
-    if "unittest" in config.keys():
-        _unittest()
-    else:
-        main(**config)
+    main(**config)
