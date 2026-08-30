@@ -1,4 +1,4 @@
-# Javad Komijani, 2021-2025
+# Javad Komijani, 2021-2026
 
 """
 This file implements a model similar to the one defined in [arXiv:2301.01504]
@@ -18,11 +18,10 @@ from typing import Tuple
 from functools import partial
 
 import torch
-import normflow
-
 from torch.nn import BatchNorm2d
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+import normflow
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
@@ -147,9 +146,9 @@ def assemble_net(
     zee2sym: bool = True,
     acts: Tuple[torch.nn.Module, ...] | None = None,
     len0: int = 4,
-    len1: int = 10,
-    len2: int = 50,
-    len3: int = 50
+    num_spline_knots1: int = 10,
+    num_spline_knots2: int = 50,
+    num_spline_knots3: int = 50
 ):
     """
     Assemble a modular neural network for lattice data as a `ModuleList_`.
@@ -162,16 +161,16 @@ def assemble_net(
 
     Args:
         lat_shape: Shape of the lattice input.
-        n_layers: Number of affine layers in each affine coupling.
-        hidden_sizes: Hidden channel sizes for ConvBlock in an affine layer.
+        n_layers: Number of coupling layers.
+        hidden_sizes: Hidden channel sizes for ConvBlock in a coupling layer.
         zee2sym: If True, enforces Z2 symmetry for activations and converters.
         acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
             LeakyReLU.
         len0: Reserved for number of layers in PSD block mean-field.
-        len1: Number of spline knots in the PSD block (ipsd_knots_len).
-        len2: Size of first `make_real_line_rqs` (optional intermediate
+        num_spline_knots1: Number of spline knots in the PSD block.
+        num_spline_knots2: For first `make_real_line_rqs` (intermediate
             activation).
-        len3: Size of final `make_real_line_rqs` (optional output
+        num_spline_knots3: For final `make_real_line_rqs` (output
             activation).
 
     Returns:
@@ -180,15 +179,19 @@ def assemble_net(
 
     # 1. PSD block
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=len1
+        lat_shape,
+        meanfield_n_layers=len0,
+        ipsd_num_spline_knots=num_spline_knots1,
     )
 
     nets_list = [psd_block_]
 
     # 2. include (possible) activation
-    if len2 > 1:
+    if num_spline_knots2 > 1:
         nets_list.append(
-            make_real_line_rqs(len2, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots2, symmetric=zee2sym, smooth=True
+            )
         )
 
     # 3. Add (possible) affine blocks
@@ -197,11 +200,10 @@ def assemble_net(
         acts = (*[act]*len(hidden_sizes), None)
 
     norms = (
-        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes],
-        None
+        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes], None
     )
 
-    conv_dict = {
+    conv_kwargs = {
         'in_channels': 1,
         'out_channels': 3,
         'hidden_sizes': hidden_sizes,
@@ -218,15 +220,17 @@ def assemble_net(
 
     nets_list.append(
         Pade32aCoupling_(
-            [ConvBlock(**conv_dict) for _ in range(n_layers)],
+            [ConvBlock(**conv_kwargs) for _ in range(n_layers)],
             mask=mask
         )
     )
 
     # 4. include (possible) activation
-    if len3 > 1:
+    if num_spline_knots3 > 1:
         nets_list.append(
-            make_real_line_rqs(len3, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots3, symmetric=zee2sym, smooth=True
+            )
         )
 
     return ModuleList_(nets_list)
@@ -246,9 +250,9 @@ if __name__ == '__main__':
     # Architecture setup
     add("--n_layers", type=int)
     add("--len0", type=int)
-    add("--len1", type=int)
-    add("--len2", type=int)
-    add("--len3", type=int)
+    add("--num_spline_knots1", type=int)
+    add("--num_spline_knots2", type=int)
+    add("--num_spline_knots3", type=int)
     add("--zee2sym", type=bool)
     add("--hidden_sizes", type=int, nargs='+')
     # Training setup

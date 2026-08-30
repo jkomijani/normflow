@@ -16,13 +16,11 @@ For parallel training, e.g., with 2 nodes and 4 processors per node, use:
 from typing import Tuple
 from functools import partial
 
-import math
 import torch
 from torch.nn import BatchNorm2d
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import normflow
-
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
@@ -124,7 +122,6 @@ def main(
         seeds_list = torch.randint(2**32 - 1, size=(world_size,)).tolist()
         training_config["seeds_list"] = seeds_list
 
-    # model.trainer.device_handler.training_device = 'cpu'
     model.trainer.run_training(n_epochs, batch_size, **training_config)
 
     if world_size == 1:
@@ -163,8 +160,8 @@ def assemble_net(
 
     Args:
         lat_shape: Shape of the lattice input.
-        n_layers: Number of affine layers in each affine coupling.
-        hidden_sizes: Hidden channel sizes for ConvBlock in an affine layer.
+        n_layers: Number of coupling layers.
+        hidden_sizes: Hidden channel sizes for ConvBlock in a coupling layer.
         zee2sym: If True, enforces Z2 symmetry for activations and converters.
         acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
             LeakyReLU.
@@ -181,7 +178,9 @@ def assemble_net(
 
     # 1. PSD block
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=num_spline_knots1
+        lat_shape,
+        meanfield_n_layers=len0,
+        ipsd_num_spline_knots=num_spline_knots1,
     )
 
     nets_list = [psd_block_]
@@ -200,11 +199,10 @@ def assemble_net(
         acts = (*[act]*len(hidden_sizes), None)
 
     norms = (
-        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes],
-        None
+        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes], None
     )
 
-    conv_dict = {
+    conv_kwargs = {
         'in_channels': 1,
         'out_channels': 2,
         'hidden_sizes': hidden_sizes,
@@ -221,7 +219,7 @@ def assemble_net(
 
     nets_list.append(
         AffineCoupling_(
-            [ConvBlock(**conv_dict) for _ in range(n_layers)],
+            [ConvBlock(**conv_kwargs) for _ in range(n_layers)],
             mask=mask
         )
     )

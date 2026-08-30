@@ -23,14 +23,13 @@ For parallel training, e.g., with 2 nodes and 4 processors per node, use:
 # pylint: disable=arguments-differ, too-many-locals
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 
-from functools import partial
 from typing import Tuple
+from functools import partial
 
 import torch
-import normflow
-
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+import normflow
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
@@ -59,9 +58,9 @@ from normflow.nn import (
 def main(
     # Lattice setup
     kappa: float = 0.67,
-    m_sq: float = -4*0.67,
+    m_sq: float = -4 * 0.67,
     lambd: float = 0.5,
-    lat_shape: tuple = (8, 8),
+    lat_shape: Tuple[int, ...] = (8, 8),
     # Training setup
     n_epochs: int = 1000,
     batch_size: int = 128,
@@ -148,10 +147,16 @@ def main(
     return model
 
 
-def assemble_net(lat_shape, **kwargs):
+def assemble_net(lat_shape, include_psd_block=False, **kwargs):
+    """
+    Prepends a PSD block before a Fibo Block if `include_psd_block` is True.
+    """
+
+    if not include_psd_block:
+        return assemble_fibo_autoreg_module(lat_shape, **kwargs)
 
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=4, ipsd_knots_len=10
+        lat_shape, meanfield_n_layers=4, ipsd_num_spline_knots=10
     )
 
     fibo_block_ = assemble_fibo_autoreg_module(lat_shape, **kwargs)
@@ -161,7 +166,9 @@ def assemble_net(lat_shape, **kwargs):
 
 # =============================================================================
 def assemble_fibo_autoreg_module(
-    lat_shape: Tuple[int], knots_len=10, hidden_sizes: Tuple[int] = (8,)
+    lat_shape: Tuple[int],
+    num_spline_knots=10,
+    hidden_sizes: Tuple[int] = (8,)
 ):
     """
     An auto-regressive model suitable for large lattices because of its
@@ -200,7 +207,7 @@ def assemble_fibo_autoreg_module(
 
     for ind, (_, _, _, a_shape, _) in enumerate(metadata_list):
         if ind == 0:
-            nets_[0] = make_real_line_rqs(knots_len)
+            nets_[0] = make_real_line_rqs(num_spline_knots)
         else:
             nets1 = [ConvBlock(**conv_kwargs) for _ in range(4)]
             nets2 = [ConvBlock(**conv_kwargs) for _ in range(4)]
@@ -238,7 +245,7 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
     nets2 : Tuple[Module, ...]
         Networks for the second affine coupling layer. These act only
         on the transformed active variables, using an even/odd mask.
-    knots_len : int, optional
+    num_spline_knots : int, optional
         Number of knots in the `make_real_line_rqs` spline that operates on
         the transformed active variables. Default is 10.
 
@@ -253,12 +260,12 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
       the final active variables.
     """
 
-    def __init__(self, nets1, nets2, shape, knots_len=10):
+    def __init__(self, nets1, nets2, shape, num_spline_knots=10):
         super().__init__()
 
         # dc_: Distribution Converter -- smooth converter for the
         # transformed active variables
-        self.dc_ = make_real_line_rqs(knots_len, smooth=True)
+        self.dc_ = make_real_line_rqs(num_spline_knots, smooth=True)
 
         # First affine coupling: conditioned on both active + frozen variables
         mask1 = ListPartitioner()
@@ -350,7 +357,7 @@ if __name__ == '__main__':
     add("--lambd", type=float)
     add("--kappa", type=float)
     # Architecture setup
-    add("--knots_len", type=int)
+    add("--num_spline_knots", type=int)
     add("--hidden_sizes", type=int, nargs='+')
     # Training setup
     add("--batch_size", type=int)

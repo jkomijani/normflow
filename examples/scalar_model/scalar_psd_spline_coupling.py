@@ -1,4 +1,4 @@
-# Javad Komijani, 2021-2025
+# Javad Komijani, 2021-2026
 
 """
 This file implements a model similar to the one defined in [arXiv:2301.01504]
@@ -13,13 +13,14 @@ For parallel training, e.g., with 2 nodes and 4 processors per node, use:
     >>> torchrun --nproc_per_node=4 $filename
 """
 
+from typing import Tuple
 from functools import partial
 
 import torch
-import normflow
-
+from torch.nn import BatchNorm2d
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+import normflow
 from normflow import Model
 from normflow.prior import NormalPrior
 from normflow.action import ScalarPhi4Action
@@ -27,12 +28,10 @@ from normflow.mask import EvenOddMask
 
 from normflow.nn import (
     ModuleList_,
-    Identity_,
     make_real_line_rqs,
-    FFTNet_,
-    MeanFieldNet_,
-    PSDBlock_,
+    make_psd_block,
     RQSplineCoupling_,
+    AvgNeighborPool,
     ConvBlock
 )
 
@@ -41,9 +40,9 @@ from normflow.nn import (
 def main(
     # Lattice setup
     kappa: float = 0.67,
-    m_sq: float = -4*0.67,
+    m_sq: float = -4 * 0.67,
     lambd: float = 0.5,
-    lat_shape: tuple = (8, 8),
+    lat_shape: Tuple[int, ...] = (8, 8),
     # Training setup
     n_epochs: int = 1000,
     batch_size: int = 128,
@@ -139,35 +138,58 @@ def main(
 
 # =============================================================================
 def assemble_net(
-    *, lat_shape,
-    n_layers=4,
-    hidden_sizes=(8, 8),
-    zee2sym=True,
-    acts=None,
-    knots0_len=10,
-    knots1_len=10,
-    knots2_len=50,
-    knots4_len=50
+    lat_shape: Tuple[int, ...],
+    n_layers: int = 4,
+    hidden_sizes: Tuple[int, ...] = (8, 8),
+    zee2sym: bool = True,
+    acts: Tuple[torch.nn.Module, ...] | None = None,
+    len0: int = 4,
+    num_spline_knots1: int = 10,
+    num_spline_knots2: int = 50,
+    num_spline_knots3: int = 50
 ):
-    """Assemble a module and return it as an instance of `ModuleList_`."""
+    """
+    Assemble a modular neural network for lattice data as a `ModuleList_`.
 
-    mfdict = dict(
-        knots_len=knots0_len, symmetric=zee2sym, final_scale=True, smooth=True
+    The network includes, in order:
+        1. PSD block (mean-field + FFT-based) for lattice modes.
+        2. Optional `make_real_line_rqs` for intermediate activation.
+        3. RQ-spline coupling blocks (ConvBlock inside RQSplineCoupling_).
+        4. Optional `make_real_line_rqs` for output transformation.
+
+    Args:
+        lat_shape: Shape of the lattice input.
+        n_layers: Number of coupling layers.
+        hidden_sizes: Hidden channel sizes for ConvBlock in a coupling layer.
+        zee2sym: If True, enforces Z2 symmetry for activations and converters.
+        acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
+            LeakyReLU.
+        len0: Reserved for number of layers in PSD block mean-field.
+        num_spline_knots1: Number of spline knots in the PSD block.
+        num_spline_knots2: For first `make_real_line_rqs` (intermediate
+            activation).
+        num_spline_knots3: For final `make_real_line_rqs` (output
+            activation).
+
+    Returns:
+        ModuleList_: List of modules forming the complete lattice network.
+    """
+
+    # 1. PSD block
+    psd_block_ = make_psd_block(
+        lat_shape,
+        meanfield_n_layers=len0,
+        ipsd_num_spline_knots=num_spline_knots1,
     )
 
-    fftdict = dict(knots_len=knots1_len, ignore_zeromode=True)
-
-    nets_list = []
-
-    # 1. First block
-    mfnet_ = MeanFieldNet_.build(**mfdict) if (knots0_len > 1) else Identity_()
-    fftnet_ = FFTNet_.build(lat_shape, **fftdict)
-    nets_list.append(PSDBlock_(mfnet_=mfnet_, fftnet_=fftnet_))
+    nets_list = [psd_block_]
 
     # 2. include (possible) activation
-    if knots2_len > 1:
+    if num_spline_knots2 > 1:
         nets_list.append(
-            make_real_line_rqs(knots2_len, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots2, symmetric=zee2sym, smooth=True
+            )
         )
 
     # 3. Add (possible) affine blocks
@@ -175,33 +197,41 @@ def assemble_net(
         act = torch.nn.Tanh() if zee2sym else torch.nn.LeakyReLU()
         acts = (*[act]*len(hidden_sizes), None)
 
-    conv_dict = dict(
-        in_channels=1,
-        out_channels=13,
-        hidden_sizes=hidden_sizes,
-        kernel_size=3,
-        padding_mode='circular',
-        conv_ndim=len(lat_shape),
-        acts=acts,
-        bias=not zee2sym
+    norms = (
+        *[BatchNorm2d(n, affine=not zee2sym) for n in hidden_sizes], None
     )
+
+    conv_kwargs = {
+        'in_channels': 1,
+        'out_channels': 13,
+        'hidden_sizes': hidden_sizes,
+        'kernel_size': 3,
+        'padding_mode': 'circular',
+        'conv_ndim': len(lat_shape),
+        'acts': acts,
+        'norms': norms,
+        'pre_act': AvgNeighborPool(),
+        'bias': not zee2sym
+    }
 
     mask = EvenOddMask(shape=lat_shape)
 
     nets_list.append(
         RQSplineCoupling_(
-            [ConvBlock(**conv_dict) for _ in range(n_layers)],
+            [ConvBlock(**conv_kwargs) for _ in range(n_layers)],
             mask=mask,
             xlim=(0, 2) if zee2sym else (-2, 2),
             ylim=(0, 2) if zee2sym else (-2, 2),
-            extrap=dict(left='anti' if zee2sym else 'linear', right='linear')
+            extrap={'left': 'anti' if zee2sym else 'linear', 'right': 'linear'}
         )
     )
 
     # 4. include (possible) activation
-    if knots4_len > 1:
+    if num_spline_knots3 > 1:
         nets_list.append(
-            make_real_line_rqs(knots4_len, symmetric=zee2sym, smooth=True)
+            make_real_line_rqs(
+                num_spline_knots3, symmetric=zee2sym, smooth=True
+            )
         )
 
     return ModuleList_(nets_list)
@@ -220,10 +250,10 @@ if __name__ == '__main__':
     add("--kappa", type=float)
     # Architecture setup
     add("--n_layers", type=int)
-    add("--knots0_len", type=int)
-    add("--knots1_len", type=int)
-    add("--knots2_len", type=int)
-    add("--knots4_len", type=int)
+    add("--len0", type=int)
+    add("--num_spline_knots1", type=int)
+    add("--num_spline_knots2", type=int)
+    add("--num_spline_knots3", type=int)
     add("--zee2sym", type=bool)
     add("--hidden_sizes", type=int, nargs='+')
     # Training setup

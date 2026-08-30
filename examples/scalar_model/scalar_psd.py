@@ -99,7 +99,6 @@ def main(
         seeds_list = torch.randint(2**32 - 1, size=(world_size,)).tolist()
         training_config["seeds_list"] = seeds_list
 
-    # model.trainer.device_handler.training_device = 'cpu'
     model.trainer.run_training(n_epochs, batch_size, **training_config)
 
     if world_size == 1:
@@ -140,7 +139,9 @@ def assemble_net(
     """
     # 1. PSD block
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=len0, ipsd_knots_len=num_spline_knots1
+        lat_shape,
+        meanfield_n_layers=len0,
+        ipsd_num_spline_knots=num_spline_knots1,
     )
 
     # 2. Elementwise make_real_line_rqs (dc_: Distribution Converter)
