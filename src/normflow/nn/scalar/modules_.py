@@ -728,115 +728,87 @@ class UnityDistConvertor_(RQSplineNet_):
         already `xlim=(0, 1)`, `ylim=(0, 1)`).
     """
 
-    def __init__(self, num_spline_knots, symmetric=False, **kwargs):
 
-        if symmetric:
-            extra = {
-                'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
-            }
-        else:
-            extra = {}
-
-        super().__init__(num_spline_knots, **kwargs, **extra)
-
-
-class DistConvertor_(ModuleList_):
+class RealLineRQSplineNet_(ModuleList_):
     """As a PDF convertor for real random variables.
 
-    Steps: pass through instances of `Expit_`, `RQSplineNet_`, and `Logit_`.
+    Wraps `RQSplineNet_` with optional `Expit_`/`Logit_` bookending, letting
+    its `(0, 1)` default domain and/or range reach the whole real line.
 
-    If `final_scale` is True, an instance of `Affine_` without a bias term is
-    also included.
-
-    .. deprecated::
-        Kept only for backward compatibility and will be removed in a
-        future version. Use `make_real_line_rqs` instead.
+    Parameters
+    ----------
+    n_knots : int
+        Forwarded to `RQSplineNet_`.
+    unbounded_domain : bool, optional
+        If True (default), the input is on the whole real line, reached by
+        bookending the spline with `Expit_`. If False, the input is expected
+        in `(0, 1)`.
+    unbounded_range : bool, optional
+        If True (default), the output is on the whole real line, reached by
+        bookending the spline with `Logit_`. If False, the output is in
+        `(0, 1)`.
+    output_scale : bool, optional
+        If True, appends an `Affine_` with no bias term as a final learnable
+        overall scale factor. Defaults to False.
+    **kwargs
+        Additional keyword arguments forwarded to `RQSplineNet_` (e.g.
+        `smooth`, `extrap`, `symmetric`).
     """
 
     def __init__(
-            self, num_spline_knots, symmetric=False,
-            final_scale=False, **kwargs
-            ):
+        self,
+        n_knots: int,
+        unbounded_domain: bool = True,
+        unbounded_range: bool = True,
+        output_scale: bool = False,
+        **kwargs
+    ):
+        nets_ = []
 
-        assert num_spline_knots > 1, \
-            f"RQSplineNet_ is not defined for {num_spline_knots} knots"
+        if unbounded_domain:
+            nets_.append(Expit_())
 
-        if symmetric:
-            extra = {
-                'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
-            }
-        else:
-            extra = {'xlim': (0, 1), 'ylim': (0, 1)}
+        nets_.append(RQSplineNet_(n_knots, **kwargs))
 
-        nets_ = [
-            Expit_(), RQSplineNet_(num_spline_knots, **kwargs, **extra),
-            Logit_()
-        ]
+        if unbounded_range:
+            nets_.append(Logit_())
 
-        if final_scale:
+        if output_scale:
             nets_.append(Affine_(w_bias=0))
 
         super().__init__(nets_)
+        self.unbounded_domain = unbounded_domain
+        self.unbounded_range = unbounded_range
+        self.output_scale = output_scale
 
     @property
     def spline_layer_(self):
-        return self[1]
+        return self[1 if self.unbounded_domain else 0]
+
+
+DistConvertor_ = RealLineRQSplineNet_  # deprecated alias
 
 
 def make_real_line_rqs(
-    num_spline_knots: int,
-    symmetric: bool = False,
-    smooth: bool = False,
-    final_scale: bool = False,
+    n_knots: int,
+    unbounded_domain: bool = True,
+    unbounded_range: bool = True,
+    output_scale: bool = False,
     **kwargs
-) -> ModuleList_:
-    """Build an RQ-spline-based PDF converter for unbounded, real variables.
-
-    Composes `Expit_`, `RQSplineNet_`, and `Logit_` in sequence: `Expit_`
-    maps the unbounded input to (0, 1), `RQSplineNet_` reparameterizes it
-    within (0, 1) via a rational quadratic spline, and `Logit_` maps back
-    to the unbounded reals. This is the non-deprecated replacement for the
-    now-deprecated `DistConvertor_`.
-
-    Args:
-        num_spline_knots: Number of knots in the spline (must be > 1).
-        symmetric: If True, restricts the spline to (0.5, 1) -> (0.5, 1)
-            with an anti-periodic boundary condition extending it to the
-            left -- halving the number of learnable parameters needed to
-            cover [0, 1]. See `RQSplineNet_` for details. Defaults to False.
-        smooth: If True, enforces smooth (continuous first-derivative)
-            knots. Defaults to False.
-        final_scale: If True, appends an `Affine_` with no bias term as a
-            final learnable overall scale factor. Defaults to False.
-        **kwargs: Additional keyword arguments forwarded to `RQSplineNet_`.
-
-    Returns:
-        ModuleList_: A transform mapping the unbounded reals to the
-        unbounded reals, indexed as `[Expit_, RQSplineNet_, Logit_]` (plus
-        a trailing `Affine_` if `final_scale=True`). The spline layer
-        itself is accessible as `result[1]`.
+) -> RealLineRQSplineNet_:
     """
-    assert num_spline_knots > 1, (
-        f"RQSplineNet_ is not defined for {num_spline_knots} knots"
+    Build an RQ-spline-based PDF converter for unbounded, real variables.
+
+    See `RealLineRQSplineNet_` for the meaning of the parameters; this is
+    simply a thin, function-style constructor for it.
+    """
+    return RealLineRQSplineNet_(
+        n_knots,
+        unbounded_domain=unbounded_domain,
+        unbounded_range=unbounded_range,
+        output_scale=output_scale,
+        **kwargs
     )
-
-    if symmetric:
-        extra = {
-            'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
-        }
-    else:
-        extra = {'xlim': (0, 1), 'ylim': (0, 1)}
-
-    nets_ = [
-        Expit_(),
-        RQSplineNet_(num_spline_knots, smooth=smooth, **kwargs, **extra),
-        Logit_(),
-    ]
-
-    if final_scale:
-        nets_.append(Affine_(w_bias=0))
-
-    return ModuleList_(nets_)
 
 
 class SgnBias_(Module_):
