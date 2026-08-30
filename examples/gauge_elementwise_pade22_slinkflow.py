@@ -73,7 +73,7 @@ def main(
     debug: bool = False,
     **net_kwargs
 ):
-    """The main file for building and training the model."""
+    """The main function for building and training the model."""
 
     if debug:
         torch.manual_seed(42)
