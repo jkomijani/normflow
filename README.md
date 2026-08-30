@@ -138,7 +138,7 @@ see [arXiv:2301.01504](https://arxiv.org/abs/2301.01504).
 
 
 For a more elaborate scalar example, refer to
-[examples/scalar_model/scalar_psd_affine_coupling.py](examples/scalar_model/scalar_psd_affine_coupling.py),
+[examples/scalar_models/scalar_psd_affine_coupling.py](examples/scalar_models/scalar_psd_affine_coupling.py),
 which implements a model similar to the one defined in
 [arXiv:2301.01504](https://arxiv.org/abs/2301.01504) with PSD flow and
 coupling layers.
