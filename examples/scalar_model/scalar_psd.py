@@ -117,7 +117,7 @@ def main(
 # =============================================================================
 def assemble_net(
     lat_shape: Tuple[int, ...],
-    len0: int = 4,
+    meanfield_n_layers: int = 4,
     num_spline_knots1: int = 10,
     num_spline_knots2: int = 50,
 ):
@@ -130,7 +130,7 @@ def assemble_net(
 
     Args:
         lat_shape: Shape of the lattice input.
-        len0: Reserved for number of layers in PSD block mean-field.
+        meanfield_n_layers: Number of layers in the PSD block's mean-field.
         num_spline_knots1: Number of spline knots in the PSD block.
         num_spline_knots2: For `make_real_line_rqs` (output activation).
 
@@ -140,7 +140,7 @@ def assemble_net(
     # 1. PSD block
     psd_block_ = make_psd_block(
         lat_shape,
-        meanfield_n_layers=len0,
+        meanfield_n_layers=meanfield_n_layers,
         ipsd_num_spline_knots=num_spline_knots1,
     )
 
@@ -162,7 +162,7 @@ if __name__ == '__main__':
     add("--lambd", type=float)
     add("--kappa", type=float)
     # Architecture setup
-    add("--len0", type=int)
+    add("--meanfield_n_layers", type=int)
     add("--num_spline_knots1", type=int)
     add("--num_spline_knots2", type=int)
     # Training setup
