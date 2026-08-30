@@ -146,10 +146,11 @@ coupling layers.
 
 For SU(N) matrices, two further examples are provided:
 
-- [examples/matrix_model.py](examples/matrix_model.py): a minimal normalizing flow over a single
+- [examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb):
+  a minimal normalizing flow over a single
   SU(N) matrix (SU(2) or SU(3)) -- not a lattice gauge theory, just a
   simple SU(N) matrix -- useful as a quick illustration of the matrix machinery
-  (`MatrixModule_` with a `Pade22_`- or `RQSplineNet_`-based parametrization).
+  (`MatrixModule_` with an `RQSplineNet_`-based parametrization).
   The figure below shows the eigenangle distribution of SU(3) matrices before
   (prior) and after (posterior) training, against the analytic target (red):
 
