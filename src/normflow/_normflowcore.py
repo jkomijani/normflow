@@ -155,15 +155,24 @@ class DatabasedLearningModel(torch.nn.Module):
     `training_step(batch) -> loss` method, matching the interface `Trainer`
     expects.
 
-    Unlike self-learning, no `action` is needed: `batch` is a 1-tuple of target
-    samples `(y,)`, and the loss is the negative log-likelihood of `y` under
-    the flow, obtained by reversing `network_fn_` and evaluating the resulting
-    latent point under `prior`.
+    Unlike self-learning, no `action` is needed: `batch` is `(y,)`, or,
+    for a context-conditioned `network_fn_`, `(y, *context)`, where `y`
+    are target samples and `context` is zero or more accompanying tensors
+    (e.g. a conditioning variable computed alongside `y`). The loss is the
+    negative log-likelihood of `y` under the flow, obtained by reversing
+    `network_fn_` -- passed `args=tuple(context)` whenever `context` is
+    non-empty -- and evaluating the resulting latent point under `prior`.
+    See `ContextModule_` and its subclasses for how `network_fn_` consumes
+    `args`.
 
     Typical usage:
         >>> wrapped = DatabasedLearningModel(prior, network_fn_)
         >>> trainer = Trainer(wrapped)
         >>> trainer.run_training(training_dataloader=loader, n_epochs=10)
+
+    For a context-conditioned flow, build the data loader from `y_data` and
+    `context_data`, e.g. as `TensorDataset(y_data, context_data)`; the
+    `training_step` method picks up the extra item(s) automatically.
     """
 
     def __init__(self, prior, network_fn_):
@@ -173,10 +182,14 @@ class DatabasedLearningModel(torch.nn.Module):
 
     def training_step(self, batch):
         """
-        Maximum-likelihood training step: `-log q(y)`, averaged over the batch.
+        Maximum-likelihood training step: `-log q(y)`, averaged over the
+        batch. `batch` is `(y,)`, or `(y, *context)` if `network_fn_` is
+        context-conditioned -- `context` is passed through as
+        `args=tuple(context)`.
         """
-        y, = batch
-        x, minus_logj = self.network_fn_.reverse(y)
+        y, *context = batch
+        args_kwargs = {} if len(context) == 0 else {'args': tuple(context)}
+        x, minus_logj = self.network_fn_.reverse(y, **args_kwargs)
         logq = self.prior.log_prob(x) + minus_logj
         return -logq.mean()
 
