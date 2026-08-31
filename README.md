@@ -16,14 +16,15 @@ theories or Haar-uniform SU(N) matrices for gauge theories. Networks are
 assembled from the package's modules, which automatically compute the
 Jacobian of the transformations.
 
-By default, `Model.trainer` follows a self-learning strategy: no external
-data is required, and the goal is to optimize the network so that pushing
-samples from the prior through it matches the target distribution.
-
-
-Training draws samples from the prior, pushes them through the network, and
-minimizes the Kullback-Leibler (KL) divergence between the transformed prior
-and the target distribution -- the default loss function.
+`Model` supports two training strategies: **self-learning**, used when
+an `action` is provided (no external data needed), and **data-based**,
+used when it isn't. Self-learning draws samples from the prior, pushes them
+through the network, and minimizes the (reverse) Kullback-Leibler (KL)
+divergence between the transformed prior and the target distribution.
+Data-based training instead minimizes the (forward) KL divergence, which
+reduces to maximizing the likelihood of a provided dataset. An example using
+both is given in
+[examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb).
 
 In the self-learning scheme, (reverse) KL minimization involves a total
 derivative whose partial-derivative term (with respect to the transformed
@@ -74,6 +75,9 @@ model.train(
     hyperparam={'lr': 0.003}
 )
 ```
+
+(`model.train` is a short alias for `model.trainer.run_training`; `model.fit`
+is another alias for the same method.)
 
 Running this example trains in a few seconds and brings the effective sample
 size (ESS) close to 1, e.g.:
