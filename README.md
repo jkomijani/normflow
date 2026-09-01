@@ -7,31 +7,27 @@ flows** as a generative model for lattice field theory, transforming samples
 from a simple distribution into a target one through a series of invertible
 transformations. It currently supports both scalar theories and gauge theories.
 
-Three components define a model: a **prior distribution** to draw initial
-samples, a **neural network** of invertible transformations, and an
-**action** defining the target distribution. These combine into an instance
-of `Model`, the package's central class -- for example, a quartic scalar
-action or the Wilson gauge action, paired with a Gaussian prior for scalar
-theories or Haar-uniform SU(N) matrices for gauge theories. Networks are
-assembled from the package's modules, which automatically compute the
-Jacobian of the transformations.
+**Dependency:** normflow requires
+[`lattice_ml`](https://github.com/jkomijani/lattice_ml), which isn't on PyPI:
 
-`Model` supports two training strategies: **self-learning**, used when
-an `action` is provided (no external data needed), and **data-based**,
-used when it isn't. Self-learning draws samples from the prior, pushes them
-through the network, and minimizes the (reverse) Kullback-Leibler (KL)
-divergence between the transformed prior and the target distribution.
-Data-based training instead minimizes the (forward) KL divergence, which
-reduces to maximizing the likelihood of a provided dataset. An example using
-both is given in
-[examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb).
+```
+    pip install git+https://github.com/jkomijani/lattice_ml.git
+```
 
-In the self-learning scheme, (reverse) KL minimization involves a total
-derivative whose partial-derivative term (with respect to the transformed
-variable) statistically vanishes; removing it via a reverse flow correction
-(Vaitl, L. et al. [arXiv:2207.08219]) improves training stability and is
-enabled by default. Disabling it roughly doubles training speed per epoch,
-at the cost of reduced effectiveness.
+A `Model`, the package's central class, combines a **prior distribution** to
+draw initial samples with a **neural network** of invertible transformations
+(assembled from the package's modules, which auto-compute the Jacobian) --
+e.g., a Gaussian prior for scalar theories or a Haar-uniform SU(N) prior for
+gauge theories.
+
+An optional **action**, defining the target distribution, determines how
+`Model` trains. Given, it triggers **self-learning**: no external data
+needed, minimizing the reverse KL divergence between the transformed prior
+and the target (e.g. a quartic scalar action or the Wilson gauge action).
+Omitted, it falls back to **data-based** training: minimizing the forward KL
+divergence, i.e. maximizing the likelihood of a provided dataset. See
+[examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb)
+for an example using both.
 
 Computing the KL divergence requires the log-determinant of the
 transformation's Jacobian. The package's abstract `Module_` class (a
@@ -39,6 +35,13 @@ subclass of `torch.nn.Module`) encodes this convention: its `forward()` and
 `reverse()` methods each apply the transformation (or its inverse) and
 return a `(transformed_input, log_jacobian)` tuple -- the trailing
 underscore marks this pattern throughout the package.
+
+For self-learning specifically, (reverse) KL minimization involves a total
+derivative whose partial-derivative term (with respect to the transformed
+variable) statistically vanishes; removing it via a reverse flow correction
+(Vaitl, L. et al. [arXiv:2207.08219]) improves training stability and is
+enabled by default. Disabling it roughly doubles training speed per epoch,
+at the cost of reduced effectiveness.
 
 
 For a quick start, please refer to the examples. Below is a simple example of
