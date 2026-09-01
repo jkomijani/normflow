@@ -134,48 +134,48 @@ def make_rq_spline_field(
 
     n = feature_map.shape[knots_axis]
 
-    if smooth and knots_x is None and knots_y is None:
-        m = n // 2
-        x_, y_ = feature_map.split((m, m), dim=knots_axis)
-        knots_x = to_coord(x_) * xwidth + xlim[0]
-        knots_y = to_coord(y_) * ywidth + ylim[0]
-        knots_d = None
+    if smooth:
+        if knots_x is None and knots_y is None:
+            m = n // 2
+            x_, y_ = feature_map.split((m, m), dim=knots_axis)
+            knots_x = to_coord(x_) * xwidth + xlim[0]
+            knots_y = to_coord(y_) * ywidth + ylim[0]
+            knots_d = None
 
-    elif smooth and knots_x is not None and knots_y is None:
-        knots_y = to_coord(feature_map) * ywidth + ylim[0]
-        knots_d = None
+        elif knots_x is not None and knots_y is None:
+            knots_y = to_coord(feature_map) * ywidth + ylim[0]
+            knots_d = None
 
-    elif smooth and knots_x is None and knots_y is not None:
-        knots_x = to_coord(feature_map) * xwidth + xlim[0]
-        knots_d = None
+        elif knots_x is None and knots_y is not None:
+            knots_x = to_coord(feature_map) * xwidth + xlim[0]
+            knots_d = None
 
-    elif smooth and knots_x is not None and knots_y is not None:
-        warnings.warn(
-            "feature_map is totally ignored as nothing is left to be extracted"
-        )
-        knots_d = None
-
-    elif knots_x is None and knots_y is None:
-        m = (n + 2) // 3
-        x_, y_, d_ = feature_map.split((m-1, m-1, m), dim=knots_axis)
-        knots_x = to_coord(x_) * xwidth + xlim[0]
-        knots_y = to_coord(y_) * ywidth + ylim[0]
-        knots_d = to_deriv(d_)
-
-    elif knots_x is not None and knots_y is None:
-        m = (n + 2) // 2
-        y_, d_ = feature_map.split((m-1, m), dim=knots_axis)
-        knots_y = to_coord(y_) * ywidth + ylim[0]
-        knots_d = to_deriv(d_)
-
-    elif knots_x is None and knots_y is not None:
-        m = (n + 2) // 2
-        x_, d_ = feature_map.split((m-1, m), dim=knots_axis)
-        knots_x = to_coord(x_) * xwidth + xlim[0]
-        knots_d = to_deriv(d_)
+        else:
+            warnings.warn("feature_map is ignored; nothing to be extracted")
+            knots_d = None
 
     else:
-        knots_d = to_deriv(feature_map)
+        if knots_x is None and knots_y is None:
+            m = (n - 1) // 3
+            x_, y_, d_ = feature_map.split((m, m, m + 1), dim=knots_axis)
+            knots_x = to_coord(x_) * xwidth + xlim[0]
+            knots_y = to_coord(y_) * ywidth + ylim[0]
+            knots_d = to_deriv(d_)
+
+        elif knots_x is not None and knots_y is None:
+            m = (n - 1) // 2
+            y_, d_ = feature_map.split((m, m + 1), dim=knots_axis)
+            knots_y = to_coord(y_) * ywidth + ylim[0]
+            knots_d = to_deriv(d_)
+
+        elif knots_x is None and knots_y is not None:
+            m = (n - 1) // 2
+            x_, d_ = feature_map.split((m, m + 1), dim=knots_axis)
+            knots_x = to_coord(x_) * xwidth + xlim[0]
+            knots_d = to_deriv(d_)
+
+        else:
+            knots_d = to_deriv(feature_map)
 
     return RQSpline(
         knots_x=knots_x, knots_y=knots_y, knots_d=knots_d,
@@ -218,7 +218,8 @@ class SplineTemplate:
         self, *, knots_x, knots_y, knots_d=None, knots_axis=-1, extrap=None
     ):
 
-        shape = lambda a, b: (a.shape != b.shape and a.ndim > 1 and b.ndim > 1)
+        def shape(a, b):
+            return a.shape != b.shape and a.ndim > 1 and b.ndim > 1
 
         if shape(knots_x, knots_y):
             raise Exception("x & y must have same shape unless one is 1 dim.")
@@ -313,9 +314,15 @@ class SplineTemplate:
         knots_len = knots_x.shape[knots_axis]
         knot_ind = torch.arange(knots_len, device=knots_x.device)
         segm_ind = torch.arange(knots_len - 1, device=knots_x.device)
-        select = lambda z, ind: torch.index_select(z, knots_axis, ind)
-        diff_select = lambda z, ind: select(z, ind[1:]) - select(z, ind[:-1])
-        sum_select = lambda z, ind: select(z, ind[1:]) + select(z, ind[:-1])
+
+        def select(z, ind):
+            return torch.index_select(z, knots_axis, ind)
+
+        def diff_select(z, ind):
+            return select(z, ind[1:]) - select(z, ind[:-1])
+
+        def sum_select(z, ind):
+            return select(z, ind[1:]) + select(z, ind[:-1])
 
         # m is used to denote the slope of segments
         m = diff_select(knots_y, knot_ind) / diff_select(knots_x, knot_ind)
@@ -368,8 +375,13 @@ class Pade22Spline(SplineTemplate):
 
         axis = self.knots_axis
         segm_ind = self.clamp(segm_ind)
-        gather = lambda z, i: torch.gather(z, axis, segm_ind + i)
-        gather_1dim = lambda z, i: z[segm_ind + i]
+
+        def gather(z, i):
+            return torch.gather(z, axis, segm_ind + i)
+
+        def gather_1dim(z, i):
+            return z[segm_ind + i]
+
         gather_x = gather_1dim if self.knots_x.ndim == 1 else gather
         gather_y = gather_1dim if self.knots_y.ndim == 1 else gather
 
@@ -381,7 +393,8 @@ class Pade22Spline(SplineTemplate):
         d1 = gather(self.knots_d, 1)
         m = (y1 - y0)/(x1 - x0)  # average slope of each segment
 
-        squeezer = lambda y: y.squeeze(axis) if squeezed else y
+        def squeezer(y):
+            return y.squeeze(axis) if squeezed else y
 
         def g_0(theta):
             return (y0 + (y1 - y0) * theta * (m * theta + d0 * (1 - theta))
@@ -410,8 +423,13 @@ class Pade22Spline(SplineTemplate):
 
         axis = self.knots_axis
         segm_ind = self.clamp(segm_ind)
-        gather = lambda z, i: torch.gather(z, axis, segm_ind + i)
-        gather_1dim = lambda z, i: z[segm_ind + i]
+
+        def gather(z, i):
+            return torch.gather(z, axis, segm_ind + i)
+
+        def gather_1dim(z, i):
+            return z[segm_ind + i]
+
         gather_x = gather_1dim if self.knots_x.ndim == 1 else gather
         gather_y = gather_1dim if self.knots_y.ndim == 1 else gather
 
@@ -423,7 +441,8 @@ class Pade22Spline(SplineTemplate):
         d1 = gather(self.knots_d, 1)
         m = (y1 - y0)/(x1 - x0)  # average slope of each segment
 
-        squeezer = lambda y: y.squeeze(axis) if squeezed else y
+        def squeezer(y):
+            return y.squeeze(axis) if squeezed else y
 
         def calc_theta(eta):
             # Calculate theta from eta, where
@@ -486,8 +505,12 @@ class Pade11Spline(SplineTemplate):
         knots_len = knots_x.shape[knots_axis]
         knot_ind = torch.arange(knots_len, device=knots_x.device)
         segm_ind = torch.arange(knots_len - 1, device=knots_x.device)
-        select = lambda z, ind: torch.index_select(z, knots_axis, ind)
-        diff_select = lambda z, ind: select(z, ind[1:]) - select(z, ind[:-1])
+
+        def select(z, ind):
+            return torch.index_select(z, knots_axis, ind)
+
+        def diff_select(z, ind):
+            return select(z, ind[1:]) - select(z, ind[:-1])
 
         m = diff_select(knots_y, knot_ind) / diff_select(knots_x, knot_ind)
 
@@ -509,8 +532,13 @@ class Pade11Spline(SplineTemplate):
 
         axis = self.knots_axis
         segm_ind = self.clamp(segm_ind)
-        gather = lambda z, i: torch.gather(z, axis, segm_ind + i)
-        gather_1dim = lambda z, i: z[segm_ind + i]
+
+        def gather(z, i):
+            return torch.gather(z, axis, segm_ind + i)
+
+        def gather_1dim(z, i):
+            return z[segm_ind + i]
+
         gather_x = gather_1dim if self.knots_x.ndim == 1 else gather
         gather_y = gather_1dim if self.knots_y.ndim == 1 else gather
 
@@ -521,7 +549,8 @@ class Pade11Spline(SplineTemplate):
         d0 = gather(self.knots_d, 0)
         m = (y1 - y0)/(x1 - x0)  # average slope of each segment
 
-        squeezer = lambda y: y.squeeze(axis) if squeezed else y
+        def squeezer(y):
+            return y.squeeze(axis) if squeezed else y
 
         def g_0(theta):
             return y0 + (y1 - y0) * d0 * theta / (m + (d0 - m) * theta)
@@ -543,8 +572,13 @@ class Pade11Spline(SplineTemplate):
 
         axis = self.knots_axis
         segm_ind = self.clamp(segm_ind)
-        gather = lambda z, i: torch.gather(z, axis, segm_ind + i)
-        gather_1dim = lambda z, i: z[segm_ind + i]
+
+        def gather(z, i):
+            return torch.gather(z, axis, segm_ind + i)
+
+        def gather_1dim(z, i):
+            return z[segm_ind + i]
+
         gather_x = gather_1dim if self.knots_x.ndim == 1 else gather
         gather_y = gather_1dim if self.knots_y.ndim == 1 else gather
 
@@ -555,7 +589,8 @@ class Pade11Spline(SplineTemplate):
         d0 = gather(self.knots_d, 0)
         m = (y1 - y0)/(x1 - x0)  # average slope of each segment
 
-        squeezer = lambda y: y.squeeze(axis) if squeezed else y
+        def squeezer(y):
+            return y.squeeze(axis) if squeezed else y
 
         def g_1(theta):
             return m**2 * d0 / (m + (d0 - m) * theta)**2
@@ -652,8 +687,12 @@ class AugmentKnots:
         n = x.shape[axis]
 
         ind = torch.tensor([0, n-1], device=x.device)
-        select_0 = lambda z: torch.index_select(z, axis, ind[0])
-        select_1 = lambda z: torch.index_select(z, axis, ind[-1])
+
+        def select_0(z):
+            return torch.index_select(z, axis, ind[0])
+
+        def select_1(z):
+            return torch.index_select(z, axis, ind[-1])
 
         if left == "linear":
             x_fiducial_left = select_0(x) - 1
@@ -685,10 +724,18 @@ class AugmentKnots:
         n = x.shape[axis]
 
         knot_ind = torch.arange(n, device=x.device)
-        select_0 = lambda z: torch.index_select(z, axis, knot_ind[:1])
-        select_1 = lambda z: torch.index_select(z, axis, knot_ind[-1:])
-        select = lambda z, ind: torch.index_select(z, axis, ind)
-        selectflip = lambda z, ind: torch.flip(select(z, ind), [axis])
+
+        def select_0(z):
+            return torch.index_select(z, axis, knot_ind[:1])
+
+        def select_1(z):
+            return torch.index_select(z, axis, knot_ind[-1:])
+
+        def select(z, ind):
+            return torch.index_select(z, axis, ind)
+
+        def selectflip(z, ind):
+            return torch.flip(select(z, ind), [axis])
 
         if left in ["anti", "anti-periodic"]:
             x_fiducial_left = 2 * select_0(x) - selectflip(x, knot_ind[1:])
