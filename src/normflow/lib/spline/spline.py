@@ -1,9 +1,9 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """This module includes splines utilities."""
 
-
 from typing import Optional, Dict, Tuple
+import warnings
 import torch
 import numpy as np
 
@@ -40,27 +40,27 @@ def make_rq_spline_field(
     It is possible to fix the knots x and/or y values. It is also possible to
     use smooth derivatives. Otherwise, everything is extraced from feature_map.
 
-    The following description is valid for the default case `smooth=False`.
+    The number of channels in `feature_map` determines the spline segments and
+    must be the sum of the following number
 
-    The number of channels in `feature_map` should be `3m - 2` unless `knots_x`
-    or `knots_y` is predefined. Here, `m` is the number of knots in the spline.
-    The input `feature_map` is split into three parts:
+        + n_segments       (if knots_x is not given)
+        + n_segments       (if knots_y is not given)
+        + n_segments + 1   (if smooth is False)
 
-    - `(m-1, m-1, m)`, corresponding to `knots_x`, `knots_y`, and `knots_d`
-      when both `knots_x` and `knots_y` are not fixed.
-    - `(m-1, m)`, if one of `knots_x` or `knots_y` is predefined.
-    - No partitioning occurs if both `knots_x` and `knots_y` are fixed.
+    which in one formula is
+
+        `(3 - x_fixed - y_fixed - smooth) * n_segments + 1 - smooth`,
+
+    where `x_fixed/y_fixed` are 1 if `knots_x/knots_y` are passed.
 
     When `knots_x` or `knots_y` are provided, they should have compatible
-    shapes. (see `RQSpline` for more details.)
-    If `knots_x` or `knots_y` are not provided, the function calculates them
-    from the `feature_map` as follows:
+    shapes. If `knots_x` or `knots_y` are not provided, the function calculates
+    them from the `feature_map` as follows:
 
     - The feature map is split along the specified `knots_axis` into
-      three components `(m-1, m-1, m)` (where `m` is the number of knots).
-    - The first part corresponds to `knots_x`, the second part corresponds
-      to `knots_y`, and the third part corresponds to `knots_d` (the
-      derivative of the spline).
+      three components `(m, m, m + 1)` (where `m` is the number of segments).
+    - The first and second parts correspond to `knots_x` and `knots_y` and
+      the third part corresponds to `knots_d` (the derivative of the spline).
     - The `knots_x` and `knots_y` values are computed using a **softmax**
       operation to ensure that the knots are distributed progressively along
       the specified range.
@@ -147,6 +147,12 @@ def make_rq_spline_field(
 
     elif smooth and knots_x is None and knots_y is not None:
         knots_x = to_coord(feature_map) * xwidth + xlim[0]
+        knots_d = None
+
+    elif smooth and knots_x is not None and knots_y is not None:
+        warnings.warn(
+            "feature_map is totally ignored as nothing is left to be extracted"
+        )
         knots_d = None
 
     elif knots_x is None and knots_y is None:
@@ -243,6 +249,7 @@ class SplineTemplate:
 
     @property
     def knots_shape(self):
+        """Broadcasted shape of the knots, inferred from x, y, and d."""
         xdim = self.knots_x.ndim
         ydim = self.knots_y.ndim
         ddim = self.knots_d.ndim if self.knots_d is not None else 0
@@ -342,6 +349,7 @@ class SplineTemplate:
             return torch.movedim(view_ind, -1, axis)
 
     def clamp(self, x):
+        """Clamp segment indices to the valid range [0, segm_len - 1]."""
         return torch.clamp(x, min=1, max=self.segm_len) - 1
 
 
@@ -625,6 +633,7 @@ class AugmentKnots:
             self.knots_d = self.knots_d.reshape(-1)
 
     def perform_bc(self, left, right):
+        """Apply the requested left/right boundary conditions to the knots."""
 
         if left is None and right is None:
             return
@@ -636,6 +645,8 @@ class AugmentKnots:
         self.takecare_rest(left, right)
 
     def takecare_linear(self, left, right):
+        """Add a fiducial knot for 'linear' extrapolation on each requested
+        side."""
         axis = self.knots_axis
         x, y, d = self.knots_x, self.knots_y, self.knots_d
         n = x.shape[axis]
@@ -667,6 +678,8 @@ class AugmentKnots:
         self.knots_d = self.cat([d_fiducial_left, d, d_fiducial_right], axis)
 
     def takecare_rest(self, left, right):
+        """Add fiducial knots for periodic/anti-periodic boundary
+        conditions."""
         axis = self.knots_axis
         x, y, d = self.knots_x, self.knots_y, self.knots_d
         n = x.shape[axis]
@@ -715,17 +728,20 @@ class AugmentKnots:
 
     @staticmethod
     def cat(catlist, axis):
-        # drops the items that are `None`, and then concatenates the rest
-        # if there are more than one non-`None` elements in catlist,
-        # otherwise returns the one non-`None` element.
+        """Drop `None` items and concatenate the rest (or return the lone
+        non-`None` item, if only one remains)."""
         catlist = [t for t in catlist if t is not None]
         return torch.cat(catlist, axis) if len(catlist) > 1 else catlist[0]
 
 
 # =============================================================================
 def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
-    # To test the periodic boundary condition, you can e.g. write
-    # test_pade22(extrap=dict(left='periodic'), knots_d=torch.zeros(5, 4))
+    """Manual/visual check: plot Pade22Spline (and, if `test_pade11`,
+    Pade11Spline too) against random knots.
+
+    To test the periodic boundary condition, you can e.g. write
+    test_pade22(extrap=dict(left='periodic'), knots_d=torch.zeros(5, 4))
+    """
 
     spline_kwargs = dict(extrap={'left': 'anti', 'right': 'linear'})
     spline_kwargs.update(kwargs)
