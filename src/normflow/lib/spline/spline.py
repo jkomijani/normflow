@@ -2,6 +2,10 @@
 
 """This module includes splines utilities."""
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+# pylint: disable=too-many-locals
+
+from abc import ABC, abstractmethod
 from typing import Optional, Dict, Tuple
 import warnings
 import torch
@@ -184,7 +188,7 @@ def make_rq_spline_field(
 
 
 # =============================================================================
-class SplineTemplate:
+class SplineTemplate(ABC):
     """Interpolate data with a piecewise function.
 
     Parameters
@@ -222,14 +226,14 @@ class SplineTemplate:
             return a.shape != b.shape and a.ndim > 1 and b.ndim > 1
 
         if shape(knots_x, knots_y):
-            raise Exception("x & y must have same shape unless one is 1 dim.")
+            raise ValueError("x & y must have same shape unless one is 1 dim.")
 
         if knots_d is None:
             # NOT supported if knots_x.shape != knots_y.shape
             knots_d = self.smooth_derivatives(knots_x, knots_y, knots_axis)
 
         if shape(knots_d, knots_x) or shape(knots_d, knots_y):
-            raise Exception("shape conflict between d, x, and y.")
+            raise ValueError("shape conflict between d, x, and y.")
 
         if extrap is None:
             extrap = {}
@@ -292,7 +296,7 @@ class SplineTemplate:
         """
         x = x.unsqueeze(self.knots_axis) if squeezed else x
         segments_ind = self.searchsorted(self.knots_x, x, self.knots_axis)
-        kwargs = dict(squeezed=squeezed, grad=grad)
+        kwargs = {"squeezed": squeezed, "grad": grad}
         func = self._calc_segment_func(segments_ind, **kwargs)
         return func(x)
 
@@ -300,9 +304,17 @@ class SplineTemplate:
         """Inverse of the forward method."""
         y = y.unsqueeze(self.knots_axis) if squeezed else y
         segments_ind = self.searchsorted(self.knots_y, y, self.knots_axis)
-        kwargs = dict(squeezed=squeezed, grad=grad)
+        kwargs = {"squeezed": squeezed, "grad": grad}
         inv_func = self._calc_segment_inv_func(segments_ind, **kwargs)
         return inv_func(y)
+
+    @abstractmethod
+    def _calc_segment_func(self, segm_ind, squeezed=False, grad=False):
+        """Return a callable evaluating the spline on segments `segm_ind`."""
+
+    @abstractmethod
+    def _calc_segment_inv_func(self, segm_ind, squeezed=False, grad=False):
+        """Return a callable evaluating the spline inverse on `segm_ind`."""
 
     @staticmethod
     def smooth_derivatives(knots_x, knots_y, knots_axis, bc_type='not-ones'):
@@ -344,16 +356,15 @@ class SplineTemplate:
         if x_sorted.ndim == 1:
             return torch.searchsorted(x_sorted, x.ravel()).reshape(x.shape)
 
-        elif (axis == -1) or (axis == x.dim() - 1):
+        if axis in (-1, x.dim() - 1):
             return torch.searchsorted(x_sorted, x)
 
-        else:
-            view_x_sorted = torch.movedim(x_sorted, axis, -1)
-            view_x = torch.movedim(x, axis, -1)
-            view_ind = torch.searchsorted(
-                view_x_sorted.contiguous(), view_x.contiguous()
-            )
-            return torch.movedim(view_ind, -1, axis)
+        view_x_sorted = torch.movedim(x_sorted, axis, -1)
+        view_x = torch.movedim(x, axis, -1)
+        view_ind = torch.searchsorted(
+            view_x_sorted.contiguous(), view_x.contiguous()
+        )
+        return torch.movedim(view_ind, -1, axis)
 
     def clamp(self, x):
         """Clamp segment indices to the valid range [0, segm_len - 1]."""
@@ -410,8 +421,7 @@ class Pade22Spline(SplineTemplate):
             theta = (x - x0)/(x1 - x0)
             if grad:
                 return squeezer(g_0(theta)), squeezer(g_1(theta))
-            else:
-                return squeezer(g_0(theta))
+            return squeezer(g_0(theta))
 
         return func
 
@@ -486,8 +496,7 @@ class Pade22Spline(SplineTemplate):
             x = x0 + (x1 - x0) * theta
             if grad:
                 return squeezer(x), squeezer(1 / g_1(theta))
-            else:
-                return squeezer(x)
+            return squeezer(x)
 
         return inv_func
 
@@ -504,7 +513,6 @@ class Pade11Spline(SplineTemplate):
 
         knots_len = knots_x.shape[knots_axis]
         knot_ind = torch.arange(knots_len, device=knots_x.device)
-        segm_ind = torch.arange(knots_len - 1, device=knots_x.device)
 
         def select(z, ind):
             return torch.index_select(z, knots_axis, ind)
@@ -521,7 +529,7 @@ class Pade11Spline(SplineTemplate):
                 dim=knots_axis
             ).unsqueeze(knots_axis) * 0 + 1
         else:
-            raise Exception("bc_type is not know")
+            raise ValueError("bc_type is not know")
         d_list = [d0]
         for k in range(knots_len - 1):
             d_list.append(select(m, knot_ind[k])**2 / d_list[-1])
@@ -562,8 +570,7 @@ class Pade11Spline(SplineTemplate):
             theta = (x - x0)/(x1 - x0)
             if grad:
                 return squeezer(g_0(theta)), squeezer(g_1(theta))
-            else:
-                return squeezer(g_0(theta))
+            return squeezer(g_0(theta))
 
         return func
 
@@ -601,8 +608,7 @@ class Pade11Spline(SplineTemplate):
             x = x0 + (x1 - x0) * theta
             if grad:
                 return squeezer(x), squeezer(1/g_1(theta))
-            else:
-                return squeezer(x)
+            return squeezer(x)
 
         return inv_func
 
@@ -612,6 +618,9 @@ RLSpline = Pade11Spline  # alias: Rational Linear Spline
 
 
 class AugmentKnots:
+    """Add fiducial (out-of-range) knots to a spline's knots to realize the
+    requested left/right boundary/extrapolation condition; see `__call__`.
+    """
 
     def __init__(self, knots_x, knots_y, knots_d, knots_axis):
 
@@ -619,11 +628,13 @@ class AugmentKnots:
         self.knots_y = knots_y
         self.knots_d = knots_d
         self.knots_axis = knots_axis
-        self.ndim_dict = dict(
-                x=self.knots_x.ndim,
-                y=self.knots_y.ndim,
-                d=self.knots_d.ndim
-                )
+        self.left = None
+        self.right = None
+        self.ndim_dict = {
+            'x': self.knots_x.ndim,
+            'y': self.knots_y.ndim,
+            'd': self.knots_d.ndim,
+        }
 
     def __call__(self, left=None, right=None):
         """
@@ -672,7 +683,7 @@ class AugmentKnots:
 
         if left is None and right is None:
             return
-        elif (left == 'linear') or (right == 'linear'):
+        if (left == 'linear') or (right == 'linear'):
             self.takecare_linear(left, right)
             if left is None or right is None:
                 # (left, right) are (None, 'linear') or ('linear', None)
@@ -744,7 +755,9 @@ class AugmentKnots:
         elif left == "periodic":
             # first check if derivative @ boundary is zero
             if not sum(torch.index_select(d, axis, knot_ind[:1]) == 0):
-                raise Exception("Oops: derivative at periodic bc must be 0.")
+                raise ValueError(
+                    "Oops: derivative at periodic bc must be 0."
+                )
             x_fiducial_left = 2 * select_0(x) - selectflip(x, knot_ind[1:])
             y_fiducial_left = selectflip(y, knot_ind[1:])
             d_fiducial_left = - selectflip(d, knot_ind[1:])
@@ -760,7 +773,9 @@ class AugmentKnots:
         elif right == "periodic":
             # first check if derivative @ boundary is zero
             if not sum(torch.index_select(d, axis, knot_ind[-1:]) == 0):
-                raise Exception("Oops: derivative at periodic bc must be 0.")
+                raise ValueError(
+                    "Oops: derivative at periodic bc must be 0."
+                )
             x_fiducial_right = 2 * select_1(x) - selectflip(x, knot_ind[:-1])
             y_fiducial_right = selectflip(y, knot_ind[:-1])
             d_fiducial_right = - selectflip(d, knot_ind[:-1])
@@ -790,7 +805,7 @@ def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
     test_pade22(extrap=dict(left='periodic'), knots_d=torch.zeros(5, 4))
     """
 
-    spline_kwargs = dict(extrap={'left': 'anti', 'right': 'linear'})
+    spline_kwargs = {'extrap': {'left': 'anti', 'right': 'linear'}}
     spline_kwargs.update(kwargs)
 
     knots_x = torch.sort(torch.rand((5, knots_len))).values
@@ -801,10 +816,10 @@ def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
         {'knots_x': knots_x, 'knots_y': knots_y, 'knots_d': knots_d}
     )
     x = torch.sort(torch.rand((5, 1000))).values * 2 - 0.5
-    spline = Pade22Spline(**spline_kwargs)
+    spline = Pade22Spline(**spline_kwargs)  # pylint: disable=missing-kwoa
     y = spline(x)
 
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt  # pylint: disable=import-outside-toplevel
     color = ['b', 'r', 'g', 'm', 'c']
     for n in range(5):
         plt.plot(x.to('cpu')[n], y.to('cpu')[n], color=color[n])
@@ -814,7 +829,7 @@ def test_pade22(knots_len=4, test_pade11=False, smooth=True, **kwargs):
         )
 
     if test_pade11:
-        y = Pade11Spline(**spline_kwargs)(x)
+        y = Pade11Spline(**spline_kwargs)(x)  # pylint: disable=missing-kwoa
         for n in range(5):
             plt.plot(x[n].to('cpu'), y[n].to('cpu'), ':', color=color[n])
 
