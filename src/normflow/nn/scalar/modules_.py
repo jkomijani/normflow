@@ -32,6 +32,10 @@ from .._core import Module_, ModuleList_
 __all__ = [
     "Identity_",
     "Clone_",
+    "Tanh_",
+    "ArcTanh_",
+    "Expit_",
+    "Logit_",
     "SoftSqrt_",
     "Affine_",
     "Pade11_",
@@ -93,7 +97,9 @@ class Tanh_(Module_):
         return torch.tanh(x), log0 + logj
 
     def reverse(self, x, log0=0):
-        return ArcTanh_().forward(x, log0)
+        y = torch.atanh(x)
+        logj = 2 * self.sum_density(torch.log(torch.cosh(y)))
+        return y, log0 + logj
 
 
 class ArcTanh_(Module_):
@@ -110,7 +116,8 @@ class ArcTanh_(Module_):
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
-        return Tanh_().forward(x, log0)
+        logj = -2 * self.sum_density(torch.log(torch.cosh(x)))
+        return torch.tanh(x), log0 + logj
 
 
 class Expit_(Module_):
@@ -127,7 +134,9 @@ class Expit_(Module_):
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
-        return Logit_().forward(x, log0)
+        y = torch.log(x / (1 - x))
+        logj = -self.sum_density(torch.log(x * (1 - x)))
+        return y, log0 + logj
 
 
 class Logit_(Module_):
@@ -145,7 +154,9 @@ class Logit_(Module_):
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
-        return Expit_().forward(x, log0)
+        y = 1 / (1 + torch.exp(-x))
+        logj = self.sum_density(-x + 2 * torch.log(y))
+        return y, log0 + logj
 
 
 class SoftSqrt_(Module_):
