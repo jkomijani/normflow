@@ -21,7 +21,7 @@ def main(
     lat_shape: tuple = (1,),  # 1 dof: zero dimensional lattice
     n_epochs: int = 1000,
     batch_size: int = 1024,
-    num_spline_knots: int = 10,
+    num_spline_segments: int = 10,
     load_fname: str = None,
     save_fname: str = None,
     debug: bool = False
@@ -39,7 +39,7 @@ def main(
         lat_shape: Shape of the lattice (single site for 1 dof).
         n_epochs: Number of training epochs.
         batch_size: Training batch size.
-        num_spline_knots: Number of RQS knots in `make_real_line_rqs`.
+        num_spline_segments: Number of RQS segments in `make_real_line_rqs`.
         load_fname: Path to load a checkpoint before training.
         save_fname: Path to save a checkpoint after training.
         debug: If True, sets a fixed random seed for reproducibility.
@@ -51,7 +51,7 @@ def main(
     if debug:
         torch.manual_seed(42)
 
-    net_ = make_real_line_rqs(num_spline_knots, symmetric=True)
+    net_ = make_real_line_rqs(num_spline_segments, symmetric=True)
     action = ScalarPhi4Action(kappa=0, m_sq=m_sq, lambd=lambd)
     prior = NormalPrior(shape=lat_shape)
 
@@ -81,7 +81,7 @@ if __name__ == '__main__':
     add("--lat_shape", type=int, nargs='+')
     add("--m_sq", type=float)
     add("--lambd", type=float)
-    add("--num_spline_knots", type=int)
+    add("--num_spline_segments", type=int)
     add("--n_epochs", type=int)
     add("--batch_size", type=int)
     add("--load_fname", type=str)

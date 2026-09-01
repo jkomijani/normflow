@@ -133,7 +133,7 @@ def assemble_net(
     lat_shape: tuple,
     n_c: int,
     n_layers: int = 1,
-    num_spline_knots: int = 5,
+    num_spline_segments: int = 4,
     add_dual_param_net: bool = False,
     add_eigvecs_net: bool = False,
     dual_net_hidden_sizes: tuple = (8, 8),
@@ -151,7 +151,7 @@ def assemble_net(
     def make_gauge_slink_module_(mu, parity, suppress_flag=False):
         """Build and return an instance of GaugeSLinkModule_"""
         mask = EvenOddMask(shape=mask_shape, parity=parity, exclude_mu=mu)
-        param_net_ = build_param_net(n_c, mask, num_spline_knots)
+        param_net_ = build_param_net(n_c, mask, num_spline_segments)
 
         if add_dual_param_net and not suppress_flag:
             dual_param_net_ = build_dual_param_net(
@@ -188,7 +188,7 @@ def assemble_net(
         mask = FourWayParityMask(
             shape=mask_shape, mask_id=mask_id, zebra_mu=mu
         )
-        param_net_ = build_param_net(n_c, mask, num_spline_knots)
+        param_net_ = build_param_net(n_c, mask, num_spline_segments)
 
         q_transform_ = SpectralStateTransform_(matrix_handle, param_net_)
 
@@ -227,7 +227,7 @@ def assemble_net(
 
 
 # =============================================================================
-def build_param_net(n_c, mask, num_spline_knots):
+def build_param_net(n_c, mask, num_spline_segments):
     """
     Build a masked parameter network based on Pade22 (RQ) splines.
 
@@ -236,7 +236,7 @@ def build_param_net(n_c, mask, num_spline_knots):
     Args:
         n_c (int): Number of colors.
         mask: Visibility mask for the wrapper module.
-        num_spline_knots (int):  Number of knots in the Pade22 splines.
+        num_spline_segments (int):  Number of segments in the Pade22 splines.
 
     Returns:
         Module: Masked parameter network with:
@@ -244,24 +244,24 @@ def build_param_net(n_c, mask, num_spline_knots):
         - n_c == 2 (SU(2)): one angle (θ) → one RQ spline
         - n_c == 3 (SU(3)): two angles (θ, φ) → two-channel RQ spline
     """
-    # Use a simple Pade22_ if num spline knots is 2 (or less!)
-    if num_spline_knots <= 2:
+    # Use a simple Pade22_ if num spline segments is 2 (or less!)
+    if num_spline_segments <= 2:
         n_channels = max(1, n_c - 1)  # channels ~ independent angles
         net_ = Pade22_(n_channels=n_channels, channels_axis=-1)
         return InvisibilityMaskWrapperModule_(net_, mask=mask)
 
     # n_c == 1 & 2, i.e. U(1) & SU(2): a single θ
     if n_c < 3:
-        net_ = RQSplineNet_(num_spline_knots)
+        net_ = RQSplineNet_(num_spline_segments)
         return InvisibilityMaskWrapperModule_(net_, mask=mask)
 
     # n_c == 3, i.e. SU(3): two angles (θ, φ) → two spline channels
     if n_c == 3:
         par0_net_ = InvisibilityMaskWrapperModule_(
-            RQSplineNet_(num_spline_knots), mask=mask
+            RQSplineNet_(num_spline_segments), mask=mask
         )
         par1_net_ = InvisibilityMaskWrapperModule_(
-            RQSplineNet_((1+num_spline_knots) // 2, symmetric=True), mask=mask
+            RQSplineNet_(num_spline_segments // 2, symmetric=True), mask=mask
         )
         # combine channels and return
         return MultiChannelModule_([par0_net_, par1_net_], channels_axis=-1)
@@ -394,7 +394,7 @@ if __name__ == '__main__':
     add("--batch_size", type=int)
     add("--n_epochs", type=int)
     add("--n_layers", type=int)
-    add("--num_spline_knots", type=int)
+    add("--num_spline_segments", type=int)
     add("--add_triv_map", type=bool)
     add("--path_gradient_autodiff", type=bool)
     add("--lr", type=float)

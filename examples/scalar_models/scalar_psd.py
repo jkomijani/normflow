@@ -118,8 +118,8 @@ def main(
 def assemble_net(
     lat_shape: Tuple[int, ...],
     meanfield_n_layers: int = 4,
-    num_spline_knots1: int = 10,
-    num_spline_knots2: int = 50,
+    num_spline_segments1: int = 10,
+    num_spline_segments2: int = 50,
 ):
     """
     Assemble a modular neural network for lattice data as a `ModuleList_`.
@@ -131,8 +131,8 @@ def assemble_net(
     Args:
         lat_shape: Shape of the lattice input.
         meanfield_n_layers: Number of layers in the PSD block's mean-field.
-        num_spline_knots1: Number of spline knots in the PSD block.
-        num_spline_knots2: For `make_real_line_rqs` (output activation).
+        num_spline_segments1: Number of spline segments in the PSD block.
+        num_spline_segments2: For `make_real_line_rqs` (output activation).
 
     Returns:
         ModuleList_: List of modules forming the complete lattice network.
@@ -141,11 +141,11 @@ def assemble_net(
     psd_block_ = make_psd_block(
         lat_shape,
         meanfield_n_layers=meanfield_n_layers,
-        ipsd_num_spline_knots=num_spline_knots1,
+        ipsd_num_spline_segments=num_spline_segments1,
     )
 
     # 2. Elementwise make_real_line_rqs (dc_: Distribution Converter)
-    dc_ = make_real_line_rqs(num_spline_knots2, symmetric=True, smooth=True)
+    dc_ = make_real_line_rqs(num_spline_segments2, symmetric=True, smooth=True)
 
     return ModuleList_([psd_block_, dc_])
 
@@ -163,8 +163,8 @@ if __name__ == '__main__':
     add("--kappa", type=float)
     # Architecture setup
     add("--meanfield_n_layers", type=int)
-    add("--num_spline_knots1", type=int)
-    add("--num_spline_knots2", type=int)
+    add("--num_spline_segments1", type=int)
+    add("--num_spline_segments2", type=int)
     # Training setup
     add("--batch_size", type=int)
     add("--lr", type=float)

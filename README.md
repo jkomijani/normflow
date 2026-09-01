@@ -60,7 +60,7 @@ def make_model():
     action = ScalarPhi4Action(kappa=0, m_sq=-2.0, lambd=0.2)
 
     # Initialize the neural network for transformations
-    network_fn_ = make_real_line_rqs(num_spline_knots=10, symmetric=True)
+    network_fn_ = make_real_line_rqs(n_segments=10, symmetric=True)
 
     # Create the Model with the defined components
     model = Model(network_fn_=network_fn_, prior=prior, action=action)
@@ -96,10 +96,10 @@ In this example, we have:
 -   **Action**: A quartic scalar theory is defined with parameters `kappa=0`,
     `m_sq=-2.0`, and `lambda=0.2`.
 
--   **Neural Network**: `make_real_line_rqs` composes `Expit_`, a rational
-    quadratic (RQ) spline, and `Logit_` in sequence: `Expit_` maps the
-    unbounded reals to (0, 1), a 10-knot RQ spline reparameterizes it, and
-    `Logit_` maps back -- this composition is what lets the spline cover
+-   **Neural Network**: `make_real_line_rqs` composes `expit()`, a rational
+    quadratic (RQ) spline, and `logit()` in sequence: `expit()` maps the
+    unbounded reals to (0, 1), a 10-segment RQ spline reparameterizes it,
+    and `logit()` maps back -- this composition is what lets the spline cover
     the whole real line.
     `symmetric=True` assumes the distribution is symmetric about the origin.
 

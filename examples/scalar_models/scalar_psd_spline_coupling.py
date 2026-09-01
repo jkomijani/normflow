@@ -144,9 +144,9 @@ def assemble_net(
     zee2sym: bool = True,
     acts: Tuple[torch.nn.Module, ...] | None = None,
     meanfield_n_layers: int = 4,
-    num_spline_knots1: int = 10,
-    num_spline_knots2: int = 50,
-    num_spline_knots3: int = 50
+    num_spline_segments1: int = 10,
+    num_spline_segments2: int = 50,
+    num_spline_segments3: int = 50
 ):
     """
     Assemble a modular neural network for lattice data as a `ModuleList_`.
@@ -165,10 +165,10 @@ def assemble_net(
         acts: Optional activations for ConvBlocks; defaults to Tanh (Z2) or
             LeakyReLU.
         meanfield_n_layers: Number of layers in the PSD block's mean-field.
-        num_spline_knots1: Number of spline knots in the PSD block.
-        num_spline_knots2: For first `make_real_line_rqs` (intermediate
+        num_spline_segments1: Number of spline segments in the PSD block.
+        num_spline_segments2: For first `make_real_line_rqs` (intermediate
             activation).
-        num_spline_knots3: For final `make_real_line_rqs` (output
+        num_spline_segments3: For final `make_real_line_rqs` (output
             activation).
 
     Returns:
@@ -179,16 +179,16 @@ def assemble_net(
     psd_block_ = make_psd_block(
         lat_shape,
         meanfield_n_layers=meanfield_n_layers,
-        ipsd_num_spline_knots=num_spline_knots1,
+        ipsd_num_spline_segments=num_spline_segments1,
     )
 
     nets_list = [psd_block_]
 
     # 2. include (possible) activation
-    if num_spline_knots2 > 1:
+    if num_spline_segments2 > 1:
         nets_list.append(
             make_real_line_rqs(
-                num_spline_knots2, symmetric=zee2sym, smooth=True
+                num_spline_segments2, symmetric=zee2sym, smooth=True
             )
         )
 
@@ -227,10 +227,10 @@ def assemble_net(
     )
 
     # 4. include (possible) activation
-    if num_spline_knots3 > 1:
+    if num_spline_segments3 > 1:
         nets_list.append(
             make_real_line_rqs(
-                num_spline_knots3, symmetric=zee2sym, smooth=True
+                num_spline_segments3, symmetric=zee2sym, smooth=True
             )
         )
 
@@ -251,9 +251,9 @@ if __name__ == '__main__':
     # Architecture setup
     add("--n_layers", type=int)
     add("--meanfield_n_layers", type=int)
-    add("--num_spline_knots1", type=int)
-    add("--num_spline_knots2", type=int)
-    add("--num_spline_knots3", type=int)
+    add("--num_spline_segments1", type=int)
+    add("--num_spline_segments2", type=int)
+    add("--num_spline_segments3", type=int)
     add("--zee2sym", type=bool)
     add("--hidden_sizes", type=int, nargs='+')
     # Training setup

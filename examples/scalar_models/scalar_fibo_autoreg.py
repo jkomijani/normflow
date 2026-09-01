@@ -156,7 +156,7 @@ def assemble_net(lat_shape, include_psd_block=False, **kwargs):
         return assemble_fibo_autoreg_module(lat_shape, **kwargs)
 
     psd_block_ = make_psd_block(
-        lat_shape, meanfield_n_layers=4, ipsd_num_spline_knots=10
+        lat_shape, meanfield_n_layers=4, ipsd_num_spline_segments=10
     )
 
     fibo_block_ = assemble_fibo_autoreg_module(lat_shape, **kwargs)
@@ -167,7 +167,7 @@ def assemble_net(lat_shape, include_psd_block=False, **kwargs):
 # =============================================================================
 def assemble_fibo_autoreg_module(
     lat_shape: Tuple[int],
-    num_spline_knots=10,
+    num_spline_segments=10,
     hidden_sizes: Tuple[int] = (8,)
 ):
     """
@@ -207,7 +207,7 @@ def assemble_fibo_autoreg_module(
 
     for ind, (_, _, _, a_shape, _) in enumerate(metadata_list):
         if ind == 0:
-            nets_[0] = make_real_line_rqs(num_spline_knots)
+            nets_[0] = make_real_line_rqs(num_spline_segments)
         else:
             nets1 = [ConvBlock(**conv_kwargs) for _ in range(4)]
             nets2 = [ConvBlock(**conv_kwargs) for _ in range(4)]
@@ -245,9 +245,9 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
     nets2 : Tuple[Module, ...]
         Networks for the second affine coupling layer. These act only
         on the transformed active variables, using an even/odd mask.
-    num_spline_knots : int, optional
-        Number of knots in the `make_real_line_rqs` spline that operates on
-        the transformed active variables. Default is 10.
+    num_spline_segments : int, optional
+        Number of segments in the `make_real_line_rqs` spline that operates
+        on the transformed active variables. Default is 10.
 
     Notes
     -----
@@ -260,12 +260,12 @@ class AutoRegSubmodule_(Module_):  # pylint: disable=invalid-name
       the final active variables.
     """
 
-    def __init__(self, nets1, nets2, shape, num_spline_knots=10):
+    def __init__(self, nets1, nets2, shape, num_spline_segments=10):
         super().__init__()
 
         # dc_: Distribution Converter -- smooth converter for the
         # transformed active variables
-        self.dc_ = make_real_line_rqs(num_spline_knots, smooth=True)
+        self.dc_ = make_real_line_rqs(num_spline_segments, smooth=True)
 
         # First affine coupling: conditioned on both active + frozen variables
         mask1 = ListPartitioner()
@@ -357,7 +357,7 @@ if __name__ == '__main__':
     add("--lambd", type=float)
     add("--kappa", type=float)
     # Architecture setup
-    add("--num_spline_knots", type=int)
+    add("--num_spline_segments", type=int)
     add("--hidden_sizes", type=int, nargs='+')
     # Training setup
     add("--batch_size", type=int)

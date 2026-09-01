@@ -29,10 +29,10 @@ from normflow.lib.matrix_handles import (
 def main(
     n_c: int = 3,
     beta: float = 6,
-    num_spline_knots: int = 2,
+    num_spline_segments: int = 1,
     n_epochs: int = 1000,
     batch_size: int = 128,
-    lr: float = 0.1,
+    lr: float = 0.05,
     log_name: str = None,
     load_fname: str = None,
     save_fname: str = None
@@ -46,7 +46,7 @@ def main(
     action = MatrixAction(beta=beta)
 
     # Initialize the neural network for transformations
-    net_ = assemble_net(n_c, num_spline_knots)
+    net_ = assemble_net(n_c, num_spline_segments)
 
     # Create the Model with the defined components
     model = Model(network_fn_=net_, prior=prior, action=action)
@@ -70,7 +70,7 @@ def main(
 
 
 # =============================================================================
-def assemble_net(n_c: int, num_spline_knots: int):
+def assemble_net(n_c: int, num_spline_segments: int):
     """
     Build a network based on Pade22 (RQ) splines.
 
@@ -81,16 +81,16 @@ def assemble_net(n_c: int, num_spline_knots: int):
     """
     assert 1 < n_c < 4
 
-    # Use a simple Pade22_ if num spline knots is 2 (or less!)
-    if num_spline_knots <= 2:
+    # Use a simple Pade22_ if num spline segments is 1 (or less!)
+    if num_spline_segments < 2:
         param_net_ = Pade22_(n_channels=n_c - 1, channels_axis=-1)
 
     elif n_c == 2:
-        param_net_ = RQSplineNet_(num_spline_knots)
+        param_net_ = RQSplineNet_(num_spline_segments)
 
     else:
-        net0_ = RQSplineNet_(num_spline_knots)
-        net1_ = RQSplineNet_((1+num_spline_knots) // 2, symmetric=True)
+        net0_ = RQSplineNet_(num_spline_segments)
+        net1_ = RQSplineNet_(num_spline_segments // 2, symmetric=True)
         param_net_ = MultiChannelModule_([net0_, net1_], channels_axis=-1)
 
     if n_c == 2:
@@ -117,7 +117,7 @@ if __name__ == '__main__':
     add("--n_c", type=str)
     add("--batch_size", type=int)
     add("--n_epochs", type=int)
-    add("--num_spline_knots", type=int)
+    add("--num_spline_segments", type=int)
     add("--lr", type=float)
     add("--log_name", type=str)
     add("--load_fname", type=str)
