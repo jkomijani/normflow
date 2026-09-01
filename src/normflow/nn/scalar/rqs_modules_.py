@@ -34,14 +34,23 @@ class RQSplineContextModule_(Module_):
     positions are either learned through the chosen `feature_map_fn`, or fixed
     if `knots_x` and/or `knots_y` are provided.
 
-    The provided function `feature_map_fn` generates a feature map that is used
-    to determine the coordinates of the intermediate knots (if not fixed), via
-    a softmax, and derivatives at the knots (if `smooth=True`), via a softplus.
+    The provided function `feature_map_fn` generates a feature map that is
+    used to determine the coordinates of the intermediate knots (if not
+    fixed), via a softmax, and derivatives at the knots (if `smooth=False`),
+    via a softplus.
 
-    Note that to represent n knots (i.e., n-1 spline segments), the feature map
-    must produce `2 (n–1) + n` features in total: (n–1) for the x-coordinates,
-    (n–1) for the y-coordinates, and n for the derivatives. This number is
-    reduced when `knots_x` or `knots_y` are provided, or when `smooth=True`.
+    The feature map's required size for `n_segments` spline segments is the sum
+    of the following number
+
+        + n_segments       (if knots_x is not given)
+        + n_segments       (if knots_y is not given)
+        + n_segments + 1   (if smooth is False)
+
+    which in one formula is
+
+        `(3 - x_fixed - y_fixed - smooth) * n_segments + 1 - smooth`,
+
+    where `x_fixed/y_fixed` are 1 if `knots_x/knots_y` are passed.
 
     When `xlim=(0, 1)` and `ylim=(0, 1)`, the transformation becomes a smooth
     bijection from [0, 1] to [0, 1], making it suitable for normalizing flows
@@ -59,7 +68,7 @@ class RQSplineContextModule_(Module_):
     knots_axis : int, optional
         Axis index used for interpreting the feature-map output. Default: -1.
     smooth : bool, optional
-        If True, enforce smooth derivatives across knots. Default: True.
+        If True, enforce smooth derivatives across knots. Default: False.
     extrap : dict, optional
         Extrapolation behavior outside the domain.
     symmetric : bool, optional
@@ -79,7 +88,7 @@ class RQSplineContextModule_(Module_):
         knots_x: torch.Tensor = None,
         knots_y: torch.Tensor = None,
         knots_axis: int = -1,
-        smooth: bool = True,
+        smooth: bool = False,
         extrap: Dict = None,
         symmetric: bool = False,
     ):

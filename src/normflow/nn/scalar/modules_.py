@@ -705,8 +705,8 @@ class RQSplineNet_(SplineNet_):
 
     Parameters
     ----------
-    n_knots : int
-        Number of knots in the spline; see `SplineNet`.
+    n_segments : int
+        Number of spline segments; see `SplineNet`.
     symmetric : bool, optional
         If True, only parameterizes the spline on `xlim=(0.5, 1)`,
         `ylim=(0.5, 1)`, with an anti-periodic boundary condition
@@ -719,7 +719,7 @@ class RQSplineNet_(SplineNet_):
         `smooth`).
     """
 
-    def __init__(self, n_knots: int, symmetric: bool = False, **kwargs):
+    def __init__(self, n_segments: int, symmetric: bool = False, **kwargs):
 
         extra = {}
         if symmetric:
@@ -727,7 +727,7 @@ class RQSplineNet_(SplineNet_):
                 'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
             }
 
-        super().__init__(n_knots, Spline=RQSpline, **kwargs, **extra)
+        super().__init__(n_segments, Spline=RQSpline, **kwargs, **extra)
 
 
 class UnityDistConvertor_(RQSplineNet_):
@@ -737,7 +737,12 @@ class UnityDistConvertor_(RQSplineNet_):
         Kept only for backward compatibility and will be removed in a
         future version. Use `RQSplineNet_` directly (its defaults are
         already `xlim=(0, 1)`, `ylim=(0, 1)`).
+
+    Unlike `RQSplineNet_`, this class keeps the old API: its argument
+    is a knot count, not a segment count (`n_segments = n_knots - 1`).
     """
+    def __init__(self, n_knots: int, smooth: bool = False, **kwargs):
+        super().__init__(n_knots - 1, smooth=smooth, **kwargs)
 
 
 class RealLineRQSplineNet_(ModuleList_):
@@ -748,7 +753,7 @@ class RealLineRQSplineNet_(ModuleList_):
 
     Parameters
     ----------
-    n_knots : int
+    n_segments : int
         Forwarded to `RQSplineNet_`.
     unbounded_domain : bool, optional
         If True (default), the input is on the whole real line, reached by
@@ -768,7 +773,7 @@ class RealLineRQSplineNet_(ModuleList_):
 
     def __init__(
         self,
-        n_knots: int,
+        n_segments: int,
         unbounded_domain: bool = True,
         unbounded_range: bool = True,
         output_scale: bool = False,
@@ -779,7 +784,7 @@ class RealLineRQSplineNet_(ModuleList_):
         if unbounded_domain:
             nets_.append(Expit_())
 
-        nets_.append(RQSplineNet_(n_knots, **kwargs))
+        nets_.append(RQSplineNet_(n_segments, **kwargs))
 
         if unbounded_range:
             nets_.append(Logit_())
@@ -797,11 +802,35 @@ class RealLineRQSplineNet_(ModuleList_):
         return self[1 if self.unbounded_domain else 0]
 
 
-DistConvertor_ = RealLineRQSplineNet_  # deprecated alias
+class DistConvertor_(RealLineRQSplineNet_):
+    """
+    .. deprecated::
+        Kept only for backward compatibility and will be removed in a
+        future version. Use `RealLineRQSplineNet_`/`make_real_line_rqs`
+        directly.
+
+    Unlike `RealLineRQSplineNet_`, this class keeps the old API: its argument
+    is a knot count, not a segment count (`n_segments = n_knots - 1`).
+    """
+    def __init__(self, n_knots: int, **kwargs):
+        super().__init__(n_segments=n_knots - 1, **kwargs)
+
+
+class Pade22Spline_(RQSplineNet_):
+    """
+    .. deprecated::
+        Kept only for backward compatibility and will be removed in a
+        future version. Use `RQSplineNet_` directly.
+
+    Unlike `RQSplineNet_`, this class keeps the old API: its argument
+    is a knot count, not a segment count (`n_segments = n_knots - 1`).
+    """
+    def __init__(self, n_knots: int, **kwargs):
+        super().__init__(n_segments=n_knots - 1, **kwargs)
 
 
 def make_real_line_rqs(
-    n_knots: int,
+    n_segments: int,
     unbounded_domain: bool = True,
     unbounded_range: bool = True,
     output_scale: bool = False,
@@ -814,7 +843,7 @@ def make_real_line_rqs(
     simply a thin, function-style constructor for it.
     """
     return RealLineRQSplineNet_(
-        n_knots,
+        n_segments,
         unbounded_domain=unbounded_domain,
         unbounded_range=unbounded_range,
         output_scale=output_scale,
@@ -837,6 +866,3 @@ class SgnBias_(Module_):
 
     def reverse(self, x, log0=0):
         return x - torch.sgn(x) * self.w**2, log0
-
-
-Pade22Spline_ = RQSplineNet_  # alias for legacy [deprecated]

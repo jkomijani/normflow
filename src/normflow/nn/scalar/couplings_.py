@@ -404,6 +404,8 @@ class RQSplineCoupling_(Coupling_):
     - `xlim`, `ylim`: Input/output ranges of the spline.
     - `knots_x`, `knots_y`: Knot positions along the input/output axes.
     - `extrap`: Extrapolation behavior outside the specified ranges.
+    - `smooth`: If True, enforce smooth derivatives across knots (default
+      False).
 
     See `RQSpline` for full details of these options.
 
@@ -431,6 +433,7 @@ class RQSplineCoupling_(Coupling_):
         knots_x=None,
         knots_y=None,
         extrap=None,
+        smooth=False,
         channels_axis=1
     ):
 
@@ -442,7 +445,8 @@ class RQSplineCoupling_(Coupling_):
             'knots_axis': channels_axis,
             'knots_x': knots_x,
             'knots_y': knots_y,
-            'extrap': extrap
+            'extrap': extrap,
+            'smooth': smooth
         }
 
     def make_rq_spline_field(self, feature_map):
@@ -506,6 +510,7 @@ class MultiRQSplineCoupling_(Coupling_):
         knots_x=(None, None),
         knots_y=(None, None),
         extraps=(None, None),
+        smooth=False,
         channels_axis=1
     ):
 
@@ -519,7 +524,8 @@ class MultiRQSplineCoupling_(Coupling_):
              'knots_axis': channels_axis,
              'knots_x': knots_x[i],
              'knots_y': knots_y[i],
-             'extrap': extraps[i]
+             'extrap': extraps[i],
+             'smooth': smooth
              } for i in range(self.num_splines)
         ]
 

@@ -12,6 +12,7 @@ particularly in probabilistic modeling and generative tasks.
 # pylint: disable=invalid-name
 
 from typing import Callable, Tuple, Union, Sequence, Type, Optional
+import warnings
 
 import torch
 import numpy as np
@@ -653,15 +654,16 @@ class SplineNet(torch.nn.Module):
     via the required `Spline` argument (e.g. `RQSpline`, for a rational
     quadratic spline).
 
-    The number of knots is specified by `n_knots`. The first knot is fixed
+    The number of knots is `n_segments + 1`, specified via `n_segments` (the
+    number of spline segments between knots). The first knot is fixed
     at (xlim[0], ylim[0]) and the last at (xlim[1], ylim[1]). The coordinates
     of intermediate knots are learned unless explicitly provided through
     `knots_x` or `knots_y`.
 
-    If `knots_x` is None, `(n_knots - 1)` parameters are learned to define
+    If `knots_x` is None, `n_segments` parameters are learned to define
     the x-positions of the knots via a softmax; the same applies to y.
-    Additional `n_knots` parameters control the derivatives at the knots,
-    unless `smooth=True`.
+    Additional `(n_segments + 1)` parameters control the derivatives at the
+    knots, unless `smooth=True`.
 
     When `xlim=(0, 1)` and `ylim=(0, 1)`, the transformation becomes a smooth
     bijection from [0, 1] to [0, 1], making it suitable for applications such
@@ -669,14 +671,14 @@ class SplineNet(torch.nn.Module):
 
     Notes
     -----
-    - `n_knots` must be at least 2.
-    - `RQSplineNet(2, smooth=True)` yields an identity-like mapping with two
+    - `n_segments` must be at least 1.
+    - `RQSplineNet(1, smooth=True)` yields an identity-like mapping with two
       dummy parameters.
 
     Parameters
     ----------
-    n_knots : int
-        Number of knots in the spline.
+    n_segments : int
+        Number of spline segments (i.e. `n_segments + 1` knots).
     xlim, ylim : array-like, optional
         The minimum and maximum values for x and y coordinates of the knots.
         Defaults to [0, 1].
@@ -700,7 +702,7 @@ class SplineNet(torch.nn.Module):
     """
     def __init__(
         self,
-        n_knots: int,
+        n_segments: int,
         xlim: Tuple[float, float] = (0, 1),
         ylim: Tuple[float, float] = (0, 1),
         knots_x: Optional[Tensor] = None,
@@ -719,12 +721,13 @@ class SplineNet(torch.nn.Module):
     ):
         super().__init__()
 
-        # n_knots and spline_shape are relevant only if flag is True
-        flag = (knots_x is None) or (knots_y is None) or (knots_d is None)
+        assert n_segments >= 1, f"{n_segments} segments is not acceptable"
+        if n_segments == 1 and smooth:
+            warnings.warn(
+                "n_segments=1 with smooth=True is an identity transformation"
+            )
 
-        assert not (flag and n_knots < 2), "oops: n_knots < 2 for splines"
-
-        self.n_knots = n_knots
+        self.n_segments = n_segments
         self.knots_x = knots_x
         self.knots_y = knots_y
         self.knots_d = knots_d
@@ -749,18 +752,18 @@ class SplineNet(torch.nn.Module):
         if knots_x is None:
             self.xlim, self.xwidth = xlim, xlim[1] - xlim[0]
             if weights_x is None:
-                weights_x = torch.nn.Parameter(init(n_knots - 1))
+                weights_x = torch.nn.Parameter(init(n_segments))
             self.weights_x = weights_x
 
         if knots_y is None:
             self.ylim, self.ywidth = ylim, ylim[1] - ylim[0]
             if weights_y is None:
-                weights_y = torch.nn.Parameter(init(n_knots - 1))
+                weights_y = torch.nn.Parameter(init(n_segments))
             self.weights_y = weights_y
 
         if knots_d is None:
             if weights_d is None and (not smooth):
-                weights_d = torch.nn.Parameter(init(n_knots))
+                weights_d = torch.nn.Parameter(init(n_segments + 1))
             self.weights_d = weights_d
 
         if set_param2zero:
@@ -867,8 +870,8 @@ class RQSplineNet(SplineNet):
 
     Parameters
     ----------
-    n_knots : int
-        Number of knots in the spline; see `SplineNet`.
+    n_segments : int
+        Number of spline segments; see `SplineNet`.
     symmetric : bool, optional
         If True, only parameterizes the spline on `xlim=(0.5, 1)`,
         `ylim=(0.5, 1)`, with an anti-periodic boundary condition
@@ -881,7 +884,7 @@ class RQSplineNet(SplineNet):
         `smooth`).
     """
 
-    def __init__(self, n_knots: int, symmetric: bool = False, **kwargs):
+    def __init__(self, n_segments: int, symmetric: bool = False, **kwargs):
 
         extra = {}
         if symmetric:
@@ -889,7 +892,7 @@ class RQSplineNet(SplineNet):
                 'xlim': (0.5, 1), 'ylim': (0.5, 1), 'extrap': {'left': 'anti'}
             }
 
-        super().__init__(n_knots, Spline=RQSpline, **kwargs, **extra)
+        super().__init__(n_segments, Spline=RQSpline, **kwargs, **extra)
 
 
 class RQSplineWithGrad(RQSplineNet, torch.nn.Module):
