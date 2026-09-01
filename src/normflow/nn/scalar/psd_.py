@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """
 Neural network blocks for lattice mean-field and power spectral density (PSD).
@@ -24,7 +24,7 @@ __all__ = ["make_psd_block", "PSDBlock_"]
 
 def make_psd_block(
     lat_shape: Tuple[int, ...],
-    ipsd_num_spline_knots: int = 10,
+    ipsd_num_spline_segments: int = 10,
     meanfield_n_layers: int = 0,
 ):
     """
@@ -39,19 +39,21 @@ def make_psd_block(
 
     Args:
         lat_shape: Lattice shape.
-        ipsd_num_spline_knots: Number of spline knots for FFTNet_ (> 2).
+        ipsd_num_spline_segments: Number of spline segments for FFTNet_ (> 1).
         meanfield_n_layers: Depth of the mean-field converter. If 0, no
             mean-field network is used. Default is 0.
 
     Returns:
         PSDBlock_ or FFTNet_: Combined PSD block or FFT-based network
     """
-    if ipsd_num_spline_knots <= 2:
-        raise ValueError("ipsd_num_spline_knots must be greater than 2")
+    if ipsd_num_spline_segments <= 1:
+        raise ValueError("ipsd_num_spline_segments must be greater than 1")
 
     if meanfield_n_layers <= 0:
         # Only FFTNet_ is needed
-        return make_fftnet(lat_shape, num_spline_knots=ipsd_num_spline_knots)
+        return make_fftnet(
+            lat_shape, num_spline_segments=ipsd_num_spline_segments
+        )
 
     # Build MeanFieldNet_ for zero mode
     mfnet_ = make_meanfield_net(meanfield_n_layers)
@@ -59,7 +61,7 @@ def make_psd_block(
     # Build FFTNet_ for non-zero modes
     fftnet_ = make_fftnet(
         lat_shape,
-        num_spline_knots=ipsd_num_spline_knots,
+        num_spline_segments=ipsd_num_spline_segments,
         ignore_zeromode=True,
     )
 

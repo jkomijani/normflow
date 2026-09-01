@@ -40,7 +40,7 @@ __all__ = ["make_fftnet", "FFTNet_"]
 # =============================================================================
 def make_fftnet(
     lat_shape: Tuple[int],
-    num_spline_knots: int,
+    num_spline_segments: int,
     eff_mass2: float = 1,
     eff_kappa: float = 1,
     a: float = 1,
@@ -53,8 +53,8 @@ def make_fftnet(
      ----------
     lat_shape : Tuple[int]
         Lattice shape.
-    num_spline_knots : int
-        Number of spline knots for IPSDMultiplierNet.
+    num_spline_segments : int
+        Number of spline segments for IPSDMultiplierNet.
     eff_mass2 : float, optional
         Effective mass squared for initial IPSD scaling. Default is 1.
     eff_kappa : float, optional
@@ -79,7 +79,7 @@ def make_fftnet(
     )
 
     ipsd_multiplier_net = IPSDMultiplierNet(
-        num_spline_knots, logy, **ipsd_kwargs
+        num_spline_segments, logy, **ipsd_kwargs
     )
     return FFTNet_(lat_shape, ipsd_multiplier_net)
 
@@ -285,10 +285,11 @@ class IPSDMultiplierNet(RQSplineNet):
 
     Parameters
     ----------
-    num_spline_knots : int
-        Number of spline knots used in the base RQSplineNet. If less than 2,
-        it is automatically set to 2 and `smooth=True` is added to `kwargs`,
-        which effectively makes the spline behave like an identity function.
+    num_spline_segments : int
+        Number of spline segments used in the base RQSplineNet. If less
+        than 1, it is automatically set to 1 and `smooth=True` is added to
+        `kwargs`, which effectively makes the spline behave like an
+        identity function.
     logy : torch.Tensor
         Initial logarithm of the coefficients :math:`y = [y_0, y_1]`.
         Registered as a learnable parameter.
@@ -301,17 +302,17 @@ class IPSDMultiplierNet(RQSplineNet):
 
     def __init__(
         self,
-        num_spline_knots: int,
+        num_spline_segments: int,
         logy: torch.Tensor,
         ignore_zeromode: bool = False,
         **kwargs
     ):
-        if num_spline_knots < 2:
-            num_spline_knots = 2
+        if num_spline_segments < 1:
+            num_spline_segments = 1
             kwargs.update({'smooth': True})
             # with these commands, the base spline class behaves like identity
 
-        super().__init__(num_spline_knots, **kwargs)
+        super().__init__(num_spline_segments, **kwargs)
         self.logy = torch.nn.Parameter(logy)
         self.ignore_zeromode = ignore_zeromode
 
