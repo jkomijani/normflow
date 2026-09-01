@@ -122,7 +122,6 @@ if __name__ == '__main__':
     add("--log_name", type=str)
     add("--load_fname", type=str)
     add("--save_fname", type=str)
-    add("--unittest", type=bool)
 
     # CLI arguments
 

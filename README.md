@@ -26,7 +26,7 @@ needed, minimizing the reverse KL divergence between the transformed prior
 and the target (e.g. a quartic scalar action or the Wilson gauge action).
 Omitted, it falls back to **data-based** training: minimizing the forward KL
 divergence, i.e. maximizing the likelihood of a provided dataset. See
-[examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb)
+[examples/matrix_models/sun_matrix_model.ipynb](examples/matrix_models/sun_matrix_model.ipynb)
 for an example using both.
 
 Computing the KL divergence requires the log-determinant of the
@@ -153,7 +153,7 @@ coupling layers.
 
 For SU(N) matrices, two further examples are provided:
 
-- [examples/matrix_models/SUN_matrix_model.ipynb](examples/matrix_models/SUN_matrix_model.ipynb):
+- [examples/matrix_models/sun_matrix_model.ipynb](examples/matrix_models/sun_matrix_model.ipynb):
   a minimal normalizing flow over a single
   SU(N) matrix (SU(2) or SU(3)) -- not a lattice gauge theory, just a
   simple SU(N) matrix -- useful as a quick illustration of the matrix machinery
