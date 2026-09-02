@@ -56,6 +56,13 @@ class RQSplineContextModule_(Module_):
     bijection from [0, 1] to [0, 1], making it suitable for normalizing flows
     or differentiable coordinate transforms.
 
+    The spline is evaluated on the input as is, so the shapes must line up:
+    if `feature_map_fn(*args)` returns a feature map of shape
+    `(*shape, n_features)`, the knots have shape `(*shape, n_knots)`,
+    and the input must be of shape `(*shape, k)` for any `k`, i.e. matching
+    the knots on every axis but `knots_axis`. Reshaping the input into that
+    form is the caller's responsibility.
+
     Parameters
     ----------
     feature_map_fn : Callable
@@ -114,26 +121,21 @@ class RQSplineContextModule_(Module_):
             'extrap': extrap
         }
         self.feature_map_fn = feature_map_fn
-        self.spline_shape = ()
 
     def forward(self, x: torch.Tensor, log0=0, args=None) -> torch.Tensor:
         """Compute the forward spline transformation.
 
         Args:
-            x (torch.Tensor): Input tensor within the spline domain `xlim`.
+            x (torch.Tensor): Input tensor within the spline domain `xlim`,
+                of shape `(*spline_shape, k)`; see the class docstring.
             args (optional): Argument or tuple passed to `feature_map_fn`.
             log0 (torch.Tensor, float): Log-Jacobian of past transformations.
 
         Returns:
             torch.Tensor: Transformed tensor of the same shape.
         """
-        # Build the spline transformation defined by current args
         spline = self.make_rq_spline_field(args)
-        # Reshape input to match the spline shape & evaluate spline
-        x_reshaped = x.reshape(*self.spline_shape, -1)
-        y, g = spline(x_reshaped, grad=True)  # g is gradient @ x
-        # Reshape outputs & calc total logj
-        y, g = y.reshape(x.shape), g.reshape(x.shape)
+        y, g = spline(x, grad=True)  # g is gradient @ x
         logj = self.sum_density(torch.log(g))
         return y, log0 + logj
 
@@ -141,25 +143,23 @@ class RQSplineContextModule_(Module_):
         """Compute the inverse spline transformation.
 
         Args:
-            y (torch.Tensor): Input tensor within the spline range `ylim`.
+            y (torch.Tensor): Input tensor within the spline range `ylim`,
+                of shape `(*spline_shape, k)`; see the class docstring.
             args (optional): Argument or tuple passed to `feature_map_fn`.
             log0 (torch.Tensor, float): Log-Jacobian of past transformations.
 
         Returns:
             torch.Tensor: Inverse-transformed tensor of the same shape.
         """
-        # Build the spline transformation defined by current args
         spline = self.make_rq_spline_field(args)
-        # Reshape input to match the spline shape & evaluate reverse spline
-        y_reshaped = y.reshape(*self.spline_shape, -1)
-        x, g = spline.reverse(y_reshaped, grad=True)  # g is gradient @ x
-        # Reshape outputs & calc total logj
-        x, g = x.reshape(y.shape), g.reshape(y.shape)
+        x, g = spline.reverse(y, grad=True)  # g is gradient @ x
         logj = self.sum_density(torch.log(g))
         return x, log0 + logj
 
     def make_rq_spline_field(self, args=None):
-        """Constructs RQS with the saved key-word argumentes."""
+        """
+        Constructs RQS with the saved key-word argumentes.
+        """
         if not isinstance(args, tuple):
             args = () if args is None else (args,)
 
@@ -167,7 +167,6 @@ class RQSplineContextModule_(Module_):
         if feature_map.shape[0] == 1:
             feature_map = feature_map.squeeze(0)  # squeeze the dummy batch dim
 
-        self.spline_shape = feature_map.shape[:-1]
         return make_rq_spline_field(feature_map, **self.spline_kwargs)
 
 

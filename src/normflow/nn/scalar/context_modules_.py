@@ -323,37 +323,31 @@ class _RQSplineContextModule_(ContextModule_):
             smooth=self.smooth,
             extrap=self.extrap,
         )
-        return ApplySpline_(spline, spline_shape=out.shape[:-1])
+        return ApplySpline_(spline)
 
 
 # =============================================================================
 class ApplySpline_(Module_):
-    """Applies a pre-built spline object to `x`.
-
-    `spline_shape` is the leading shape the spline's knots are defined over
-    (everything except the innermost axis being evaluated) -- `x` is
-    reshaped to `(*spline_shape, -1)` before evaluation and back to its
-    original shape afterward, matching the shape contract of
-    `lib.spline.SplineTemplate.forward`/`.reverse` (called here with their
-    default `squeezed=False`, which requires `x` to already match the
-    knots' shape everywhere except the innermost axis).
     """
+    Applies a pre-built spline object to `x`.
 
-    def __init__(self, spline, spline_shape=()):
+    Input `x` is handed to the spline as is, so it must have the same number
+    of dimensions as the knots and agree with them on every axis but the knots
+    axis. For knots built from a feature map of shape `(*shape, n_features)`,
+    i.e. knots of shape `(*shape, n_knots)`, this means `x` of shape
+    `(*shape, k)` for any `k`. Reshaping `x` into that form is the caller's
+    responsibility.
+    """
+    def __init__(self, spline):
         super().__init__()
         self.spline = spline
-        self.spline_shape = spline_shape
 
     def forward(self, x, log0=0):
-        x_reshaped = x.reshape(*self.spline_shape, -1)
-        fx, g = self.spline(x_reshaped, grad=True)  # g is gradient @ x
-        fx, g = fx.reshape(x.shape), g.reshape(x.shape)
+        fx, g = self.spline(x, grad=True)  # g is gradient @ x
         logj = self.sum_density(torch.log(g))
         return fx, log0 + logj
 
     def reverse(self, x, log0=0):
-        x_reshaped = x.reshape(*self.spline_shape, -1)
-        fx, g = self.spline.reverse(x_reshaped, grad=True)  # g is gradient @ x
-        fx, g = fx.reshape(x.shape), g.reshape(x.shape)
+        fx, g = self.spline.reverse(x, grad=True)  # g is gradient @ x
         logj = self.sum_density(torch.log(g))
         return fx, log0 + logj
