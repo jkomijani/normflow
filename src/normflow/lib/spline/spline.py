@@ -356,9 +356,6 @@ class SplineTemplate(ABC):
         if x_sorted.ndim == 1:
             return torch.searchsorted(x_sorted, x.ravel()).reshape(x.shape)
 
-        if axis in (-1, x.dim() - 1):
-            return torch.searchsorted(x_sorted, x)
-
         view_x_sorted = torch.movedim(x_sorted, axis, -1)
         view_x = torch.movedim(x, axis, -1)
         view_ind = torch.searchsorted(
