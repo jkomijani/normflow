@@ -27,8 +27,7 @@ from .scalar.psd_ import *
 
 from .scalar.planar_ import MultiPlanarFlow_
 
-from .matrix.matrix_module_ import MatrixModule_
-from .matrix.stapled_matrix_module_ import StapledMatrixModule_
+from .matrix.matrix_module_ import *
 
 # SU(N) gauge modules:
 from .gauge.planar_gauge_module_ import PlanarGaugeModule_
