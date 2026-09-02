@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """This module contains new neural networks for transforming matrices.
 
@@ -9,44 +9,88 @@ Jacobians of the transformation.
 
 # pylint: disable=invalid-name, relative-beyond-top-level, too-many-arguments
 
+from typing import Tuple
+
+import torch
+
 from .._core import Module_
+
+
+__all__ = ["MatrixModule_"]
 
 
 # =============================================================================
 class MatrixModule_(Module_):
     """A module for transforming matrices.
 
-    All matrix-specific logic (parametrization, reconstruction, and the
-    associated Jacobians) is delegated to `matrix_handle`; this class itself
-    is agnostic to the group. In particular, it also works for U(1) theory:
-    pass `matrix_handle=U1Parametrizer()` (see
-    `normflow.lib.matrix_handles`), in which case `x` is a plain complex
-    phase rather than a matrix.
+    Implements only the skeleton: parametrize the input matrix, transform
+    the parameters, reconstruct the output matrix. The parametrization
+    scheme -- eigendecomposition, Euler angles, or anything else, including
+    schemes with no decomposition at all -- is entirely up to `matrix_handle`.
+    It also works for U(1) theory: pass `matrix_handle=U1Parametrizer()` from
+    `normflow.lib.matrix_handles`, in which case `x` is a plain complex value
+    rather than a matrix.
 
     Parameters
     ----------
-    param_net_: instance of Module_ or ModuleList_
-        to change the parameters corresponding to the matrices, e.g.,
-        eigenvaleus of the matrices.
+    param_net_ : instance of Module_ or ModuleList_
+        Transforms the parameters produced by `matrix_handle.matrix2param_`
+        -- e.g. eigenvalues, Euler angles, or whatever else that handle
+        parametrizes with.
 
-    matrix_handle: class instance
-        for parametrization of the matrices. For more information on how it is
-        used, see `self._kernel`.
+    matrix_handle : class instance
+        Defines the parametrization scheme entirely, including the
+        Jacobian of each direction. Specifically, it must expose two
+        methods:
+            `matrix2param_(matrix) -> (param, logJ)`
+            `param2matrix_(param, reduce_) -> (matrix, logJ)`
     """
 
-    def __init__(self, param_net_, *, matrix_handle):
+    def __init__(self, param_net_: Module_, *, matrix_handle):
         super().__init__()
         self.param_net_ = param_net_
         self.matrix_handle = matrix_handle
 
-    def forward(self, x, log0=0, reduce_=False, args=None):
-        """Apply forward transformation."""
+    def forward(
+        self,
+        x: torch.Tensor,
+        log0: torch.Tensor | float = 0,
+        reduce_: bool = False,
+        args=None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Apply the forward transformation.
+
+        Args:
+            x: Input matrix (or, for U(1), a complex phase).
+            log0: Log-Jacobian of past transformations. (Default is 0.)
+            reduce_: Forwarded to `matrix_handle.param2matrix_`.
+            args: Optional context, forwarded to `param_net_.forward`.
+
+        Returns:
+            The transformed matrix (or phase) and the updated log-Jacobian.
+        """
         return self._kernel(
             x, is_forward=True, reduce_=reduce_, log0=log0, args=args
         )
 
-    def reverse(self, x, log0=0, reduce_=False, args=None):
-        """Apply reverse (inverse) transformation."""
+    def reverse(
+        self,
+        x: torch.Tensor,
+        log0: torch.Tensor | float = 0,
+        reduce_: bool = False,
+        args=None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Apply the reverse (inverse) transformation.
+
+        Args:
+            x: Input matrix (or, for U(1), a complex phase).
+            log0: Log-Jacobian of past transformations. (Default is 0.)
+            reduce_: Forwarded to `matrix_handle.param2matrix_`.
+            args: Optional context, forwarded to `param_net_.reverse`.
+
+        Returns:
+            The transformed matrix (or phase) and the updated log-Jacobian.
+        """
         return self._kernel(
             x, is_forward=False, reduce_=reduce_, log0=log0, args=args
         )
@@ -63,16 +107,11 @@ class MatrixModule_(Module_):
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
 
         # 2. Transform param
-        if is_forward:
-            if args is None:
-                param, logJ_par2par = self.param_net_.forward(param)
-            else:
-                param, logJ_par2par = self.param_net_.forward(param, args=args)
-        else:
-            if args is None:
-                param, logJ_par2par = self.param_net_.reverse(param)
-            else:
-                param, logJ_par2par = self.param_net_.reverse(param, args=args)
+        args_kwargs = {} if args is None else {'args': args}
+        transform = (
+            self.param_net_.forward if is_forward else self.param_net_.reverse
+        )
+        param, logJ_par2par = transform(param, **args_kwargs)
 
         # 3. Construct a new matrix from the transformed parameters
         matrix, logJ_par2mat = self.matrix_handle.param2matrix_(
@@ -85,8 +124,8 @@ class MatrixModule_(Module_):
         return matrix, log0 + logJ
 
     def _hack(self, matrix, is_forward=True, reduce_=False):
-        """Similar to the forward/reverse methods, but returns intermediate
-        parts too.
+        """
+        Similar to the forward/reverse, but also returns intermediate objects.
         """
         # 1. Parametrize the input matrix
         param, logJ_mat2par = self.matrix_handle.matrix2param_(matrix)
@@ -111,7 +150,7 @@ class MatrixModule_(Module_):
         )
         out_dict.update({"matrix_final": matrix, "logJ_par2mat": logJ_par2mat})
 
-        # 6. Add up all log-Jacobians
+        # 4. Add up all log-Jacobians
         logJ = logJ_mat2par + logJ_par2par + logJ_par2mat
         out_dict.update({"logJ": logJ})
 
