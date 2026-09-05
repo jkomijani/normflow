@@ -18,10 +18,11 @@ from .eig_decomposition_ import inverse_eigh_
 from .eig_decomposition_ import inverse_eign_
 
 
-from .qr_decomposition import haar_qr, haar_sqr
-
-from .euler_angles import su2_to_euler_angles
-from .euler_angles import euler_angles_to_su2
+# Moved to lattice_ml.linalg._decompositions (general-purpose, not
+# flow-specific); re-exported here for backward compatibility.
+from lattice_ml.linalg import haar_qr, haar_sqr
+from lattice_ml.linalg import su2_to_euler_angles
+from lattice_ml.linalg import euler_angles_to_su2
 
 
 def compute_svd(matrix: torch.Tensor):
