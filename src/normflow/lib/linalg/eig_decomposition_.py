@@ -147,8 +147,10 @@ inverse_eign_ = InverseEign_()  # for normal (including Hermitian & unitray)
 
 
 # =============================================================================
-def sum_density(x):
-    return torch.sum(x, dim=list(range(1, x.dim())))
+def sum_density(x: torch.Tensor):
+    """Compute the sum over all, but the batch, axes."""
+    ndim = x.dim()
+    return x if ndim < 2 else torch.sum(x, dim=list(range(1, ndim)))
 
 
 def calc_log_conjugacy_vol(eigvals):

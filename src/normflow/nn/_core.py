@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2025 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """
 This module contains subclass of `torch.nn.Module` designed for creating
@@ -163,11 +163,12 @@ class Module_(torch.nn.Module, ABC):
         """Return the total number of parameters."""
         return sum(np.prod(p.shape) for p in self.parameters())
 
-    def sum_density(self, x):
+    def sum_density(self, x: torch.Tensor):
         """Sum `x` over all but the batch axis, unless propagating density."""
-        if self.propagate_density:
+        ndim = x.dim()
+        if ndim < 2 or self.propagate_density:
             return x
-        return torch.sum(x, dim=list(range(1, x.dim())))
+        return torch.sum(x, dim=list(range(1, ndim)))
 
     def set_param2zero(self):
         """Zero out all parameters in place."""

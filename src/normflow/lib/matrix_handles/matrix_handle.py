@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024 Javad Komijani
+# Copyright (c) 2021-2026 Javad Komijani
 
 """This module has utilities to deal with eigenvalues of matrices.
 
@@ -333,5 +333,7 @@ class U1Parametrizer:
 
 
 # =============================================================================
-def sum_density(x):
-    return torch.sum(x, dim=list(range(1, x.dim())))
+def sum_density(x: torch.Tensor):
+    """Compute the sum over all, but the batch, axes."""
+    ndim = x.dim()
+    return x if ndim < 2 else torch.sum(x, dim=list(range(1, ndim)))
