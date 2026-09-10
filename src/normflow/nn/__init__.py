@@ -1,21 +1,13 @@
 """Import all modules of `nn` subpackage"""
 
 # Core modules:
-from ._core import (
-    Module_,
-    ModuleList_,
-    MultiChannelModule_,
-    MultiOutChannelModule_,
-    InvisibilityMaskWrapperModule_
-)
+from ._core import *
 
 from .unet_ import *
 
 from .scalar.modules import *
-
 from .scalar.modules_ import *
 from .scalar.couplings_ import *
-
 from .scalar.rqs_modules_ import *
 
 # Special transformations:

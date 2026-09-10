@@ -22,6 +22,16 @@ import torch
 import numpy as np
 
 
+__all__ = [
+    "Module_",
+    "ModuleList_",
+    "MultiChannelModule_",
+    "MultiOutChannelModule_",
+    "PushforwardModule_",
+    "InvisibilityMaskWrapperModule_",
+]
+
+
 # =============================================================================
 class Module_(torch.nn.Module, ABC):
     """
@@ -404,6 +414,39 @@ class MultiOutChannelModule_(MultiChannelModule_):
         # Sum log-determinants
         logj = sum(o[1] for o in out)
 
+        return x, log0 + logj
+
+
+# =============================================================================
+class PushforwardModule_(Module_):
+    """
+    Applies `transform_` not to `x` directly, but to a derived object `y` built
+    from `x` and `args` via `pushforward`, then writes the transformed `y` back
+    onto `x` via `pullback`.
+
+    Parameters
+    ----------
+    pushforward : Callable[[x, args], y]
+    transform_ : Module_, which is applied to `y` alone.
+    pullback : Callable[[y, args], x]
+    """
+
+    def __init__(self, pushforward, transform_, pullback):
+        super().__init__()
+        self.pushforward = pushforward
+        self.transform_ = transform_
+        self.pullback = pullback
+
+    def forward(self, x, log0=0, args=None):
+        y = self.pushforward(x, args)
+        y, logj = self.transform_.forward(y)
+        x = self.pullback(y, args)
+        return x, log0 + logj
+
+    def reverse(self, x, log0=0, args=None):
+        y = self.pushforward(x, args)
+        y, logj = self.transform_.reverse(y)
+        x = self.pullback(y, args)
         return x, log0 + logj
 
 
