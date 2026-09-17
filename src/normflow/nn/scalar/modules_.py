@@ -62,10 +62,12 @@ class Identity_(Module_):
     return `(x, log0)` unchanged.
     """
 
-    def forward(self, x, log0=0):
+    def forward(self, x, log0=0, args=None):
+        """Return `x` unchanged, along with `log0`."""
         return x, log0
 
-    def reverse(self, x, log0=0):
+    def reverse(self, x, log0=0, args=None):
+        """Return `x` unchanged, along with `log0`."""
         return x, log0
 
 
@@ -78,9 +80,11 @@ class Clone_(Module_):
     """
 
     def forward(self, x, log0=0):
+        """Return a clone of `x`, along with `log0`."""
         return x.clone(), log0
 
     def reverse(self, x, log0=0):
+        """Return a clone of `x`, along with `log0`."""
         return x.clone(), log0
 
 
@@ -93,10 +97,12 @@ class Tanh_(Module_):
     """
 
     def forward(self, x, log0=0):
+        """Apply `tanh` and update the log-Jacobian."""
         logj = -2 * self.sum_density(torch.log(torch.cosh(x)))
         return torch.tanh(x), log0 + logj
 
     def reverse(self, x, log0=0):
+        """Apply `atanh` and update the log-Jacobian."""
         y = torch.atanh(x)
         logj = 2 * self.sum_density(torch.log(torch.cosh(y)))
         return y, log0 + logj
@@ -111,11 +117,13 @@ class ArcTanh_(Module_):
     """
 
     def forward(self, x, log0=0):
+        """Apply `atanh` and update the log-Jacobian."""
         y = torch.atanh(x)
         logj = 2 * self.sum_density(torch.log(torch.cosh(y)))
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
+        """Apply `tanh` and update the log-Jacobian."""
         logj = -2 * self.sum_density(torch.log(torch.cosh(x)))
         return torch.tanh(x), log0 + logj
 
@@ -129,11 +137,13 @@ class Expit_(Module_):
     """
 
     def forward(self, x, log0=0):
+        """Apply `expit` and update the log-Jacobian."""
         y = 1 / (1 + torch.exp(-x))
         logj = self.sum_density(-x + 2 * torch.log(y))
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
+        """Apply `logit` and update the log-Jacobian."""
         y = torch.log(x / (1 - x))
         logj = -self.sum_density(torch.log(x * (1 - x)))
         return y, log0 + logj
@@ -149,11 +159,13 @@ class Logit_(Module_):
     """
 
     def forward(self, x, log0=0):
+        """Apply `logit` and update the log-Jacobian."""
         y = torch.log(x / (1 - x))
         logj = -self.sum_density(torch.log(x * (1 - x)))
         return y, log0 + logj
 
     def reverse(self, x, log0=0):
+        """Apply `expit` and update the log-Jacobian."""
         y = 1 / (1 + torch.exp(-x))
         logj = self.sum_density(-x + 2 * torch.log(y))
         return y, log0 + logj
@@ -255,16 +267,19 @@ class Affine_(Module_):
         self.channels_axis = channels_axis
 
     def forward(self, x, log0=0):
+        """Apply the affine map and update the log-Jacobian."""
         scale, bias = self.get_parameters_reshaped(x.shape)
         logj = self.sum_density(torch.log(scale) * torch.ones_like(x))
         return scale * x + bias, log0 + logj
 
     def reverse(self, y, log0=0):
+        """Apply the inverse affine map and update the log-Jacobian."""
         scale, bias = self.get_parameters_reshaped(y.shape)
         logj = - self.sum_density(torch.log(scale) * torch.ones_like(y))
         return (y - bias) / scale, log0 + logj
 
     def get_parameters_reshaped(self, shape):
+        """Return the scale and bias, reshaped to broadcast over `shape`."""
         if self.channels_axis is None:
             w_scale = self.w_scale
             w_bias = self.w_bias
@@ -332,18 +347,21 @@ class Pade11_(Module_):
         self.channels_axis = channels_axis
 
     def forward(self, x, log0=0):
+        """Apply the Pade [1/1] map and update the log-Jacobian."""
         d1 = self.get_parameters_reshaped(x.shape)
         denom = x + (1 - x) * d1
         logj = self.sum_density(torch.log(d1) - 2 * torch.log(denom))
         return x / denom, log0 + logj
 
     def reverse(self, y, log0=0):
+        """Apply the inverse Pade [1/1] map and update the log-Jacobian."""
         d1 = self.get_parameters_reshaped(y.shape)
         denom = y + (1 - y) / d1
         logj = self.sum_density(-torch.log(d1) - 2 * torch.log(denom))
         return y / denom, log0 + logj
 
     def get_parameters_reshaped(self, shape):
+        """Return the parameter `a`, reshaped to broadcast over `shape`."""
         if self.channels_axis is None:
             w1 = self.w1
         else:
@@ -415,6 +433,7 @@ class Pade22_(Module_):
         self.symmetric = symmetric
 
     def forward(self, x, log0=0):
+        """Apply the Pade [2/2] map and update the log-Jacobian."""
         d0, d1 = self.get_parameters_reshaped(x.shape)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
         g_0 = x * (x + d0 * (1 - x)) / denom
@@ -422,6 +441,7 @@ class Pade22_(Module_):
         return g_0, log0 + self.sum_density(torch.log(g_1))
 
     def reverse(self, y, log0=0):
+        """Apply the inverse Pade [2/2] map and update the log-Jacobian."""
         d0, d1 = self.get_parameters_reshaped(y.shape)
         x = self.reverse_pade22(y, d0, d1)
         denom = (1 + (d1 + d0 - 2) * x * (1 - x))
@@ -429,6 +449,7 @@ class Pade22_(Module_):
         return x, log0 - self.sum_density(torch.log(g_1))
 
     def get_parameters_reshaped(self, shape):
+        """Return the parameters, reshaped to broadcast over `shape`."""
         if self.channels_axis is None:
             w0 = self.w0
             w1 = self.w1
@@ -530,6 +551,7 @@ class Pade32_(Module_):
         self.n_channels = n_channels
 
     def forward(self, x, log0=0):
+        """Apply the Pade [3/2] map and update the log-Jacobian."""
         a = self.get_parameters_reshaped(x.shape)  # a is derivative at x = 0
         s = x**2
         y = a * x * (a + s) / (1 + a * s)
@@ -538,6 +560,7 @@ class Pade32_(Module_):
         return y, log0 + logj
 
     def reverse(self, y, log0=0):
+        """Apply the inverse Pade [3/2] map and update the log-Jacobian."""
         a = self.get_parameters_reshaped(y.shape)  # a is derivative at x = 0
         x = self.reverse_pade32(y / a, a)
         s = x**2
@@ -546,12 +569,14 @@ class Pade32_(Module_):
         return x, log0 + logj
 
     def get_parameters_reshaped(self, shape):
+        """Return the parameter `a`, reshaped to broadcast over `shape`."""
         if self.channels_axis is None:
             w_a = self.w_a
         else:
             shape = [1 for _ in shape]
             shape[self.channels_axis] = self.n_channels
             w_a = self.w_a.reshape(*shape)
+        # pylint: disable-next=not-callable  # torch.special.expit is callable
         return 3 * torch.special.expit(w_a - np.log(2))
 
     @staticmethod
@@ -666,6 +691,7 @@ class Pade32a_(ModuleList_):
         super().__init__([affine_, pade32_])
 
     def reset_weights(self, w_scale, w_bias, w_a):
+        """Reset the weights of the underlying `Affine_` and `Pade32_`."""
         self[0].w_scale = w_scale
         self[0].w_bias = w_bias
         self[1].w_a = w_a
@@ -683,6 +709,7 @@ class SplineNet_(SplineNet, Module_):
     """
 
     def forward(self, x, log0=0):
+        """Apply the spline and update the log-Jacobian."""
         spline = self.make_spline()
         x_reshaped = x.reshape(*self.spline_shape, -1)
         fx, g = spline(x_reshaped, grad=True)  # g is gradient @ x
@@ -691,6 +718,7 @@ class SplineNet_(SplineNet, Module_):
         return fx, log0 + logj
 
     def reverse(self, x, log0=0):
+        """Apply the inverse spline and update the log-Jacobian."""
         spline = self.make_spline()
         x_reshaped = x.reshape(*self.spline_shape, -1)
         fx, g = spline.reverse(x_reshaped, grad=True)  # g is gradient @ x
@@ -799,6 +827,7 @@ class RealLineRQSplineNet_(ModuleList_):
 
     @property
     def spline_layer_(self):
+        """Return the spline layer wrapped by this module."""
         return self[1 if self.unbounded_domain else 0]
 
 
@@ -862,7 +891,9 @@ class SgnBias_(Module_):
         self.w = torch.nn.Parameter(torch.rand(*size)/10)
 
     def forward(self, x, log0=0):
+        """Shift `x` away from zero by a signed bias; `log0` is unchanged."""
         return x + torch.sgn(x) * self.w**2, log0
 
     def reverse(self, x, log0=0):
+        """Shift `x` back toward zero by the signed bias; `log0` unchanged."""
         return x - torch.sgn(x) * self.w**2, log0
