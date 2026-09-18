@@ -8,9 +8,6 @@ from .staples_handle import WilsonStaplesHandle, U1WilsonStaplesHandle
 
 from .euler_handle import SUnMatrixEulerParametrizer
 
-from .lie_group_handle import SU2Algebra2Group_
-from .lie_group_handle import SU3Algebra2Group_
-
 from .su3_eigenphase import *
 
 from .flow_handle import *
