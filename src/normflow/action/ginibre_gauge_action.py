@@ -5,7 +5,7 @@
 import torch
 import numpy as np
 
-from ..lib.linalg import haar_sqr  # special qr (sqr) decomposition
+from lattice_ml.linalg import haar_sqr  # special qr (sqr) decomposition
 
 
 class GinibreGaugeAction:

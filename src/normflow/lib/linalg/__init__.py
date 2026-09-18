@@ -18,13 +18,6 @@ from .eig_decomposition_ import inverse_eigh_
 from .eig_decomposition_ import inverse_eign_
 
 
-# Moved to lattice_ml.linalg._decompositions (general-purpose, not
-# flow-specific); re-exported here for backward compatibility.
-from lattice_ml.linalg import haar_qr, haar_sqr
-from lattice_ml.linalg import su2_to_euler_angles
-from lattice_ml.linalg import euler_angles_to_su2
-
-
 def compute_svd(matrix: torch.Tensor):
     """
     Compute the singular value decomposition (SVD) using the PyTorch backend.
