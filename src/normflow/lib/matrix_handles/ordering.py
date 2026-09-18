@@ -188,7 +188,7 @@ class ModalOrder:
     def _modal_argsort_sanitycheck(modal_matrix, **kwargs):
         """As a sanity check, e.g. use:
 
-           > prior = normflow.prior.SUnPrior(n=3)
+           > prior = normflow.prior.UniformSUnPrior(n=3)
            > mat = prior.sample(10000)
            > ModalOrder = normflow.lib.matrix_handles.ordering.ModalOrder
            > ModalOrder._modal_argsort_sanitycheck(mat, row=None)
