@@ -4,17 +4,14 @@
 
 from typing import Tuple
 
-from .prior import Prior, NormalPrior
+from .prior import Prior
 from ..lib.stats import UnGroup, SUnGroup, U1Group
-from ..lib.matrix_handles import SU2Algebra2Group_
-from ..lib.matrix_handles import SU3Algebra2Group_
 
 
 __all__ = [
     "UniformUnPrior",
     "UniformSUnPrior",
     "UniformU1Prior",
-    "NormalSUnPrior",
     "UnPrior", "SUnPrior", "U1Prior",  # alias for legacy
 ]
 
@@ -118,7 +115,7 @@ class UniformSUnPrior(Prior):
 class UniformU1Prior(Prior):
     """Generate U(1) variables uniformly with the Haar measure.
 
-    This is a faster implementation of random U(1) than `UnPrior(n=1)`.
+    This is a faster implementation of random U(1) than `UniformUnPrior(n=1)`.
 
     Parameters
     ----------
@@ -149,66 +146,7 @@ class UniformU1Prior(Prior):
         return {'low': dist.low, 'high': dist.high}
 
 
-class NormalSUnPrior(NormalPrior):
-    """Generate SU(n) matrices by exponentiating normal-distributed algebra
-    elements.
-
-    This class is a subclass of `NormalPrior` where the innermost dimension of
-    the shape is fixed to `n^2 - 1``, the dimension of the Lie algebra `su(n)`.
-    Samples drawn from the underlying normal distribution are interpreted as
-    algebra elements and then mapped to SU(n) via `alg_to_grp`. The associated
-    log-Jacobian correction is applied both when sampling and when evaluating
-    log-probabilities.
-
-    Args:
-        n: Dimension of the SU(n) group (supports n=2 or n=3).
-        shape: Lattice shape for sampling algebra elements; treated
-            as () if None (default). The batch axis is added
-            separately by `batch_size` in `sample`/`sample_`.
-        super_kwargs: Passed to ``NormalPrior``. May include:
-            * ``loc``: Mean of the underlying normal distribution.
-            * ``scale``: Stddev of the underlying normal distribution.
-            * ``seed``: Random seed for reproducible sampling.
-    """
-    def __init__(self, n: int, shape: Tuple | None = None, **super_kwargs):
-
-        if shape is None:
-            shape = ()
-
-        super().__init__(shape=(*shape, n**2 - 1), **super_kwargs)
-
-        alg_to_grp_kwargs = {
-            'coordinate_representation': True, 'makesure_invertible': False
-        }
-        if n == 2:
-            self.alg_to_grp = SU2Algebra2Group_(**alg_to_grp_kwargs)
-        elif n == 3:
-            self.alg_to_grp = SU3Algebra2Group_(**alg_to_grp_kwargs)
-        else:
-            raise ValueError("Only n = 2, 3 are supported.")
-
-    def sample(self, batch_size: int = 1):
-        """Return samples of SU(n) matrices.
-
-        Args:
-            batch_size: Number of samples.
-        """
-        return self.sample_(batch_size)[0]
-
-    def sample_(self, batch_size: int = 1):
-        """Return samples of SU(n) matrices and log probabilities.
-
-        Args:
-            batch_size: Number of samples.
-        """
-        x, logr = super().sample_(batch_size)  # from normal distribution
-        x, logj = self.alg_to_grp(x)
-        return x, logr - logj
-
-    # def log_prob(self, x):  do NOT do it: the super one needed in NormalPrior
-
-
-# aliased for legace
+# aliased for legacy
 UnPrior = UniformUnPrior
 SUnPrior = UniformSUnPrior
 U1Prior = UniformU1Prior
