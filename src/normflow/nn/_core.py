@@ -321,7 +321,7 @@ class ModuleList_(torch.nn.ModuleList, Module_):
 
 
 # =============================================================================
-class MultiChannelModule_(torch.nn.ModuleList):
+class MultiChannelModule_(torch.nn.ModuleList, Module_):
     """
     Applies a separate network to each input channel.
 
