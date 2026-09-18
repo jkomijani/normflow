@@ -5,7 +5,8 @@ from .matrix_handle import SUnMatrixParametrizer, U1Parametrizer
 from .matrix_handle import SU2MatrixParametrizer, SU3MatrixParametrizer
 
 from .staples_handle import WilsonStaplesHandle, U1WilsonStaplesHandle
-from .euler_handle import SU2MatrixEulerParametrizer
+
+from .euler_handle import SUnMatrixEulerParametrizer
 
 from .lie_group_handle import SU2Algebra2Group_
 from .lie_group_handle import SU3Algebra2Group_
