@@ -4,7 +4,7 @@
 
 import torch
 
-from lattice_ml.linalg import sun_to_euler_angles, euler_angles_to_sun
+from lattice_ml.lie_groups import sun_to_euler_angles, euler_angles_to_sun
 
 
 __all__ = ["SUnMatrixEulerParametrizer"]
@@ -14,9 +14,9 @@ __all__ = ["SUnMatrixEulerParametrizer"]
 class SUnMatrixEulerParametrizer:
     r"""For Euler decomposition of SU(2) and SU(3) matrices.
 
-    The decomposition itself, and its log-Jacobian, live in `lattice_ml.linalg`
-    next to the coordinates they belong to; this class is the adapter onto the
-    `matrix2param_` / `param2matrix_` protocol that `MatrixModule_` expects.
+    The decomposition itself, and its log-Jacobian, live in `lattice_ml`;
+    this class is the adapter onto the `matrix2param_` / `param2matrix_`
+    protocol that `MatrixModule_` expects.
 
     The default `coords='uniform'` gives coordinates that are exactly uniform
     on [0, 1]; so the log-Jacobian is identically zero.
