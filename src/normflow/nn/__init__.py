@@ -9,6 +9,7 @@ from .scalar.modules import *
 from .scalar.modules_ import *
 from .scalar.couplings_ import *
 from .scalar.rqs_modules_ import *
+from .scalar.autoreg_context_module_ import *
 
 # Special transformations:
 from .scalar.auto_regressive_ import *
