@@ -9,7 +9,7 @@ particularly in probabilistic modeling and generative tasks.
 
 # pylint: disable=relative-beyond-top-level, arguments-differ, too-many-locals
 # pylint: disable=too-many-arguments, too-many-positional-arguments
-# pylint: disable=invalid-name
+# pylint: disable=invalid-name, arguments-renamed
 
 from typing import Callable, Tuple, Union, Sequence, Type, Optional
 import warnings
@@ -107,7 +107,7 @@ class ConvBlock(torch.nn.Module):
     ):
         super().__init__()
 
-        # Handle "channel-less" convention by introduced effetive channels
+        # Handle "channel-less" convention by introducing effective channels
         eff_in_channels = 1 if in_channels == 0 else in_channels
         eff_out_channels = 1 if out_channels == 0 else out_channels
 
@@ -222,7 +222,9 @@ class DenseBlock(torch.nn.Module):
           (default: None).
         - acts (Sequence, optional): Activation functions (default: None).
         - pre_act (optional): Pre-activation layer (default: None).
-        - features_axis (int, optional): Th features axis (default: -1).
+        - features_axis (int, optional): The features axis (default: -1).
+        - masks (Sequence[Tensor], optional): One mask per layer if provided;
+          each `Linear` becomes a `MaskedLinear`. (Default: None).
         - **kwargs: All other kwargs to pass to nn.Linear (such as bias).
     """
     def __init__(
@@ -233,9 +235,10 @@ class DenseBlock(torch.nn.Module):
         acts=None,
         pre_act=None,
         features_axis: int = -1,
+        masks: Sequence[torch.Tensor] | None = None,
         **kwargs  # all other kwargs to pass to torch.nn.Linear
     ):
-        # Handle "feature-less" convention by introduced effetive feature axis
+        # Handle "feature-less" convention via an effective feature axis
         eff_in_features = 1 if in_features == 0 else in_features
         eff_out_features = 1 if out_features == 0 else out_features
 
@@ -253,10 +256,19 @@ class DenseBlock(torch.nn.Module):
 
         layers = [] if pre_act is None else [pre_act]
 
-        Linear = torch.nn.Linear
+        if masks is not None:
+            assert len(masks) == n_layers, "one mask per layer"
+            for i, mask in enumerate(masks):
+                assert tuple(mask.shape) == (sizes[i + 1], sizes[i]), \
+                    f"mask {i} must have shape {(sizes[i + 1], sizes[i])}"
 
         for i in range(n_layers):
-            layers.append(Linear(sizes[i], sizes[i+1], **kwargs))
+            if masks is None:
+                layer = torch.nn.Linear(sizes[i], sizes[i+1], **kwargs)
+            else:
+                layer = MaskedLinear(sizes[i], sizes[i+1], masks[i], **kwargs)
+            layers.append(layer)
+
             if acts[i] is not None:
                 layers.append(acts[i])
 
@@ -373,22 +385,30 @@ class ResidualBlock(torch.nn.Module):
         conv_cls = self.conv_map[conv_ndim]
 
         norm_cls = norm_cls or self.default_norm_map[conv_ndim]
+        assert norm_cls is not None, \
+            f"no default norm for conv_ndim={conv_ndim}; pass norm_cls"
 
-        # Handle "channel-less" convention by introduced effetive channels
+        # Handle "channel-less" convention by introducing effective channels
         eff_in_channels = 1 if in_channels == 0 else in_channels
         eff_out_channels = 1 if out_channels == 0 else out_channels
 
         # Pre-activation conv blocks
-        mid_channels = mid_channels or out_channels
+        mid_channels = mid_channels or eff_out_channels
         kwargs.update({'padding': 'same', 'padding_mode': 'circular'})
+        try:  # not all activations accept `inplace` (Tanh, GELU, ...)
+            act_cls(inplace=True)
+            act_kwargs = {'inplace': True}
+        except TypeError:
+            act_kwargs = {}
+
         self.conv_block1 = torch.nn.Sequential(
             norm_cls(eff_in_channels),
-            act_cls(inplace=True),
+            act_cls(**act_kwargs),
             conv_cls(eff_in_channels, mid_channels, kernel_size, **kwargs)
         )
         self.conv_block2 = torch.nn.Sequential(
             norm_cls(mid_channels),
-            act_cls(inplace=True),
+            act_cls(**act_kwargs),
             conv_cls(mid_channels, eff_out_channels, kernel_size, **kwargs)
         )
 
@@ -426,6 +446,25 @@ class ResidualBlock(torch.nn.Module):
             out = out.squeeze(1)
 
         return out
+
+
+class MaskedLinear(torch.nn.Linear):
+    """A `torch.nn.Linear` with a fixed binary `mask` on its weights.
+
+    The mask is a buffer: saved and moved with the module, never trained.
+    """
+
+    def __init__(
+        self, in_features: int, out_features: int, mask: Tensor, **kwargs
+    ):
+        super().__init__(in_features, out_features, **kwargs)
+        self.register_buffer('mask', mask)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply the masked linear transformation."""
+        return torch.nn.functional.linear(
+            x, self.weight * self.mask, self.bias
+        )
 
 
 class Affine(torch.nn.Module):
