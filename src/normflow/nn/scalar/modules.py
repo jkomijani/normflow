@@ -157,9 +157,11 @@ class ConvBlock(torch.nn.Module):
 
         return x
 
-    def set_param2zero(self):
-        """Set all trainable parameters to zero."""
-        for layer in self.layers:
+    def set_param2zero(self, n_layer: int = None):
+        """Set trainable parameters to zero."""
+        conv = tuple(self.conv_map.values())
+        picked = [m for m in self.layers if isinstance(m, conv)]
+        for layer in (self.layers if n_layer is None else [picked[n_layer]]):
             for param in layer.parameters():
                 torch.nn.init.zeros_(param)
 
@@ -297,9 +299,10 @@ class DenseBlock(torch.nn.Module):
 
         return x
 
-    def set_param2zero(self):
-        """Set all trainable parameters to zero."""
-        for layer in self.layers:
+    def set_param2zero(self, n_layer: int = None):
+        """Set trainable parameters to zero."""
+        picked = [m for m in self.layers if isinstance(m, torch.nn.Linear)]
+        for layer in (self.layers if n_layer is None else [picked[n_layer]]):
             for param in layer.parameters():
                 torch.nn.init.zeros_(param)
 
