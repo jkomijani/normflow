@@ -67,13 +67,7 @@ class ConvBlock(torch.nn.Module):
 
     Args:
         in_channels (int): Number of input channels.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically unsqueeze the input to add a channel axis before
-            processing.
         out_channels (int): Number of output channels.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically squeeze the channel axis from the output after
-            processing.
         kernel_size (int or tuple): Size of the convolutional kernel.
         conv_ndim (int, optional): Convolution dimension (default: 2).
         hidden_sizes (Sequence, optional): Sizes of hidden layers
@@ -82,6 +76,10 @@ class ConvBlock(torch.nn.Module):
         acts (Sequence, optional): Activation functions (default: None).
         dropouts (Sequence, optional): Dropout layers (default: None).
         pre_act (optional): Pre-activation layer (default: None).
+        add_input_axis (bool, optional): If True, a channel axis is added to
+            the input before processing (default: False).
+        remove_output_axis (bool, optional): If True, the channel axis is
+            squeezed out of the output (default: False).
         **kwargs: All other kwargs to pass to CNN (such as bias).
     """
 
@@ -103,18 +101,16 @@ class ConvBlock(torch.nn.Module):
         acts=None,
         dropouts=None,
         pre_act=None,
+        add_input_axis: bool = False,
+        remove_output_axis: bool = False,
         **kwargs  # all other kwargs to pass to torch.nn.Conv?d
     ):
         super().__init__()
 
-        # Handle "channel-less" convention by introducing effective channels
-        eff_in_channels = 1 if in_channels == 0 else in_channels
-        eff_out_channels = 1 if out_channels == 0 else out_channels
-
         if hidden_sizes is None:
-            sizes = (eff_in_channels, eff_out_channels)
+            sizes = (in_channels, out_channels)
         else:
-            sizes = (eff_in_channels, *hidden_sizes, eff_out_channels)
+            sizes = (in_channels, *hidden_sizes, out_channels)
 
         n_layers = len(sizes) - 1
 
@@ -136,8 +132,8 @@ class ConvBlock(torch.nn.Module):
                     layers.append(layer)
 
         self.layers = torch.nn.Sequential(*layers)
-        self.add_input_axis = in_channels == 0
-        self.remove_output_axis = out_channels == 0
+        self.add_input_axis = add_input_axis
+        self.remove_output_axis = remove_output_axis
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -211,13 +207,7 @@ class DenseBlock(torch.nn.Module):
 
     Args:
         - in_features (int): Number of input features.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically unsqueeze the input to add a feature axis before
-            processing.
         - out_features (int): Number of output features.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically squeeze the feature axis from the output after
-            processing.
         - hidden_sizes (Sequence, optional): Sizes of hidden layers
           (default: None).
         - acts (Sequence, optional): Activation functions (default: None).
@@ -236,16 +226,14 @@ class DenseBlock(torch.nn.Module):
         pre_act=None,
         features_axis: int = -1,
         masks: Sequence[torch.Tensor] | None = None,
+        add_input_axis: bool = False,
+        remove_output_axis: bool = False,
         **kwargs  # all other kwargs to pass to torch.nn.Linear
     ):
-        # Handle "feature-less" convention via an effective feature axis
-        eff_in_features = 1 if in_features == 0 else in_features
-        eff_out_features = 1 if out_features == 0 else out_features
-
         if hidden_sizes is None:
-            sizes = (eff_in_features, eff_out_features)
+            sizes = (in_features, out_features)
         else:
-            sizes = (eff_in_features, *hidden_sizes, eff_out_features)
+            sizes = (in_features, *hidden_sizes, out_features)
 
         n_layers = len(sizes) - 1
 
@@ -276,8 +264,8 @@ class DenseBlock(torch.nn.Module):
 
         self.layers = torch.nn.Sequential(*layers)
         self.features_axis = features_axis
-        self.add_input_axis = in_features == 0
-        self.remove_output_axis = out_features == 0
+        self.add_input_axis = add_input_axis
+        self.remove_output_axis = remove_output_axis
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -339,18 +327,16 @@ class ResidualBlock(torch.nn.Module):
 
     Args:
         in_channels (int): Number of input channels.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically unsqueeze the input to add a channel axis before
-            processing.
         out_channels (int): Number of output channels.
-            If set to 0, this is interpreted as 1 internally, and the model
-            will automatically squeeze the channel axis from the output after
-            processing.
         kernel_size (int): Kernel size of convolutions.
         conv_ndim (int, default=2): Convolution dimension (1,2,3,[4]).
         norm_cls (nn.Module, optional): Normalization class. Defaults to
             BatchNorm of the appropriate dimension.
         act_cls (nn.Module, optional): Activation class. Defaults to SiLU.
+        add_input_axis (bool, optional): If True, a channel axis is added to
+            the input before processing (default: False).
+        remove_output_axis (bool, optional): If True, the channel axis is
+            squeezed out of the output (default: False).
         **kwargs: Additional args passed to convolution layers.
     """
 
@@ -377,6 +363,8 @@ class ResidualBlock(torch.nn.Module):
         mid_channels: int | None = None,
         norm_cls: Optional[Type[torch.nn.Module]] = None,
         act_cls: Optional[Type[torch.nn.Module]] = torch.nn.SiLU,
+        add_input_axis: bool = False,
+        remove_output_axis: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -388,12 +376,8 @@ class ResidualBlock(torch.nn.Module):
         assert norm_cls is not None, \
             f"no default norm for conv_ndim={conv_ndim}; pass norm_cls"
 
-        # Handle "channel-less" convention by introducing effective channels
-        eff_in_channels = 1 if in_channels == 0 else in_channels
-        eff_out_channels = 1 if out_channels == 0 else out_channels
-
         # Pre-activation conv blocks
-        mid_channels = mid_channels or eff_out_channels
+        mid_channels = mid_channels or out_channels
         kwargs.update({'padding': 'same', 'padding_mode': 'circular'})
         try:  # not all activations accept `inplace` (Tanh, GELU, ...)
             act_cls(inplace=True)
@@ -402,26 +386,24 @@ class ResidualBlock(torch.nn.Module):
             act_kwargs = {}
 
         self.conv_block1 = torch.nn.Sequential(
-            norm_cls(eff_in_channels),
+            norm_cls(in_channels),
             act_cls(**act_kwargs),
-            conv_cls(eff_in_channels, mid_channels, kernel_size, **kwargs)
+            conv_cls(in_channels, mid_channels, kernel_size, **kwargs)
         )
         self.conv_block2 = torch.nn.Sequential(
             norm_cls(mid_channels),
             act_cls(**act_kwargs),
-            conv_cls(mid_channels, eff_out_channels, kernel_size, **kwargs)
+            conv_cls(mid_channels, out_channels, kernel_size, **kwargs)
         )
 
         # Skip connection
-        if eff_in_channels != eff_out_channels:
-            self.skip = conv_cls(
-                eff_in_channels, eff_out_channels, kernel_size=1
-            )
+        if in_channels != out_channels:
+            self.skip = conv_cls(in_channels, out_channels, kernel_size=1)
         else:
             self.skip = torch.nn.Identity()
 
-        self.add_input_axis = in_channels == 0
-        self.remove_output_axis = out_channels == 0
+        self.add_input_axis = add_input_axis
+        self.remove_output_axis = remove_output_axis
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
