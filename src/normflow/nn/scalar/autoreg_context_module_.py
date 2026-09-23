@@ -58,32 +58,42 @@ class MaskedAutoRegContextModule_(Module_):
     one parameter set per component; the input gains a trailing singleton
     axis to match.
 
-    Conditioning is on the data side (MAF), so `reverse` takes a single pass,
-    while `forward` iterates once per component, each fixing one more, so the
-    result is exact rather than approximate. Swapping the two gives IAF.
+    `iaf=False` (default, MAF): `reverse` is a single pass, `forward` iterates
+    once per component. `iaf=True`: the reverse.
     """
 
-    def __init__(self, context_module_: Module_):
+    def __init__(self, context_module_: Module_, iaf: bool = False):
         super().__init__()
         self.context_module_ = context_module_
+        self.iaf = iaf
+        self.maf = not iaf
 
     def forward(self, x, log0=0, args=None):
-        """Transform latent variables into data, one component per pass."""
-        y = x  # seeded with `x`; 0 may be outside the domain
-        for _ in range(x.shape[-1]):
-            y, logj = self.context_module_.forward(
-                x.unsqueeze(-1), args=(y, *self._as_args_tuple(args))
-            )
-            y = y.squeeze(-1)
-        # Remark: only logj computed in the last step of loop matters
-        return y, log0 + logj
+        """Latent -> data; single pass iff `iaf`."""
+        return self._run(
+            self.context_module_.forward, x, log0, args, single_pass=self.iaf
+        )
 
     def reverse(self, x, log0=0, args=None):
-        """Transform data into latent variables in a single pass."""
-        y, logj = self.context_module_.reverse(
-            x.unsqueeze(-1), args=(x, *self._as_args_tuple(args))
+        """Data -> latent; single pass iff `maf`."""
+        return self._run(
+            self.context_module_.reverse, x, log0, args, single_pass=self.maf
         )
-        return y.squeeze(-1), log0 + logj
+
+    def _run(self, apply_fn, x, log0, args, single_pass):
+        context = self._as_args_tuple(args)
+        if single_pass:
+            y, logj = apply_fn(x.unsqueeze(-1), args=(x, *context))
+            y = y.squeeze(-1)
+
+        else:
+            y = x  # seeded with `x`; 0 may be outside the domain
+            for _ in range(x.shape[-1]):
+                y, logj = apply_fn(x.unsqueeze(-1), args=(y, *context))
+                y = y.squeeze(-1)
+            # Remark: only logj computed in the last step of loop matters
+
+        return y, log0 + logj
 
     @staticmethod
     def _as_args_tuple(args):
@@ -173,6 +183,7 @@ def make_rqs_masked_autoreg_context_module(
     hidden_sizes: Sequence[int] = (32, 32),
     context_features: int = None,
     smooth: bool = False,
+    iaf: bool = False,
     **kwargs
 ) -> MaskedAutoRegContextModule_:
     """
@@ -208,5 +219,6 @@ def make_rqs_masked_autoreg_context_module(
         torch.nn.Unflatten(-1, (data_features, out_features_per_var))
     ))
     return MaskedAutoRegContextModule_(
-        RQSplineContextModule_(feature_map_fn, smooth=smooth, **kwargs)
+        RQSplineContextModule_(feature_map_fn, smooth=smooth, **kwargs),
+        iaf=iaf
     )
