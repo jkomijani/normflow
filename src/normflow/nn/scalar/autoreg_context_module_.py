@@ -14,8 +14,8 @@ Example
     >>> net_ = make_rqs_masked_autoreg_context_module(
     ...     data_features=4, context_features=3, n_segments=8
     ... )
-    >>> x = torch.rand(32, 4)            # latent,  (batch, data_features)
-    >>> c = torch.rand(32, 3)            # context, (batch, context_features)
+    >>> x = torch.rand(32, 4)              # latent,  (batch, data_features)
+    >>> c = torch.rand(32, 3)              # context, (batch, context_features)
     >>> y, logj = net_.forward(x, args=c)  # latent -> data,  (32, 4)
 
 Omit `context_features` for an unconditional flow; `args` is then unused.
@@ -109,49 +109,56 @@ class ConcatInputs(torch.nn.Module):
 # =============================================================================
 def make_autoreg_weight_masks(
     in_features: int,
-    out_features: int,
+    out_features_per_var: int,
     hidden_sizes: Sequence[int],
     context_features: int = None
 ) -> List[Tensor]:
-    """The per-layer weight masks that make a dense network autoregressive.
+    """
+    Create per-layer weight masks for an autoregressive network.
 
-    The last `context_features` inputs are context; the leading
-    `data_features` are the autoregressive variables. Each of them gets its
-    own `out_features` outputs, so the network is widened to
-    `out_aug_features`.
+    The last `context_features` inputs are unrestricted context, while the
+    remaining inputs are autoregressive variables. Each variable has
+    `out_features_per_var` outputs.
 
-    Every unit gets a degree -- variables `1..data_features`, context 0,
-    hidden cycling over `1..data_features-1`, outputs `1..data_features`
-    each repeated -- and a connection survives when the target degree is
-    `>=` the source degree, strictly `>` in the output layer. Every layer
-    must be masked: masking only one leaves the composition non-triangular.
+    Connections satisfy `degree_out >= degree_in` in hidden layers and
+    `degree_out > degree_in` in the output layer, preventing a variable from
+    depending on itself.
 
     Returns one `(n_out, n_in)` mask per layer.
+
+    Example:
+        >>> make_autoreg_weight_masks(3, 1, (), context_features=1)
+        [tensor([[0., 0., 1.],
+                 [1., 0., 1.]])]
+        # var1 sees only context, var2 sees var1 & context, neither sees itself
     """
     context_features = context_features or 0
     data_features = in_features - context_features
     assert data_features > 0, "context_features must be less than in_features"
 
-    out_aug_features = out_features * data_features
-    sizes = (in_features, *hidden_sizes, out_aug_features)
+    total_out_features = out_features_per_var * data_features
+    sizes = (in_features, *hidden_sizes, total_out_features)
 
     context_degrees = torch.zeros(context_features, dtype=torch.long)
     degrees = [
         torch.cat([torch.arange(1, data_features + 1), context_degrees])
     ]
-    # hidden degrees cycle over 1..data_features-1, so no hidden unit carries
-    # the largest degree and the final (strict) mask is never empty
+
+    # Degree 0 provides a context-only path to the first output.
+    # The maximum hidden degree is data_features - 1, so the strict
+    # output mask always has a valid connection.
     for width in hidden_sizes:
-        degrees.append(torch.arange(width) % max(1, data_features - 1) + 1)
+        degrees.append(torch.arange(width) % data_features)
+
     degrees.append(
-        torch.arange(1, data_features + 1).repeat_interleave(out_features)
+        1 + torch.arange(data_features).repeat_interleave(out_features_per_var)
     )
 
     masks = []
     for ind in range(len(sizes) - 1):
         d_in, d_out = degrees[ind], degrees[ind + 1]
-        # the output layer is the only strict comparison: it must not keep a
-        # hidden unit of its own degree, else component i sees itself
+
+        # Use a strict inequality at the output to prevent self-dependence.
         last = ind == len(sizes) - 2
         mask = (d_out[:, None] > d_in[None, :]) if last else \
                (d_out[:, None] >= d_in[None, :])
@@ -168,28 +175,26 @@ def make_rqs_masked_autoreg_context_module(
     smooth: bool = False,
     **kwargs
 ) -> MaskedAutoRegContextModule_:
-    """Build a masked autoregressive rational-quadratic-spline flow.
-
-    With the default `xlim`/`ylim`, a bijection of the unit hypercube onto
-    itself, to be paired with `UniformPrior(shape=(data_features,))`;
-    `kwargs` go to the spline module.
-
-    Read this as a worked example of assembling a masked feature map and a
-    `ContextModule_` into a `MaskedAutoRegContextModule_`, as much as a
-    constructor to call: its signature may change. For a stable flow, copy
-    its body and keep the pieces under your own control.
+    """
+    Build a masked autoregressive rational-quadratic-spline flow.
     """
     in_features = data_features + (context_features or 0)
-    out_features = (2 if smooth else 3) * n_segments + (0 if smooth else 1)
+    out_features_per_var = (2 * n_segments) if smooth else (3 * n_segments + 1)
+    total_out_features = out_features_per_var * data_features
+
+    masks = make_autoreg_weight_masks(
+        in_features,
+        out_features_per_var,
+        hidden_sizes=hidden_sizes,
+        context_features=context_features
+    )
 
     dense_block = DenseBlock(
         in_features,
-        out_features * data_features,  # one parameter set per variable
+        total_out_features,
         hidden_sizes,
         acts=(*[torch.nn.SiLU() for _ in hidden_sizes], None),
-        masks=make_autoreg_weight_masks(
-            in_features, out_features, hidden_sizes, context_features
-        )
+        masks=masks
     )
     # zero output weights => zero features => identity transformation.
     # Only the output layer: zeroing all of them would leave every hidden
@@ -199,7 +204,8 @@ def make_rqs_masked_autoreg_context_module(
     # the variables come first and the context last, matching the order the
     # degrees above assume
     feature_map_fn = ConcatInputs(torch.nn.Sequential(
-        dense_block, torch.nn.Unflatten(-1, (data_features, out_features))
+        dense_block,
+        torch.nn.Unflatten(-1, (data_features, out_features_per_var))
     ))
     return MaskedAutoRegContextModule_(
         RQSplineContextModule_(feature_map_fn, smooth=smooth, **kwargs)
