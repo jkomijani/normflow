@@ -25,6 +25,7 @@ import numpy as np
 __all__ = [
     "Module_",
     "ModuleList_",
+    "ChainRuleModule_",
     "MultiChannelModule_",
     "MultiOutChannelModule_",
     "PushforwardModule_",
@@ -416,6 +417,117 @@ class MultiOutChannelModule_(MultiChannelModule_):
         logj = sum(o[1] for o in out)
 
         return x, log0 + logj
+
+
+# =============================================================================
+class ChainRuleModule_(Module_):
+    """
+    Sequentially transforms a heterogeneous state tuple, implementing a
+    chain-rule factorization:
+
+        f(A_0, ..., A_{n-1})
+            = f_{n-1}(A_{n-1})
+            * f_{n-2}(A_{n-2} | A_{n-1})
+            * ...
+            * f_0(A_0 | A_1, ..., A_{n-1})
+
+    The sequence of updates is dictated by `chain_order`, a permutation
+    of `range(len(layers))` or a subset of it if some variables pass through
+    unchanged. If `i` is in `chain_order`, `layers[i]` transforms `state[i]`;
+    otherwise `layers[i]` may be None. Step `i` is conditioned on everything
+    already processed.
+
+    The forward and reverse methods take `start`/`stop` to apply only part
+    of the chain, e.g. `forward(state, start=1)` skips the first variable,
+    for when it's already supplied rather than sampled.
+
+    Parameters
+    ----------
+    layers : list of Module_ or None
+        `layers[i]` transforms `state[i]` if `i` is included in `chain_order`.
+    chain_order : list of int
+        Sequence of state indices to process, in order; a permutation
+        of `range(len(layers))` or a subset of it.
+    context_order : list of tuple of int, optional
+        `context_order[pos]`: state indices conditioning the step at
+        `chain_order[pos]`. Same length as `chain_order`. Defaults to
+        `chain_order[:pos]` (everything already processed).
+    """
+
+    def __init__(
+        self,
+        layers: List[Module_],
+        chain_order: List[int],
+        context_order: List = None
+    ):
+        super().__init__()
+        n = len(layers)
+        assert len(set(chain_order)) == len(chain_order), \
+            "chain_order has repeated indices"
+        assert set(chain_order).issubset(range(n)), \
+            "chain_order must be a subset of range(len(layers))"
+
+        if context_order is None:
+            context_order = [
+                tuple(chain_order[:pos]) for pos in range(len(chain_order))
+            ]
+        assert len(context_order) == len(chain_order), \
+            "context_order must be the same length as chain_order"
+
+        self.layers = torch.nn.ModuleList(layers)  # None entries ok
+        self.chain_order = chain_order
+        self.context_order = context_order
+
+    def forward(self, state, log0=0, start=0):
+        """Apply chain_order[start:] in order; see class docstring.
+
+        Args:
+            state (tuple): Heterogeneous state, one entry per variable.
+            log0 (Tensor | float, optional): Log-Jacobian from previous
+                transformations. Defaults to 0.
+            start (int, optional): Position in `chain_order` to start
+                from, skipping variables already supplied. Default 0.
+
+        Returns:
+            tuple: Updated state.
+            Tensor | float: Updated log-Jacobian.
+        """
+        state = list(state)
+        logj = log0
+        steps = zip(self.chain_order[start:], self.context_order[start:])
+        for i, ctx_idx in steps:
+            ctx = tuple(state[j] for j in ctx_idx) or None
+            kwargs = {} if ctx is None else {'args': ctx}
+            state[i], logj = self.layers[i].forward(
+                state[i], log0=logj, **kwargs
+            )
+        return tuple(state), logj
+
+    def reverse(self, state, log0=0, stop=0):
+        """Apply chain_order[stop:] reversed; inverse of `forward`.
+
+        Args:
+            state (tuple): Heterogeneous state, one entry per variable.
+            log0 (Tensor | float, optional): Log-Jacobian from previous
+                transformations. Defaults to 0.
+            stop (int, optional): Position in `chain_order` below which
+                variables are skipped, mirroring `start`. Default 0.
+
+        Returns:
+            tuple: Updated state.
+            Tensor | float: Updated log-Jacobian.
+        """
+        state = list(state)
+        logj = log0
+        order = reversed(self.chain_order[stop:])
+        ctxs = reversed(self.context_order[stop:])
+        for i, ctx_idx in zip(order, ctxs):
+            ctx = tuple(state[j] for j in ctx_idx) or None
+            kwargs = {} if ctx is None else {'args': ctx}
+            state[i], logj = self.layers[i].reverse(
+                state[i], log0=logj, **kwargs
+            )
+        return tuple(state), logj
 
 
 # =============================================================================
