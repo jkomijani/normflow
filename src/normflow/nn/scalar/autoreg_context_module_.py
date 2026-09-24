@@ -117,6 +117,27 @@ class ConcatInputs(torch.nn.Module):
 
 
 # =============================================================================
+class UnflattenAndNormalize(torch.nn.Module):
+    """Unflatten the dense block's output into `(data_features,
+    out_features_per_var)`, then LayerNorm over the last axis.
+
+    `LayerNorm`'s `normalized_shape` only reduces over its own trailing
+    axis, so this normalizes each variable's own raw features on their
+    own — it never mixes across `data_features` (autoregressive degrees).
+    """
+
+    def __init__(self, data_features: int, out_features_per_var: int):
+        super().__init__()
+        self.data_features = data_features
+        self.out_features_per_var = out_features_per_var
+        self.norm = torch.nn.LayerNorm(out_features_per_var)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = x.unflatten(-1, (self.data_features, self.out_features_per_var))
+        return self.norm(x)
+
+
+# =============================================================================
 def make_autoreg_weight_masks(
     in_features: int,
     out_features_per_var: int,
@@ -184,6 +205,7 @@ def make_rqs_masked_autoreg_context_module(
     context_features: int = None,
     smooth: bool = False,
     iaf: bool = False,
+    normalize_features: bool = False,
     **kwargs
 ) -> MaskedAutoRegContextModule_:
     """
@@ -200,11 +222,18 @@ def make_rqs_masked_autoreg_context_module(
         context_features=context_features
     )
 
+    # fold the unflattening into `acts`, as the last (post-)activation
+    sizes = (data_features, out_features_per_var)
+    if normalize_features:
+        post_act = UnflattenAndNormalize(*sizes)
+    else:
+        post_act = torch.nn.Unflatten(-1, sizes)
+
     dense_block = DenseBlock(
         in_features,
         total_out_features,
         hidden_sizes,
-        acts=(*[torch.nn.SiLU() for _ in hidden_sizes], None),
+        acts=(*[torch.nn.SiLU() for _ in hidden_sizes], post_act),
         masks=masks
     )
     # zero output weights => zero features => identity transformation.
@@ -212,12 +241,9 @@ def make_rqs_masked_autoreg_context_module(
     # activation at zero, hence no gradient anywhere but the output bias.
     dense_block.set_param2zero(n_layer=-1)
 
-    # the variables come first and the context last, matching the order the
-    # degrees above assume
-    feature_map_fn = ConcatInputs(torch.nn.Sequential(
-        dense_block,
-        torch.nn.Unflatten(-1, (data_features, out_features_per_var))
-    ))
+    # concatenation is needed: the variables come first and the context last
+    feature_map_fn = ConcatInputs(dense_block)
+
     return MaskedAutoRegContextModule_(
         RQSplineContextModule_(feature_map_fn, smooth=smooth, **kwargs),
         iaf=iaf
